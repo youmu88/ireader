@@ -447,7 +447,13 @@ function ReaderPage() {
                 lineHeight,
               }}
             >
-              {readingMode === 'paginated' ? getPaginatedContent(txtContent, pageIndex, totalPages) : txtContent}
+              {chapterLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <span className="text-gray-400 animate-pulse">加载中...</span>
+                </div>
+              ) : (
+                readingMode === 'paginated' ? getPaginatedContent(txtContent, pageIndex, totalPages) : txtContent
+              )}
             </div>
           </div>
         )}
