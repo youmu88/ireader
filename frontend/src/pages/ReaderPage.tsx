@@ -25,6 +25,7 @@ interface Chapter {
 }
 
 const PROGRESS_SAVE_DELAY = 800; // ms debounce for saving progress
+const TTS_PROGRESS_SAVE_INTERVAL = 3000; // ms interval for saving TTS playback position
 
 function ReaderPage() {
   const { bookId } = useParams<{ bookId: string }>();
@@ -47,12 +48,16 @@ function ReaderPage() {
   const [readingMode, setReadingMode] = useState<'scroll' | 'paginated'>('scroll');
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const [showEpubView, setShowEpubView] = useState(false); // toggle epubjs vs text view
+  const [showTtsResumeBanner, setShowTtsResumeBanner] = useState(false); // show resume prompt
   const txtPageRef = useRef<HTMLDivElement>(null);
   const readerRef = useRef<HTMLDivElement>(null);
   const epubRef = useRef<any>(null);
   const renditionRef = useRef<any>(null);
   const progressSaveTimer = useRef<any>(null);
+  const ttsProgressSaveTimer = useRef<any>(null);
   const ttsPlayerRef = useRef<ReturnType<typeof getDefaultPlayer> | null>(null);
+  const savedTtsProgressRef = useRef<{chapterId: string; segmentIndex: number; progress: number} | null>(null);
 
   // Load book and chapters
   useEffect(() => {
@@ -78,9 +83,9 @@ function ReaderPage() {
       setBook(bookData);
       setChapters(chaptersRes.data.data || []);
 
-      if (bookData.format === 'txt' && chaptersRes.data.data?.length > 0) {
-        // Load first chapter for TXT
-        await loadChapterContent(chaptersRes.data.data[0]);
+      if (chaptersRes.data.data?.length > 0) {
+        // Load first chapter content for both TXT and EPUB
+        await loadChapterContent(chaptersRes.data.data[0], undefined, bookData.format === 'epub');
       }
     } catch (err: any) {
       setError(err.response?.data?.error || '加载图书失败');
@@ -119,12 +124,20 @@ function ReaderPage() {
       // Display first spine item
       await rendition.display();
 
-      // Restore progress
+      // Restore reading progress
       try {
         const progRes = await axios.get(`/api/books/${bookData.id}/progress`);
         const progress = progRes.data.data;
         if (progress?.cfi) {
           await rendition.display(progress.cfi);
+        }
+        // Save TTS progress for later restore
+        if (progress?.textOffset != null && progress?.percentage != null && progress?.chapterId) {
+          savedTtsProgressRef.current = {
+            chapterId: progress.chapterId,
+            segmentIndex: progress.textOffset,
+            progress: progress.percentage,
+          };
         }
       } catch { /* no saved progress */ }
 
@@ -141,13 +154,33 @@ function ReaderPage() {
     }
   };
 
-  // Load TXT chapter content
-  const loadChapterContent = async (chapter: Chapter, _offset?: number) => {
+  /** Strip HTML tags for plain text display */
+  const stripHtml = useCallback((html: string): string => {
+    return html
+      .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '')
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#(\d+);/g, (_m: any, n: string) => String.fromCharCode(parseInt(n, 10)))
+      .replace(/\s+/g, ' ')
+      .trim();
+  }, []);
+
+  // Load chapter content
+  const loadChapterContent = async (chapter: Chapter, _offset?: number, _isEpub?: boolean) => {
     try {
       setChapterLoading(true);
       setCurrentChapter(chapter);
       const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`);
-      setTxtContent(res.data.data?.content || '');
+      const rawContent = res.data.data?.content || '';
+      // Determine format: prefer explicit isEpub, fallback to book state
+      const isEpub = _isEpub ?? (book?.format === 'epub');
+      setTxtContent(isEpub ? stripHtml(rawContent) : rawContent);
       setChapterLoading(false);
     } catch (err: any) {
       setError('加载章节内容失败');
@@ -170,6 +203,15 @@ function ReaderPage() {
     setShowToc(false);
     await loadChapterContent(chapter);
     debounceSaveProgress({ chapterId: chapter.id, percentage: chapter.order / chapters.length });
+
+    // For EPUB: also navigate epubjs rendition
+    if (book?.format === 'epub' && renditionRef.current && chapter.href) {
+      try {
+        await renditionRef.current.display(chapter.href);
+      } catch {
+        // epubjs navigation failed — text view still works
+      }
+    }
   };
 
   // TXT next/prev chapter
@@ -222,6 +264,28 @@ function ReaderPage() {
     return '';
   }, [currentChapter, bookId, book, txtContent]);
 
+  /** 保存 TTS 播放进度 */
+  const saveTtsProgress = useCallback((chapterId: string, segmentIndex: number, progress: number) => {
+    debounceSaveProgress({
+      chapterId,
+      textOffset: segmentIndex,
+      percentage: progress,
+    });
+  }, [debounceSaveProgress]);
+
+  /** 启动 TTS 进度定期保存 */
+  const startTtsProgressSaver = useCallback((chapterId: string, player: any) => {
+    if (ttsProgressSaveTimer.current) clearInterval(ttsProgressSaveTimer.current);
+    ttsProgressSaveTimer.current = setInterval(() => {
+      const idx = player.getCurrentIndex();
+      const total = player.getTotalChunks();
+      if (idx >= 0 && total > 0) {
+        const pct = (idx + 1) / total;
+        saveTtsProgress(chapterId, idx, pct);
+      }
+    }, TTS_PROGRESS_SAVE_INTERVAL);
+  }, [saveTtsProgress]);
+
   /** 开始 TTS 朗读 */
   const handleStartTTS = useCallback(async () => {
     if (!bookId || !currentChapter) return;
@@ -242,6 +306,9 @@ function ReaderPage() {
         onError: (err) => console.warn('TTS 朗读错误:', err),
         onEnd: () => {
           setTtsProgress(1);
+          // Save final progress
+          if (currentChapter) saveTtsProgress(currentChapter.id, -1, 1);
+          if (ttsProgressSaveTimer.current) clearInterval(ttsProgressSaveTimer.current);
           // 自动下一章
           goToNextChapter();
         },
@@ -253,11 +320,15 @@ function ReaderPage() {
 
       const isHtml = book?.format === 'epub';
       await player.load(text, isHtml);
+
+      // Start periodic TTS progress saving
+      startTtsProgressSaver(currentChapter.id, player);
+
       await player.play();
     } catch (err) {
       console.error('TTS 启动失败:', err);
     }
-  }, [bookId, currentChapter, book, ttsSpeed, getCurrentChapterText, goToNextChapter]);
+  }, [bookId, currentChapter, book, ttsSpeed, getCurrentChapterText, goToNextChapter, saveTtsProgress, startTtsProgressSaver]);
 
   /** 暂停 TTS */
   const handlePauseTTS = useCallback(() => {
@@ -271,17 +342,38 @@ function ReaderPage() {
 
   /** 停止 TTS */
   const handleStopTTS = useCallback(() => {
+    // Save current TTS position before stopping
+    if (ttsPlayerRef.current && currentChapter) {
+      const idx = ttsPlayerRef.current.getCurrentIndex();
+      const total = ttsPlayerRef.current.getTotalChunks();
+      if (idx >= 0 && total > 0) {
+        saveTtsProgress(currentChapter.id, idx, (idx + 1) / total);
+      }
+    }
+    if (ttsProgressSaveTimer.current) {
+      clearInterval(ttsProgressSaveTimer.current);
+      ttsProgressSaveTimer.current = null;
+    }
     ttsPlayerRef.current?.stop();
     setTtsState('idle');
     setTtsProgress(0);
     setTtsSegmentText('');
-  }, []);
+  }, [currentChapter, saveTtsProgress]);
 
   /** 设置 TTS 语速 */
   const handleTTSSpeedChange = useCallback((speed: number) => {
     setTtsSpeed(speed);
     ttsPlayerRef.current?.setSpeed(speed);
   }, []);
+
+  // After book loads, check for saved TTS progress and offer resume
+  useEffect(() => {
+    if (!currentChapter || !chapters.length) return;
+    const saved = savedTtsProgressRef.current;
+    if (saved && saved.progress > 0 && saved.progress < 1) {
+      setShowTtsResumeBanner(true);
+    }
+  }, [currentChapter, chapters]);
 
   // 阅读模式切换：EPUB 重新渲染
   useEffect(() => {
@@ -334,6 +426,14 @@ function ReaderPage() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Save final TTS position before leaving
+      if (ttsPlayerRef.current && currentChapter) {
+        const idx = ttsPlayerRef.current.getCurrentIndex();
+        const total = ttsPlayerRef.current.getTotalChunks();
+        if (idx >= 0 && total > 0) {
+          saveTtsProgress(currentChapter.id, idx, (idx + 1) / total);
+        }
+      }
       if (renditionRef.current) {
         renditionRef.current.destroy();
       }
@@ -343,13 +443,16 @@ function ReaderPage() {
       if (progressSaveTimer.current) {
         clearTimeout(progressSaveTimer.current);
       }
+      if (ttsProgressSaveTimer.current) {
+        clearInterval(ttsProgressSaveTimer.current);
+      }
       // 停止 TTS
       if (ttsPlayerRef.current) {
         destroyDefaultPlayer();
         ttsPlayerRef.current = null;
       }
     };
-  }, []);
+  }, [currentChapter]);
 
   if (loading) {
     return (
@@ -406,6 +509,9 @@ function ReaderPage() {
           setReadingMode(prev => prev === 'scroll' ? 'paginated' : 'scroll');
           setPageIndex(0);
         }}
+        bookFormat={book?.format}
+        showEpubView={showEpubView}
+        onToggleEpubView={() => setShowEpubView(v => !v)}
       />
 
       {/* Reader Content */}
@@ -432,13 +538,88 @@ function ReaderPage() {
           </div>
         )}
 
-        {/* EPUB Reader */}
-        {book?.format === 'epub' && (
+        {/* EPUB Reader - epubjs view */}
+        {book?.format === 'epub' && showEpubView && (
           <div
             ref={readerRef}
             className="flex-1 overflow-hidden"
             style={{ fontSize: `${fontSize}px` }}
           />
+        )}
+
+        {/* EPUB Text View (used when !showEpubView or as fallback) */}
+        {book?.format === 'epub' && !showEpubView && (
+          <div
+            className="flex-1 px-6 py-4 max-w-3xl mx-auto overflow-y-auto"
+          >
+            {currentChapter && (
+              <div className="mb-4">
+                <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">
+                  {currentChapter.title}
+                </h2>
+              </div>
+            )}
+            <div
+              className="text-gray-800 dark:text-gray-200"
+              style={{
+                fontSize: `${fontSize}px`,
+                fontFamily: fontFamily === 'sans' ? 'inherit' : fontFamily === 'serif' ? '"Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
+                lineHeight,
+              }}
+            >
+              {chapterLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <span className="text-gray-400 animate-pulse">加载中...</span>
+                </div>
+              ) : txtContent ? (
+                <div className="whitespace-pre-wrap">{txtContent}</div>
+              ) : (
+                <div className="flex items-center justify-center py-12">
+                  <span className="text-gray-400">暂无内容</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TTS Resume Banner */}
+        {showTtsResumeBanner && ttsState === 'idle' && savedTtsProgressRef.current && (
+          <div className="absolute top-0 left-0 right-0 z-10 mx-auto max-w-xl mt-2">
+            <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg px-4 py-2 flex items-center justify-between shadow-sm">
+              <span className="text-sm text-green-800 dark:text-green-200">
+                🔊 上次播放到 {Math.round(savedTtsProgressRef.current.progress * 100)}%
+                {savedTtsProgressRef.current.chapterId !== currentChapter?.id ? '（不同章节）' : ''}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowTtsResumeBanner(false);
+                    // Navigate to saved chapter if different
+                    const saved = savedTtsProgressRef.current;
+                    if (saved && saved.chapterId !== currentChapter?.id) {
+                      const target = chapters.find(c => c.id === saved.chapterId);
+                      if (target) {
+                        navigateToChapter(target).then(() => {
+                          setTimeout(() => handleStartTTS(), 300);
+                        });
+                        return;
+                      }
+                    }
+                    handleStartTTS();
+                  }}
+                  className="text-xs px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700"
+                >
+                  继续播放
+                </button>
+                <button
+                  onClick={() => setShowTtsResumeBanner(false)}
+                  className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* TXT Reader */}
@@ -633,6 +814,9 @@ function ReaderTopBar({
   ttsActive,
   onStartTTS,
   onStopTTS,
+  bookFormat,
+  showEpubView,
+  onToggleEpubView,
 }: {
   title: string;
   onBack: () => void;
@@ -649,6 +833,9 @@ function ReaderTopBar({
   ttsActive?: boolean;
   onStartTTS?: () => void;
   onStopTTS?: () => void;
+  bookFormat?: 'epub' | 'txt';
+  showEpubView?: boolean;
+  onToggleEpubView?: () => void;
 }) {
   const ttsLabel = ttsState === 'playing' ? '🔊 朗读中' :
     ttsState === 'paused' ? '🔇 已暂停' :
@@ -687,6 +874,20 @@ function ReaderTopBar({
             className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
           >
             📑 目录
+          </button>
+        )}
+        {/* EPUB 视图切换 */}
+        {bookFormat === 'epub' && onToggleEpubView && (
+          <button
+            onClick={onToggleEpubView}
+            className={`text-xs px-2 py-1 rounded transition-colors ${
+              showEpubView
+                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+            }`}
+            title={showEpubView ? '切换到纯文本视图' : '切换到原版渲染'}
+          >
+            {showEpubView ? '📄 文本' : '📖 原版'}
           </button>
         )}
         {/* 字体族选择 */}
