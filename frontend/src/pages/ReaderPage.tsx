@@ -60,6 +60,13 @@ function ReaderPage() {
     loadBook();
   }, [bookId]);
 
+  // Separate effect for EPUB loading — waits for DOM (readerRef) to be ready
+  useEffect(() => {
+    if (!book || book.format !== 'epub') return;
+    loadEpub(book);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [book]);
+
   const loadBook = async () => {
     try {
       setLoading(true);
@@ -74,9 +81,6 @@ function ReaderPage() {
       if (bookData.format === 'txt' && chaptersRes.data.data?.length > 0) {
         // Load first chapter for TXT
         await loadChapterContent(chaptersRes.data.data[0]);
-      } else if (bookData.format === 'epub') {
-        // Load EPUB reader (must await to ensure content renders before loading=false)
-        await loadEpub(bookData);
       }
     } catch (err: any) {
       setError(err.response?.data?.error || '加载图书失败');
@@ -88,6 +92,18 @@ function ReaderPage() {
   // Load EPUB with epubjs
   const loadEpub = async (bookData: Book) => {
     try {
+      // Wait for DOM to be ready (readerRef div must be rendered)
+      if (!readerRef.current) {
+        // DOM not ready yet — schedule for next frame
+        await new Promise<void>(resolve => {
+          const check = () => {
+            if (readerRef.current) { resolve(); }
+            else { requestAnimationFrame(check); }
+          };
+          requestAnimationFrame(check);
+        });
+      }
+
       const ePub = (await import('epubjs')).default;
       const book = ePub(`/api/books/${bookData.id}/file`);
       epubRef.current = book;
@@ -273,7 +289,8 @@ function ReaderPage() {
     (async () => {
       const currentCfi = (renditionRef.current as any).currentLocation?.()?.start?.cfi;
       renditionRef.current.destroy();
-      const newRendition = epubRef.current.renderTo(readerRef.current!, {
+      if (!readerRef.current) return;
+      const newRendition = epubRef.current.renderTo(readerRef.current, {
         width: '100%',
         height: '100%',
         spread: 'none',
