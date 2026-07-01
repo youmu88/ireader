@@ -292,18 +292,21 @@ function ReaderPage() {
         if (!_append) setChapterLoading(false);
       }
 
+      // 内容为空时的兜底显示（避免静默失败）
+      const displayContent = content || `「${chapter.title}」内容暂未加载，请尝试使用目录切换或联系管理员。`;
+
       // 追加模式（滚动自动加载）：内容接在已有内容后面，实现平滑连续阅读
       if (_append && !accumulatedIdsRef.current.has(chapter.id)) {
         accumulatedIdsRef.current.add(chapter.id);
         setTxtContent(prev => {
           const separator = '\n\n' + chapter.title + '\n' + '─'.repeat(30) + '\n\n';
-          return prev + separator + content;
+          return prev + separator + displayContent;
         });
       } else {
         // 手动跳转：替换内容，重置累积记录
         accumulatedIdsRef.current.clear();
         accumulatedIdsRef.current.add(chapter.id);
-        setTxtContent(content);
+        setTxtContent(displayContent);
       }
 
       // 预加载后续章节，确保滚动到末尾时内容已就绪
@@ -749,6 +752,10 @@ function ReaderPage() {
   }, [showEpubView]);
 
   // ── Fix Bug 2: 滚动到底部时自动加载下一章 ──
+  // 最小触发间隔（毫秒）：防止内容较短时 rootMargin 导致连续快速触发
+  const lastChapterLoadTimeRef = useRef(0);
+  const MIN_CHAPTER_INTERVAL = 800;
+
   useEffect(() => {
     if (readingMode !== 'scroll') return;
 
@@ -760,14 +767,17 @@ function ReaderPage() {
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (!entry?.isIntersecting || loadingNextChapterRef.current) return;
+        // 最小间隔门控：防止内容较短时 rootMargin 导致连续快速触发
+        const now = Date.now();
+        if (now - lastChapterLoadTimeRef.current < MIN_CHAPTER_INTERVAL) return;
         const idx = chaptersRef.current.findIndex(
           (c: Chapter) => c.id === currentChapterRef.current?.id
         );
         if (idx < 0 || idx >= chaptersRef.current.length - 1) return;
 
         // 动态加载门控：仅在章节实际加载完成前阻止重复触发
-        // 加载完成后立即允许下一触发，无需等待固定超时
         loadingNextChapterRef.current = true;
+        lastChapterLoadTimeRef.current = now;
         const loadPromise = goToNextChapterRef.current!(true);
         loadPromise.finally(() => {
           loadingNextChapterRef.current = false;
@@ -996,6 +1006,31 @@ function ReaderPage() {
             </div>
             {/* 底部哨兵元素：用于 IntersectionObserver 检测滚动到末尾 */}
             <div ref={bottomSentinelRef} className="h-4" />
+            {/* 底部章节导航（用户手动跳转，作为跨章节滚动失效时的备选方案） */}
+            <div className="border-t border-gray-200 dark:border-gray-700 mt-4 pt-3 flex items-center justify-between text-sm">
+              <button
+                onClick={() => {
+                  const idx = chapters.findIndex((c) => c.id === (currentChapter?.id || ''));
+                  if (idx > 0) navigateToChapter(chapters[idx - 1]);
+                }}
+                disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter.id) === 0}
+                className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-300 dark:hover:bg-gray-600"
+              >
+                ← 上一章
+              </button>
+              <span className="text-gray-500 dark:text-gray-400">
+                {currentChapter
+                  ? `${chapters.findIndex((c) => c.id === currentChapter.id) + 1} / ${chapters.length}`
+                  : ''}
+              </span>
+              <button
+                onClick={() => goToNextChapter()}
+                disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter.id) === chapters.length - 1}
+                className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-300 dark:hover:bg-gray-600"
+              >
+                下一章 →
+              </button>
+            </div>
           </div>
         )}
 
