@@ -19,7 +19,7 @@ describe('App', () => {
 
   it('should render navigation links', () => {
     render(
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <ThemeProvider>
           <App />
         </ThemeProvider>
@@ -31,7 +31,7 @@ describe('App', () => {
 
   it('should render app title', () => {
     render(
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <ThemeProvider>
           <App />
         </ThemeProvider>

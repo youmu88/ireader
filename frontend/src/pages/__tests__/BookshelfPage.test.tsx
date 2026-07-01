@@ -6,7 +6,7 @@ import BookshelfPage from '../BookshelfPage';
 describe('BookshelfPage', () => {
   it('should render loading state initially', () => {
     render(
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <BookshelfPage />
       </BrowserRouter>
     );

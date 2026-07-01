@@ -118,14 +118,40 @@ export async function parseEpub(epubPath: string, outputDir: string): Promise<Ep
           const author = extractTextFromXml(opfContent, 'dc:creator')
             || extractTextFromXml(opfContent, 'dc:contributor');
 
-          // Extract cover
+          // Extract cover — multiple strategies
           let coverPath: string | null = null;
+
+          // Strategy 1: <meta name="cover" content="cover-id">
           const coverMetaMatch = opfContent.match(/<meta[^>]*name="cover"[^>]*content="([^"]+)"[^>]*\/?>/i);
           if (coverMetaMatch) {
             const coverId = coverMetaMatch[1];
             const coverHrefMatch = opfContent.match(new RegExp(`<item[^>]*id="${coverId}"[^>]*href="([^"]+)"`));
             if (coverHrefMatch) {
               coverPath = path.join(path.dirname(opfPath), coverHrefMatch[1]);
+            }
+          }
+
+          // Strategy 2: <item properties="cover-image">
+          if (!coverPath) {
+            const coverItemMatch = opfContent.match(/<item[^>]+properties="[^"]*cover-image[^"]*"[^>]*href="([^"]+)"/i);
+            if (coverItemMatch) {
+              coverPath = path.join(path.dirname(opfPath), coverItemMatch[1]);
+            }
+          }
+
+          // Strategy 3: item with id containing "cover"
+          if (!coverPath) {
+            const coverIdMatch = opfContent.match(/<item[^>]+id="([^"]*cover[^"]*)"[^>]*href="([^"]+)"/i);
+            if (coverIdMatch) {
+              coverPath = path.join(path.dirname(opfPath), coverIdMatch[2]);
+            }
+          }
+
+          // Strategy 4: first image in manifest
+          if (!coverPath) {
+            const firstImage = opfContent.match(/<item[^>]+media-type="image\/[^"]+"[^>]*href="([^"]+)"/i);
+            if (firstImage) {
+              coverPath = path.join(path.dirname(opfPath), firstImage[1]);
             }
           }
 

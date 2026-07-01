@@ -114,6 +114,10 @@ export class TTSPlayer {
   private isDestroyed = false;
   private currentSegmentText = '';
   private volume = 1.0;
+  /** Number of chunks before any appendSegments() call — chapter boundary */
+  private originalChunkCount = 0;
+  /** Whether next chapter segments have already been appended */
+  private nextChapterAppended = false;
 
 
   // ── 初始化 ──
@@ -194,6 +198,38 @@ export class TTSPlayer {
   }
 
   // ── 加载文本 ──
+  /** 获取原始章节的分段数量（appendSegments 前的边界） */
+  getOriginalChunkCount(): number {
+    return this.originalChunkCount;
+  }
+
+  /**
+   * 追加下一章节的文本分段，实现章节间无缝衔接播放
+   * 在朗读当前章节末段时调用，后台预生成下一章节音频
+   */
+  appendSegments(segments: string[]): void {
+    if (this.isDestroyed || segments.length === 0) return;
+    if (this.nextChapterAppended) return; // 防止重复追加
+    this.nextChapterAppended = true;
+
+    // 记录边界（原始章节分段数）
+    this.originalChunkCount = this.chunks.length;
+
+    // 创建新分段，index 从当前末尾继续编号
+    const startIdx = this.chunks.length;
+    const newChunks: TTSChunk[] = segments.map((text, i) => ({
+      index: startIdx + i,
+      text,
+      status: 'pending' as const,
+    }));
+    this.chunks.push(...newChunks);
+
+    // 立即预生成前 preGenCount 个追加分段的音频
+    const end = Math.min(startIdx + this.preGenCount - 1, this.chunks.length - 1);
+    this.preGenRange(startIdx, end);
+  }
+
+  // ── 加载文本 ──
 
   /**
    * 加载要朗读的文本（纯文本或 HTML），准备播放
@@ -219,6 +255,8 @@ export class TTSPlayer {
     }));
 
     this.currentIndex = -1;
+    this.originalChunkCount = 0;
+    this.nextChapterAppended = false;
     this.setState('loading');
 
     // 预生成前 preGenCount 个片段

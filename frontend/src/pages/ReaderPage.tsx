@@ -88,6 +88,13 @@ function ReaderPage() {
   const epubTextScrollRef = useRef<HTMLDivElement>(null);
   const txtScrollRef = useRef<HTMLDivElement>(null);
   const savedTtsProgressRef = useRef<{chapterId: string; segmentIndex: number; progress: number} | null>(null);
+
+  // ── 睡眠计时器 ──
+  const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
+  const sleepTimerEndRef = useRef<number | null>(null);
+  const sleepTimerIntervalRef = useRef<any>(null);
+  /** TTS 后台预生成下一章 — 防止重复追加 */
+  const nextChapterPreparedRef = useRef(false);
   /** Preloaded next-chapter contents for smooth scroll transitions */
   /** Track chapter IDs accumulated during auto-scroll for continuous reading */
   const accumulatedIdsRef = useRef<Set<string>>(new Set());
@@ -436,7 +443,35 @@ function ReaderPage() {
     }, TTS_PROGRESS_SAVE_INTERVAL);
   }, [saveTtsProgress]);
 
-  /** 开始 TTS 朗读 */
+  /** TTS 后台预生成下一章音频：获取下一章文本并追加到播放器 */
+  const prepareNextChapterTTS = useCallback(async (player: any) => {
+    if (!bookId || !currentChapter || !chapters.length || nextChapterPreparedRef.current) return;
+    const ci = chapters.findIndex((c) => c.id === currentChapter.id);
+    if (ci < 0 || ci >= chapters.length - 1) return; // 没有下一章
+    nextChapterPreparedRef.current = true;
+
+    const nextCh = chapters[ci + 1];
+    try {
+      const res = await axios.get(`/api/books/${bookId}/chapters/${nextCh.id}/content`);
+      let rawContent = res.data.data?.content || '';
+      if (!rawContent) return;
+
+      // EPUB 内容去 HTML 标签
+      if (book?.format === 'epub') {
+        const div = document.createElement('div');
+        div.innerHTML = rawContent;
+        rawContent = div.textContent || div.innerText || '';
+      }
+
+      const segments = splitText(rawContent);
+      if (segments.length > 0) {
+        player.appendSegments(segments);
+      }
+    } catch {
+      // 预加载失败不影响当前播放
+    }
+  }, [bookId, currentChapter, chapters, book]);
+
   const handleStartTTS = useCallback(async () => {
     if (!bookId || !currentChapter) return;
 
@@ -447,24 +482,65 @@ function ReaderPage() {
       const player = getDefaultPlayer();
       ttsPlayerRef.current = player;
 
+      // 重置章节预生成标记
+      nextChapterPreparedRef.current = false;
+
       player.setCallbacks({
-        onStateChange: (s) => setTtsState(s),
+        onStateChange: (s) => {
+          setTtsState(s);
+          // 睡眠计时器：暂停/停止时清除定时器
+          if (s !== 'playing') {
+            if (sleepTimerIntervalRef.current) {
+              clearInterval(sleepTimerIntervalRef.current);
+              sleepTimerIntervalRef.current = null;
+            }
+          }
+        },
         onSegmentPlay: (idx, _total) => {
           setTtsSegmentText(player.getCurrentSegmentText());
           setActiveSegmentIndex(idx);
+
+          // ── TTS 后台预生成：当前章节播放到 75% 时预加载下一章 ──
+          const oc = player.getOriginalChunkCount();
+          if (oc > 0 && idx >= oc) {
+            // 已过渡到下一章节追加的分段 → 更新 currentChapter
+            // 找到对应的下一章节
+            if (currentChapter && !nextChapterPreparedRef.current) {
+              const ci = chapters.findIndex((c) => c.id === currentChapter.id);
+              if (ci >= 0 && ci < chapters.length - 1) {
+                const nextCh = chapters[ci + 1];
+                setCurrentChapter(nextCh);
+                setDisplayChapter(nextCh);
+                // 保存上一章播放完成进度
+                saveTtsProgress(currentChapter.id, -1, 1);
+                // 预加载再下一章
+                setTimeout(() => prepareNextChapterTTS(player), 100);
+              }
+              nextChapterPreparedRef.current = true;
+            }
+          } else if (!nextChapterPreparedRef.current && _total > 0 && idx >= _total * 0.75) {
+            // 播放到当前章节 75% 位置 → 预生成下一章音频
+            prepareNextChapterTTS(player);
+          }
         },
         onProgress: (p) => setTtsProgress(p),
         onError: (err) => console.warn('TTS 朗读错误:', err),
         onEnd: () => {
           setTtsProgress(1);
-          // Save final progress
-          if (currentChapter) saveTtsProgress(currentChapter.id, -1, 1);
           if (ttsProgressSaveTimer.current) clearInterval(ttsProgressSaveTimer.current);
-          // 自动下一章（有累积内容时使用追加模式，保持连续滚动）
-          if (accumulatedIdsRef.current.size > 0) {
-            goToNextChapter(true);
-          } else {
-            goToNextChapter();
+          if (sleepTimerIntervalRef.current) {
+            clearInterval(sleepTimerIntervalRef.current);
+            sleepTimerIntervalRef.current = null;
+          }
+          // 检查是否还有已追加的下一章内容（TTS 已自动继续播放）
+          // 如果没有追加内容（最后一章），走正常章节跳转
+          if (player.getOriginalChunkCount() === 0) {
+            if (currentChapter) saveTtsProgress(currentChapter.id, -1, 1);
+            if (accumulatedIdsRef.current.size > 0) {
+              goToNextChapter(true);
+            } else {
+              goToNextChapter();
+            }
           }
         },
       });
@@ -484,7 +560,7 @@ function ReaderPage() {
     } catch (err) {
       console.error('TTS 启动失败:', err);
     }
-  }, [bookId, currentChapter, book, ttsSpeed, getCurrentChapterText, goToNextChapter, saveTtsProgress, startTtsProgressSaver]);
+  }, [bookId, currentChapter, book, ttsSpeed, getCurrentChapterText, goToNextChapter, saveTtsProgress, startTtsProgressSaver, prepareNextChapterTTS]);
 
   /** 暂停 TTS */
   const handlePauseTTS = useCallback(() => {
@@ -496,7 +572,7 @@ function ReaderPage() {
     ttsPlayerRef.current?.resume();
   }, []);
 
-  /** 停止 TTS */
+
   const handleStopTTS = useCallback(() => {
     // Save current TTS position before stopping
     if (ttsPlayerRef.current && currentChapter) {
@@ -510,12 +586,45 @@ function ReaderPage() {
       clearInterval(ttsProgressSaveTimer.current);
       ttsProgressSaveTimer.current = null;
     }
+    // 清除睡眠计时器
+    if (sleepTimerIntervalRef.current) {
+      clearInterval(sleepTimerIntervalRef.current);
+      sleepTimerIntervalRef.current = null;
+    }
+    setSleepTimerMinutes(null);
+    sleepTimerEndRef.current = null;
     ttsPlayerRef.current?.stop();
     setTtsState('idle');
     setTtsProgress(0);
     setTtsSegmentText('');
     setActiveSegmentIndex(-1);
   }, [currentChapter, saveTtsProgress]);
+
+  /** 设置睡眠计时器 */
+  const handleSetSleepTimer = useCallback((minutes: number | null) => {
+    setSleepTimerMinutes(minutes);
+    if (sleepTimerIntervalRef.current) {
+      clearInterval(sleepTimerIntervalRef.current);
+      sleepTimerIntervalRef.current = null;
+    }
+    if (minutes === null) {
+      sleepTimerEndRef.current = null;
+      return;
+    }
+    const endAt = Date.now() + minutes * 60 * 1000;
+    sleepTimerEndRef.current = endAt;
+    // 每秒检查一次是否到期
+    sleepTimerIntervalRef.current = setInterval(() => {
+      if (sleepTimerEndRef.current && Date.now() >= sleepTimerEndRef.current) {
+        // 计时到期，停止 TTS
+        if (sleepTimerIntervalRef.current) {
+          clearInterval(sleepTimerIntervalRef.current);
+          sleepTimerIntervalRef.current = null;
+        }
+        handleStopTTS();
+      }
+    }, 1000);
+  }, [handleStopTTS]);
 
   /** 渲染带 TTS 高亮的文本内容 */
   const renderHighlightedContent = useCallback((content: string): React.ReactNode => {
@@ -1053,6 +1162,28 @@ function ReaderPage() {
                 onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
                 className="w-20 h-1.5 rounded-full accent-blue-500 cursor-pointer"
               />
+            </div>
+
+            {/* 睡眠计时器 */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  const options: (number | null)[] = [null, 15, 30, 60];
+                  const idx = options.indexOf(sleepTimerMinutes);
+                  const next = options[(idx + 1) % options.length];
+                  handleSetSleepTimer(next);
+                }}
+                className={`text-xs px-2 py-1 rounded transition-colors ${
+                  sleepTimerMinutes
+                    ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+                title="定时关闭"
+              >
+                {sleepTimerMinutes
+                  ? `⏰ ${sleepTimerMinutes}分`
+                  : '⏰ 定时'}
+              </button>
             </div>
           </div>
         </div>
