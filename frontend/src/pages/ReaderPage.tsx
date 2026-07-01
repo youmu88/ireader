@@ -338,6 +338,18 @@ function ReaderPage() {
   const navigateToChapter = async (chapter: Chapter, _append?: boolean) => {
     setShowToc(false);
     await loadChapterContent(chapter, undefined, undefined, _append);
+
+    // ⭐ 手动切换章节（非 append 追加模式）时重置滚动位置到顶部
+    // 避免从上一章末尾切到本章后仍停留在底部，直接看到本章尾部
+    if (!_append) {
+      if (epubTextScrollRef.current) {
+        epubTextScrollRef.current.scrollTop = 0;
+      }
+      if (txtScrollRef.current) {
+        txtScrollRef.current.scrollTop = 0;
+      }
+    }
+
     debounceSaveProgress({ chapterId: chapter.id, percentage: chapter.order / chapters.length });
 
     // For EPUB: also navigate epubjs rendition
@@ -645,7 +657,7 @@ function ReaderPage() {
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [readingMode]);
+  }, [readingMode, book?.format]);
 
   /** 根据 pageIndex 获取分页后的 TXT 内容 */
 
