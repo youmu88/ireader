@@ -5,7 +5,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { sql } from 'drizzle-orm';
-import { bookContentCache, bookChapters } from '../db/schema.js';
+import { bookContentCache, bookChapters, books } from '../db/schema.js';
 import { parseTxt, getChapterContent } from '../parser/index.js';
 import path from 'path';
 import fs from 'fs';
@@ -35,7 +35,7 @@ export async function cacheFullBook(
   userId: string,
   dataDir: string,
 ): Promise<{ cached: number; failed: number }> {
-  const book = db.select().from(import('../db/schema.js').books).where(sql`id = ${bookId} AND user_id = ${userId}`).get();
+  const book = db.select().from(books).where(sql`id = ${bookId} AND user_id = ${userId}`).get();
   if (!book) throw new Error('图书不存在');
 
   const chapters = db.select().from(bookChapters)
@@ -114,7 +114,7 @@ export async function cacheNChapters(
   dataDir: string,
   count: number,
 ): Promise<{ cached: number; failed: number }> {
-  const book = db.select().from(import('../db/schema.js').books).where(sql`id = ${bookId} AND user_id = ${userId}`).get();
+  const book = db.select().from(books).where(sql`id = ${bookId} AND user_id = ${userId}`).get();
   if (!book) throw new Error('图书不存在');
 
   const chapters = db.select().from(bookChapters)

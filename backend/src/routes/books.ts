@@ -415,9 +415,9 @@ export function createBooksRouter(db: any, dataDir: string): Router {
 
       let job;
       if (chapterCount && chapterCount > 0) {
-        job = createPartialGenerationJob(db, bookId, userId, ttsVoice, ttsSpeed, chapterCount);
+        job = createPartialGenerationJob(db, bookId, userId, ttsVoice, ttsSpeed, chapterCount, dataDir);
       } else {
-        job = createFullBookGenerationJob(db, bookId, userId, ttsVoice, ttsSpeed);
+        job = createFullBookGenerationJob(db, bookId, userId, ttsVoice, ttsSpeed, dataDir);
       }
 
       res.status(201).json({ success: true, data: job });

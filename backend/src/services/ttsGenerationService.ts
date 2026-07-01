@@ -6,7 +6,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { sql } from 'drizzle-orm';
-import { ttsGenerationJobs, bookChapters, ttsSettings } from '../db/schema.js';
+import { ttsGenerationJobs, bookChapters, ttsSettings, books } from '../db/schema.js';
 import { synthesize } from './ttsProxyService.js';
 import { saveToCache } from './ttsCacheService.js';
 import { parseTxt, getChapterContent } from '../parser/index.js';
@@ -70,6 +70,7 @@ export function createFullBookGenerationJob(
   userId: string,
   voice: string,
   speed: number,
+  dataDir: string,
 ): GenerationJob {
   const now = new Date().toISOString();
   const jobId = uuidv4();
@@ -119,6 +120,7 @@ export function createPartialGenerationJob(
   voice: string,
   speed: number,
   chapterCount: number,
+  dataDir: string,
 ): GenerationJob {
   const now = new Date().toISOString();
   const jobId = uuidv4();
@@ -174,7 +176,7 @@ async function processJob(
       .orderBy(bookChapters.order)
       .all();
 
-    const book = db.select().from(import('../db/schema.js').books)
+    const book = db.select().from(books)
       .where(sql`id = ${job.bookId}`)
       .get();
 
@@ -373,13 +375,13 @@ export function regenerateAllForNewVoice(
   speed: number,
   dataDir: string,
 ): number {
-  const userBooks = db.select().from(import('../db/schema.js').books)
+  const userBooks = db.select().from(books)
     .where(sql`user_id = ${userId}`)
     .all();
 
   let created = 0;
   for (const book of userBooks) {
-    const job = createFullBookGenerationJob(db, book.id, userId, newVoice, speed);
+    const job = createFullBookGenerationJob(db, book.id, userId, newVoice, speed, dataDir);
     if (job) created++;
   }
   return created;
