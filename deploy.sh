@@ -187,29 +187,49 @@ kill_processes_on_port() {
 
   local pids
   pids="$(lsof -ti \":${port}\" 2>/dev/null || true)"
-  if [ -n "${pids}" ]; then
-    log "发现端口 ${port} 被以下进程占用: $(echo "${pids}" | tr '\n' ' ')"
-    for pid in ${pids}; do
-      if [ "${pid}" = "$$" ] || [ "${pid}" = "${PPID:-}" ]; then
-        continue
-      fi
-      log "  终止进程 (PID: ${pid})..."
-      kill "${pid}" 2>/dev/null || true
-    done
-    sleep 2
-    local remaining
-    remaining="$(lsof -ti \":${port}\" 2>/dev/null || true)"
-    if [ -n "${remaining}" ]; then
-      log "部分进程未响应，强制终止: $(echo "${remaining}" | tr '\n' ' ')"
-      for pid in ${remaining}; do
-        kill -9 "${pid}" 2>/dev/null || true
-      done
-      sleep 1
-    fi
-    log "端口 ${port} 已释放"
-  else
+  if [ -z "${pids}" ]; then
     log "端口 ${port} 未被占用"
+    return
   fi
+
+  log "发现端口 ${port} 被以下进程占用: $(echo "${pids}" | tr '\n' ' ')"
+  for pid in ${pids}; do
+    if [ "${pid}" = "$$" ] || [ "${pid}" = "${PPID:-}" ]; then
+      continue
+    fi
+    log "  终止进程 (PID: ${pid})..."
+    kill "${pid}" 2>/dev/null || true
+  done
+  sleep 2
+
+  # 检查是否还有残留，强力清扫
+  local remaining
+  remaining="$(lsof -ti \":${port}\" 2>/dev/null || true)"
+  if [ -n "${remaining}" ]; then
+    log "部分进程未响应，强制终止: $(echo "${remaining}" | tr '\n' ' ')"
+    for pid in ${remaining}; do
+      kill -9 "${pid}" 2>/dev/null || true
+    done
+  fi
+
+  # 【修复】等待并验证端口真正释放（最多等待 5 秒）
+  local wait_count=0
+  while lsof -ti \":${port}\" 2>/dev/null | grep -q .; do
+    sleep 1
+    wait_count=$((wait_count + 1))
+    if [ "${wait_count}" -ge 5 ]; then
+      log "⚠️  端口 ${port} 仍有进程残留，尝试再次强制终止"
+      lsof -ti \":${port}\" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      sleep 1
+      break
+    fi
+  done
+
+  if lsof -ti \":${port}\" 2>/dev/null | grep -q .; then
+    log "❌ 端口 ${port} 无法释放，请手动检查"
+    return 1
+  fi
+  log "端口 ${port} 已释放 ✓"
 }
 
 
@@ -436,16 +456,40 @@ STARTEOF
   # 等待服务就绪
   sleep 2
 
+  # 【修复】验证启动的进程是否存活
+  if ! kill -0 "${new_pid}" 2>/dev/null; then
+    log "❌ 新进程 (PID: ${new_pid}) 已退出，检查日志:"
+    tail -20 "${LOGS_DIR}/app.log"
+    return 1
+  fi
+
   # 健康检查
   local max_retries=12
   local retry=0
   while [ "${retry}" -lt "${max_retries}" ]; do
     if curl -s "http://127.0.0.1:${PORT}/api/health" | grep -q '"ok"\|"status":"ok"\|"success":true' 2>/dev/null; then
-      log "健康检查通过 ✓"
-      return 0
+      # 【修复】确认响应的进程就是我们的新进程
+      local responding_pid
+      responding_pid="$(lsof -ti ":${PORT}" 2>/dev/null | head -1 || true)"
+      if [ -n "${responding_pid}" ] && [ "${responding_pid}" = "${new_pid}" ]; then
+        log "健康检查通过 ✓ (PID: ${new_pid})"
+        return 0
+      elif [ -n "${responding_pid}" ]; then
+        log "⚠️  端口 ${PORT} 被其他进程 (PID: ${responding_pid}) 占用，清理后重试..."
+        kill -9 "${responding_pid}" 2>/dev/null || true
+      else
+        log "端口进程未找到，继续等待..."
+      fi
     fi
     retry=$((retry + 1))
     sleep 2
+
+    # 检查新进程是否还在运行
+    if ! kill -0 "${new_pid}" 2>/dev/null; then
+      log "❌ 新进程 (PID: ${new_pid}) 已退出"
+      tail -10 "${LOGS_DIR}/app.log"
+      return 1
+    fi
   done
 
   # 健康检查失败
