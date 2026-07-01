@@ -94,6 +94,8 @@ function ReaderPage() {
   const preloadedChaptersRef = useRef<Map<string, {content: string}>>(new Map());
   /** Saved reading progress from API, consumed by loadEpub */
   const savedProgressRef = useRef<any>(null);
+  /** Display chapter title — stays on original chapter during append mode */
+  const [displayChapter, setDisplayChapter] = useState<Chapter | null>(null);
 
   // Load book and chapters
   useEffect(() => {
@@ -148,6 +150,8 @@ function ReaderPage() {
 
       if (targetChapter) {
         await loadChapterContent(targetChapter, undefined, isEpub);
+        // 首次加载后立即预加载后续章节
+        preloadNextChapters(targetChapter.id);
       }
     } catch (err: any) {
       setError(err.response?.data?.error || '加载图书失败');
@@ -200,11 +204,24 @@ function ReaderPage() {
         };
       }
 
-      // Track location changes for progress saving
+      // Track location changes for progress saving + auto-advance to next chapter
       rendition.on('relocated', (location: any) => {
         const cfi = location?.start?.cfi;
         if (cfi) {
           debounceSaveProgress({ cfi, percentage: location?.start?.percentage || 0 });
+        }
+        // 自动跳转下一章：检测到当前 spine item 接近末尾（比例 > 95%）时自动跳转
+        const start = location?.start;
+        if (start?.percentage != null && start.percentage > 0.95 && !autoLoadNextRef.current && start.href) {
+          const chs = chaptersRef.current;
+          const idx = chs.findIndex((c: Chapter) => c.href && start.href.startsWith(c.href));
+          if (idx >= 0 && idx < chs.length - 1) {
+            autoLoadNextRef.current = true;
+            setTimeout(() => {
+              renditionRef.current?.display(chs[idx + 1].href);
+              setTimeout(() => { autoLoadNextRef.current = false; }, 3000);
+            }, 600);
+          }
         }
       });
     } catch (err) {
@@ -234,6 +251,10 @@ function ReaderPage() {
   const loadChapterContent = async (chapter: Chapter, _offset?: number, _isEpub?: boolean, _append?: boolean) => {
     try {
       setCurrentChapter(chapter);
+      // append 模式下不更新显示标题（保持显示原始章节名，避免标题跳跃）
+      if (!_append) {
+        setDisplayChapter(chapter);
+      }
 
       // 获取章节内容（优先使用预加载内容）
       let content: string;
@@ -242,19 +263,19 @@ function ReaderPage() {
         content = preloaded.content;
         preloadedChaptersRef.current.delete(chapter.id);
       } else {
-        setChapterLoading(true);
+        // append 模式下不显示「加载中...」闪烁：保持现有内容可见，静默加载
+        if (!_append) setChapterLoading(true);
         const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`);
         const rawContent = res.data.data?.content || '';
         const isEpub = _isEpub ?? (book?.format === 'epub');
         content = isEpub ? stripHtml(rawContent) : rawContent;
-        setChapterLoading(false);
+        if (!_append) setChapterLoading(false);
       }
 
       // 追加模式（滚动自动加载）：内容接在已有内容后面，实现平滑连续阅读
       if (_append && !accumulatedIdsRef.current.has(chapter.id)) {
         accumulatedIdsRef.current.add(chapter.id);
         setTxtContent(prev => {
-          // 首次追加：若 prev 尚未包含当前章节，则用「章节标题 + 分隔线」衔接
           const separator = '\n\n' + chapter.title + '\n' + '─'.repeat(30) + '\n\n';
           return prev + separator + content;
         });
@@ -417,8 +438,12 @@ function ReaderPage() {
           // Save final progress
           if (currentChapter) saveTtsProgress(currentChapter.id, -1, 1);
           if (ttsProgressSaveTimer.current) clearInterval(ttsProgressSaveTimer.current);
-          // 自动下一章
-          goToNextChapter();
+          // 自动下一章（有累积内容时使用追加模式，保持连续滚动）
+          if (accumulatedIdsRef.current.size > 0) {
+            goToNextChapter(true);
+          } else {
+            goToNextChapter();
+          }
         },
       });
 
@@ -790,10 +815,10 @@ function ReaderPage() {
             ref={epubTextScrollRef}
             className="flex-1 px-6 py-4 max-w-3xl mx-auto overflow-y-auto"
           >
-            {currentChapter && (
+            {(displayChapter || currentChapter) && (
               <div className="mb-4">
                 <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">
-                  {currentChapter.title}
+                  {(displayChapter || currentChapter)!.title}
                 </h2>
               </div>
             )}
@@ -874,10 +899,10 @@ function ReaderPage() {
             ref={txtScrollRef}
             className={`flex-1 px-6 py-4 max-w-3xl mx-auto ${readingMode === 'scroll' ? 'overflow-y-auto' : 'overflow-hidden flex flex-col'}`}
           >
-            {currentChapter && (
+            {(displayChapter || currentChapter) && (
               <div className="mb-4">
                 <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">
-                  {currentChapter.title}
+                  {(displayChapter || currentChapter)!.title}
                 </h2>
               </div>
             )}
