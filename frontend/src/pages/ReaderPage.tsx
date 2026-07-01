@@ -82,6 +82,10 @@ function ReaderPage() {
   const epubTextScrollRef = useRef<HTMLDivElement>(null);
   const txtScrollRef = useRef<HTMLDivElement>(null);
   const savedTtsProgressRef = useRef<{chapterId: string; segmentIndex: number; progress: number} | null>(null);
+  /** Preloaded next-chapter contents for smooth scroll transitions */
+  const preloadedChaptersRef = useRef<Map<string, {content: string}>>(new Map());
+  /** Saved reading progress from API, consumed by loadEpub */
+  const savedProgressRef = useRef<any>(null);
 
   // Load book and chapters
   useEffect(() => {
@@ -116,11 +120,26 @@ function ReaderPage() {
       ]);
       const bookData = bookRes.data.data;
       setBook(bookData);
-      setChapters(chaptersRes.data.data || []);
+      const chaptersData = chaptersRes.data.data || [];
+      setChapters(chaptersData);
 
-      if (chaptersRes.data.data?.length > 0) {
-        // Load first chapter content for both TXT and EPUB
-        await loadChapterContent(chaptersRes.data.data[0], undefined, bookData.format === 'epub');
+      // ── 恢复阅读进度：尝试跳转到上次阅读的章节 ──
+      let targetChapter = chaptersData[0];
+      const isEpub = bookData.format === 'epub';
+      try {
+        const progRes = await axios.get(`/api/books/${bookId}/progress`);
+        const progress = progRes.data.data;
+        if (progress?.chapterId) {
+          const saved = chaptersData.find((c: Chapter) => c.id === progress.chapterId);
+          if (saved) {
+            targetChapter = saved;
+            savedProgressRef.current = progress; // 供 loadEpub 恢复精确位置
+          }
+        }
+      } catch { /* 无保存的进度 */ }
+
+      if (targetChapter) {
+        await loadChapterContent(targetChapter, undefined, isEpub);
       }
     } catch (err: any) {
       setError(err.response?.data?.error || '加载图书失败');
@@ -159,22 +178,19 @@ function ReaderPage() {
       // Display first spine item
       await rendition.display();
 
-      // Restore reading progress
-      try {
-        const progRes = await axios.get(`/api/books/${bookData.id}/progress`);
-        const progress = progRes.data.data;
-        if (progress?.cfi) {
-          await rendition.display(progress.cfi);
-        }
-        // Save TTS progress for later restore
-        if (progress?.textOffset != null && progress?.percentage != null && progress?.chapterId) {
-          savedTtsProgressRef.current = {
-            chapterId: progress.chapterId,
-            segmentIndex: progress.textOffset,
-            progress: progress.percentage,
-          };
-        }
-      } catch { /* no saved progress */ }
+      // Restore reading progress (use savedProgressRef from loadBook to avoid duplicate API call)
+      const progress = savedProgressRef.current;
+      if (progress?.cfi) {
+        await rendition.display(progress.cfi);
+      }
+      // Save TTS progress for later restore
+      if (progress?.textOffset != null && progress?.percentage != null && progress?.chapterId) {
+        savedTtsProgressRef.current = {
+          chapterId: progress.chapterId,
+          segmentIndex: progress.textOffset,
+          progress: progress.percentage,
+        };
+      }
 
       // Track location changes for progress saving
       rendition.on('relocated', (location: any) => {
@@ -209,19 +225,51 @@ function ReaderPage() {
   // Load chapter content
   const loadChapterContent = async (chapter: Chapter, _offset?: number, _isEpub?: boolean) => {
     try {
-      setChapterLoading(true);
       setCurrentChapter(chapter);
-      const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`);
-      const rawContent = res.data.data?.content || '';
-      // Determine format: prefer explicit isEpub, fallback to book state
-      const isEpub = _isEpub ?? (book?.format === 'epub');
-      setTxtContent(isEpub ? stripHtml(rawContent) : rawContent);
-      setChapterLoading(false);
+
+      // 优先使用预加载内容，实现无缝过渡
+      const preloaded = preloadedChaptersRef.current.get(chapter.id);
+      if (preloaded) {
+        setTxtContent(preloaded.content);
+        preloadedChaptersRef.current.delete(chapter.id);
+      } else {
+        setChapterLoading(true);
+        const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`);
+        const rawContent = res.data.data?.content || '';
+        const isEpub = _isEpub ?? (book?.format === 'epub');
+        setTxtContent(isEpub ? stripHtml(rawContent) : rawContent);
+        setChapterLoading(false);
+      }
+
+      // 预加载后续章节，确保滚动到末尾时内容已就绪
+      preloadNextChapters(chapter.id);
     } catch (err: any) {
       setError('加载章节内容失败');
       setChapterLoading(false);
     }
   };
+
+  // Debounced progress save
+
+  /** 预加载后续2个章节内容，实现滚动到底无缝过渡 */
+  const preloadNextChapters = useCallback(async (currentChapterId: string) => {
+    if (!chapters.length) return;
+    const idx = chapters.findIndex(c => c.id === currentChapterId);
+    if (idx < 0) return;
+    for (let i = 1; i <= 2; i++) {
+      const next = chapters[idx + i];
+      if (next && !preloadedChaptersRef.current.has(next.id)) {
+        try {
+          const res = await axios.get(`/api/books/${bookId}/chapters/${next.id}/content`);
+          const rawContent = res.data.data?.content || '';
+          const isEpub = book?.format === 'epub';
+          preloadedChaptersRef.current.set(next.id, {
+            content: isEpub ? stripHtml(rawContent) : rawContent,
+          });
+        } catch { /* 预加载失败不影响核心功能 */ }
+      }
+    }
+  }, [chapters, bookId, book, stripHtml]);
 
   // Debounced progress save
   const debounceSaveProgress = useCallback((data: Record<string, any>) => {
@@ -483,12 +531,40 @@ function ReaderPage() {
         // 防抖：5 秒内不再重复触发
         setTimeout(() => { autoLoadNextRef.current = false; }, 5000);
       },
-      { root: scrollContainer, threshold: 0, rootMargin: '0px 0px 100px 0px' }
+      { root: scrollContainer, threshold: 0, rootMargin: '0px 0px 400px 0px' }
     );
 
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [readingMode, txtContent, chapters, currentChapter]);
+
+  /** 根据 pageIndex 获取分页后的 TXT 内容 */
+
+  // ── 滚动进度保存：跟踪用户滚动位置，定期保存阅读进度 ──
+  const scrollProgressSaveTimer = useRef<any>(null);
+  const handleScrollProgress = useCallback(() => {
+    if (!currentChapter || !chapters.length) return;
+    if (scrollProgressSaveTimer.current) clearTimeout(scrollProgressSaveTimer.current);
+    scrollProgressSaveTimer.current = setTimeout(() => {
+      const idx = chapters.findIndex(c => c.id === currentChapter.id);
+      debounceSaveProgress({
+        chapterId: currentChapter.id,
+        percentage: (idx + 1) / chapters.length,
+      });
+    }, 2000);
+  }, [currentChapter, chapters, debounceSaveProgress]);
+
+  // 监听 TXT 滚动容器的滚动事件
+  useEffect(() => {
+    if (readingMode !== 'scroll') return;
+    const container = epubTextScrollRef.current || txtScrollRef.current;
+    if (!container) return;
+    container.addEventListener('scroll', handleScrollProgress, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', handleScrollProgress);
+      if (scrollProgressSaveTimer.current) clearTimeout(scrollProgressSaveTimer.current);
+    };
+  }, [readingMode, txtContent, currentChapter, handleScrollProgress]);
 
   /** 根据 pageIndex 获取分页后的 TXT 内容 */
   const getPaginatedContent = useCallback((content: string, page: number, total: number): string => {
