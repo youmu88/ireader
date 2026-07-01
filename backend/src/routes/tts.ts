@@ -20,10 +20,12 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     res.json({ success: true, data: sources });
   });
 
-  // ── 音色列表（无需登录） ──
+  // ── 音色列表（无需登录；支持自定义 apiUrl/apiKey 查询参数） ──
   router.get('/voices', async (req: Request, res: Response) => {
     const source = (req.query.source as string) || 'kokoro';
-    const result = await getVoices(source);
+    const apiUrl = req.query.apiUrl as string | undefined;
+    const apiKey = req.query.apiKey as string | undefined;
+    const result = await getVoices(source, apiUrl, apiKey);
     if (!result.success) {
       res.status(502).json(result);
       return;
@@ -31,10 +33,12 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     res.json(result);
   });
 
-  // ── 健康检查 / 连接测试（无需登录） ──
+  // ── 健康检查 / 连接测试（无需登录；支持自定义 apiUrl/apiKey 查询参数） ──
   router.get('/health', async (req: Request, res: Response) => {
     const source = (req.query.source as string) || 'kokoro';
-    const result = await checkHealth(source);
+    const apiUrl = req.query.apiUrl as string | undefined;
+    const apiKey = req.query.apiKey as string | undefined;
+    const result = await checkHealth(source, apiUrl, apiKey);
     if (!result.success) {
       res.status(502).json(result);
       return;
@@ -42,10 +46,16 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     res.json(result);
   });
 
-  // ── 语音合成代理（带缓存，按用户隔离） ──
+  // ── 语音合成代理（带缓存，按用户隔离；自动加载用户自定义 API 配置） ──
   router.post('/', requireAuth, async (req: Request, res: Response) => {
     const userId = req.user!.userId;
     const { input, voice, speed, response_format, tts_source } = req.body;
+
+    // 加载用户的 TTS 设置（获取自定义 API URL/Key）
+    const userSettings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
+    const apiUrl = userSettings?.apiUrl || undefined;
+    const apiKey = userSettings?.apiKey || undefined;
+    const source = tts_source || userSettings?.source || 'kokoro';
 
     // 尝试从缓存读取（按用户隔离）
     if (dataDir) {
@@ -64,7 +74,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       } catch { /* 缓存读取失败，回退到实时合成 */ }
     }
 
-    const result = await synthesize({ input, voice, speed, response_format, tts_source });
+    const result = await synthesize({ input, voice, speed, response_format, tts_source: source, apiUrl, apiKey });
     if (!result.success) {
       res.status(result.status || 502).json({ success: false, error: result.error });
       return;
@@ -83,10 +93,12 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     res.send(result.audio);
   });
 
-  // ── 连接测试（POST 版本，无需登录） ──
+  // ── 连接测试（POST 版本，无需登录；支持自定义 apiUrl/apiKey） ──
   router.post('/test', async (req: Request, res: Response) => {
     const source = req.body.tts_source || 'kokoro';
-    const result = await checkHealth(source);
+    const apiUrl = req.body.apiUrl as string | undefined;
+    const apiKey = req.body.apiKey as string | undefined;
+    const result = await checkHealth(source, apiUrl, apiKey);
     if (!result.success) {
       res.status(502).json(result);
       return;
@@ -94,7 +106,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     res.json(result);
   });
 
-  // ── TTS 设置读取（按用户隔离） ──
+  // ── TTS 设置读取（按用户隔离，返回 apiUrl/apiKey） ──
   router.get('/settings', requireAuth, (req: Request, res: Response) => {
     try {
       const userId = req.user!.userId;
@@ -107,6 +119,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           source: 'kokoro',
           voiceId: 'zf_xiaobei',
           speed: 1.0,
+          apiUrl: null as string | null,
+          apiKey: null as string | null,
           preGenerateConcurrency: 3,
           firstChunkMaxSize: 32,
           normalChunkMaxSize: 128,
@@ -122,11 +136,11 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     }
   });
 
-  // ── TTS 设置保存（按用户隔离） ──
+  // ── TTS 设置保存（按用户隔离，支持 apiUrl/apiKey 持久化） ──
   router.put('/settings', requireAuth, (req: Request, res: Response) => {
     try {
       const userId = req.user!.userId;
-      const { enabled, source, voiceId, speed, preGenerateConcurrency, firstChunkMaxSize, normalChunkMaxSize } = req.body;
+      const { enabled, source, voiceId, speed, apiUrl, apiKey, preGenerateConcurrency, firstChunkMaxSize, normalChunkMaxSize } = req.body;
       const now = new Date().toISOString();
       const existing = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
 
@@ -135,6 +149,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       if (source !== undefined) updateData.source = source;
       if (voiceId !== undefined) updateData.voiceId = voiceId;
       if (speed !== undefined) updateData.speed = speed;
+      if (apiUrl !== undefined) updateData.apiUrl = apiUrl || null;
+      if (apiKey !== undefined) updateData.apiKey = apiKey || null;
       if (preGenerateConcurrency !== undefined) updateData.preGenerateConcurrency = preGenerateConcurrency;
       if (firstChunkMaxSize !== undefined) updateData.firstChunkMaxSize = firstChunkMaxSize;
       if (normalChunkMaxSize !== undefined) updateData.normalChunkMaxSize = normalChunkMaxSize;
@@ -148,6 +164,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           source: source ?? 'kokoro',
           voiceId: voiceId ?? 'zf_xiaobei',
           speed: speed ?? 1.0,
+          apiUrl: apiUrl || null,
+          apiKey: apiKey || null,
           preGenerateConcurrency: preGenerateConcurrency ?? 3,
           firstChunkMaxSize: firstChunkMaxSize ?? 32,
           normalChunkMaxSize: normalChunkMaxSize ?? 128,

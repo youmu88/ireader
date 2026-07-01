@@ -30,6 +30,8 @@ export interface TTSSettings {
   source: string;
   voiceId: string;
   speed: number;
+  apiUrl: string | null;
+  apiKey: string | null;
   preGenerateConcurrency: number;
   firstChunkMaxSize: number;
   normalChunkMaxSize: number;
@@ -58,9 +60,13 @@ export async function fetchSources(): Promise<TTSource[]> {
 
 /**
  * 获取指定 TTS 源的音色列表
+ * 支持自定义 API URL/Key（用于在保存设置前预览自定义源的音色）
  */
-export async function fetchVoices(source: string): Promise<VoiceInfo[]> {
-  const res = await fetch(`${API_BASE}/voices?source=${encodeURIComponent(source)}`);
+export async function fetchVoices(source: string, apiUrl?: string, apiKey?: string): Promise<VoiceInfo[]> {
+  let url = `${API_BASE}/voices?source=${encodeURIComponent(source)}`;
+  if (apiUrl) url += `&apiUrl=${encodeURIComponent(apiUrl)}`;
+  if (apiKey) url += `&apiKey=${encodeURIComponent(apiKey)}`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to fetch voices');
   const json = await res.json();
   if (!json.success) throw new Error(json.error || 'Failed to fetch voices');
@@ -69,9 +75,13 @@ export async function fetchVoices(source: string): Promise<VoiceInfo[]> {
 
 /**
  * 测试 TTS 服务连接
+ * 支持自定义 API URL/Key（用于在保存设置前测试自定义源的连通性）
  */
-export async function testConnection(source: string): Promise<HealthResult> {
-  const res = await fetch(`${API_BASE}/health?source=${encodeURIComponent(source)}`);
+export async function testConnection(source: string, apiUrl?: string, apiKey?: string): Promise<HealthResult> {
+  let url = `${API_BASE}/health?source=${encodeURIComponent(source)}`;
+  if (apiUrl) url += `&apiUrl=${encodeURIComponent(apiUrl)}`;
+  if (apiKey) url += `&apiKey=${encodeURIComponent(apiKey)}`;
+  const res = await fetch(url);
   if (res.status === 502) {
     return { success: false, error: 'TTS service unavailable' };
   }

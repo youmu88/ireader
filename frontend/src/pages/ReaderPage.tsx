@@ -1070,7 +1070,7 @@ function ReaderPage() {
       <div className="flex-1 flex overflow-hidden relative">
         {/* TOC Sidebar */}
         {showToc && (
-          <div className="w-72 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-y-auto">
+          <div className="w-64 sm:w-72 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-y-auto absolute sm:relative z-20 inset-y-0 left-0 shadow-lg sm:shadow-none">
             <div className="p-3 font-semibold text-sm border-b border-gray-200 dark:border-gray-700">
               章节目录
             </div>
@@ -1103,7 +1103,7 @@ function ReaderPage() {
         {book?.format === 'epub' && !showEpubView && (
           <div
             ref={epubTextScrollRef}
-            className="flex-1 px-6 py-4 max-w-3xl mx-auto overflow-y-auto"
+            className="flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto overflow-y-auto"
           >
             {(displayChapter || currentChapter) && (
               <div className="mb-4">
@@ -1212,7 +1212,7 @@ function ReaderPage() {
         {book?.format === 'txt' && (
           <div
             ref={txtScrollRef}
-            className={`flex-1 px-6 py-4 max-w-3xl mx-auto ${readingMode === 'scroll' ? 'overflow-y-auto' : 'overflow-hidden flex flex-col'}`}
+            className={`flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto ${readingMode === 'scroll' ? 'overflow-y-auto' : 'overflow-hidden flex flex-col'}`}
           >
             {(displayChapter || currentChapter) && (
               <div className="mb-4">
@@ -1252,7 +1252,7 @@ function ReaderPage() {
         {/* TTS 朗读进度指示（浮层） */}
         {ttsState !== 'idle' && ttsSegmentText && (
           <div className="absolute bottom-0 left-0 right-0 pointer-events-none">
-            <div className="mx-auto max-w-3xl px-6 pb-16">
+                          <div className="mx-auto max-w-3xl px-3 sm:px-6 pb-16">
               <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
                 <p className="text-sm text-blue-800 dark:text-blue-200 line-clamp-2">
                   🔊 {ttsSegmentText}
@@ -1266,7 +1266,7 @@ function ReaderPage() {
       {/* ── TTS 控制条 ── */}
       {ttsState !== 'idle' && (
         <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3">
-          <div className="flex items-center gap-4 max-w-3xl mx-auto">
+          <div className="flex items-center gap-2 sm:gap-4 max-w-3xl mx-auto flex-wrap sm:flex-nowrap">
             {/* 播放控制 */}
             <div className="flex items-center gap-2">
               {ttsState === 'playing' ? (
@@ -1341,7 +1341,7 @@ function ReaderPage() {
                 step="0.05"
                 value={ttsVolume}
                 onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                className="w-20 h-1.5 rounded-full accent-blue-500 cursor-pointer"
+                className="w-14 sm:w-20 h-1.5 rounded-full accent-blue-500 cursor-pointer"
               />
             </div>
 
@@ -1540,7 +1540,7 @@ function ReaderTopBar({
     '🔊 朗读本章';
 
   return (
-    <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+    <div className="flex items-center justify-between px-2 sm:px-4 py-1 sm:py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-x-auto">
       <div className="flex items-center gap-3">
         <button onClick={onBack} className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
           ← 返回书架

@@ -119,6 +119,8 @@ export const ttsSettings = sqliteTable('tts_settings', {
   source: text('source').notNull().default('kokoro'),
   voiceId: text('voice_id').notNull().default('zf_xiaobei'),
   speed: real('speed').notNull().default(1.0),
+  apiUrl: text('api_url'),
+  apiKey: text('api_key'),
   preGenerateConcurrency: integer('pre_generate_concurrency').notNull().default(3),
   firstChunkMaxSize: integer('first_chunk_max_size').notNull().default(32),
   normalChunkMaxSize: integer('normal_chunk_max_size').notNull().default(128),

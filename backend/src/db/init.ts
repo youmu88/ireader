@@ -17,11 +17,6 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
 
-  // ── 旧表迁移：检测并自动添加 user_id 列（不依赖用户计数） ──
-  migrateOldTables(sqlite);
-
-
-  
   const db = drizzle(sqlite, { schema });
   
   // Create tables (new version with user_id support)
@@ -141,12 +136,35 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       source TEXT NOT NULL DEFAULT 'kokoro',
       voice_id TEXT NOT NULL DEFAULT 'zf_xiaobei',
       speed REAL NOT NULL DEFAULT 1.0,
+      api_url TEXT,
+      api_key TEXT,
       pre_generate_concurrency INTEGER NOT NULL DEFAULT 3,
       first_chunk_max_size INTEGER NOT NULL DEFAULT 32,
       normal_chunk_max_size INTEGER NOT NULL DEFAULT 128,
       updated_at TEXT NOT NULL
     );
   `);
+
+  // ── 旧表迁移：检测并自动添加 user_id 列 ──
+  // 注意：必须在 CREATE TABLE IF NOT EXISTS 之后运行，确保 users 表已存在
+  migrateOldTables(sqlite);
+migrateOldTables(sqlite);
+
+  // ── 单独检查 tts_settings 的 api_url/api_key 列（旧版 migrateOldTables 可能跳过此步骤） ──
+  try {
+    const ttsCols = sqlite.prepare("PRAGMA table_info('tts_settings')").all() as { name: string }[];
+    const hasApiUrl = ttsCols.some(c => c.name === 'api_url');
+    if (!hasApiUrl) {
+      console.log('[迁移] tts_settings 缺少 api_url/api_key 列，正在补充...');
+      sqlite.exec(`
+        ALTER TABLE tts_settings ADD COLUMN api_url TEXT;
+        ALTER TABLE tts_settings ADD COLUMN api_key TEXT;
+      `);
+      console.log('[迁移] tts_settings 列补充完成 ✅');
+    }
+  } catch (err) {
+    console.error('[迁移] tts_settings 列补充失败:', (err as Error).message);
+  }
 
   // ── 旧表迁移：检查是否需要从旧版升级 ──
   const userCount = sqlite.prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number };
@@ -188,8 +206,8 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
           INSERT OR IGNORE INTO tts_cache (id, user_id, text_hash, voice, speed, audio_path, created_at)
           SELECT id, '${defaultUserId}', text_hash, voice, speed, audio_path, created_at FROM tts_cache;
 
-          INSERT OR IGNORE INTO tts_settings (user_id, enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
-          SELECT '${defaultUserId}', enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at FROM tts_settings;
+          INSERT OR IGNORE INTO tts_settings (user_id, enabled, source, voice_id, speed, api_url, api_key, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
+          SELECT '${defaultUserId}', enabled, source, voice_id, speed, api_url, api_key, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at FROM tts_settings;
         `);
       }
     }
@@ -257,13 +275,15 @@ function migrateOldTables(sqlite: Database.Database) {
           source TEXT NOT NULL DEFAULT 'kokoro',
           voice_id TEXT NOT NULL DEFAULT 'zf_xiaobei',
           speed REAL NOT NULL DEFAULT 1.0,
+          api_url TEXT,
+          api_key TEXT,
           pre_generate_concurrency INTEGER NOT NULL DEFAULT 3,
           first_chunk_max_size INTEGER NOT NULL DEFAULT 32,
           normal_chunk_max_size INTEGER NOT NULL DEFAULT 128,
           updated_at TEXT NOT NULL
         );
-        INSERT OR IGNORE INTO tts_settings_new (user_id, enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
-        SELECT '${defaultUserId}', enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at FROM tts_settings;
+        INSERT OR IGNORE INTO tts_settings_new (user_id, enabled, source, voice_id, speed, api_url, api_key, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
+        SELECT '${defaultUserId}', enabled, source, voice_id, speed, api_url, api_key, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at FROM tts_settings;
         DROP TABLE IF EXISTS tts_settings;
         ALTER TABLE tts_settings_new RENAME TO tts_settings;
         INSERT OR IGNORE INTO tts_settings (user_id, enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)

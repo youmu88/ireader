@@ -343,7 +343,7 @@ describe('E2E Full Flow Acceptance', () => {
   // 7. Error Handling
   // ════════════════════════════════════════════
   describe('7. Error Handling', () => {
-    it('7.1 should reject invalid file format', async () => {
+    it('7.1 should skip unsupported file format gracefully', async () => {
       const invalidPath = path.join('/tmp', `invalid-${testId}.pdf`);
       fs.writeFileSync(invalidPath, 'not a valid file');
       try {
@@ -351,7 +351,13 @@ describe('E2E Full Flow Acceptance', () => {
           .post('/api/books/upload')
           .set(auth())
           .attach('files', invalidPath);
-        expect(res.status).toBe(400);
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.data).toEqual([]);
+        expect(res.body.skipped).toBeDefined();
+        expect(res.body.skipped.length).toBe(1);
+        expect(res.body.skipped[0].fileName).toMatch(/\.pdf$/);
+        expect(res.body.message).toContain('不支持');
       } finally {
         fs.unlinkSync(invalidPath);
       }

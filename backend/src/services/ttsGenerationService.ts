@@ -223,6 +223,12 @@ async function processJob(
       }
       if (current.trim()) chunks.push(current.trim());
 
+      // 加载用户自定义 TTS API 配置
+      const userSettings = db.select().from(ttsSettings).where(sql`user_id = ${job.userId}`).get();
+      const apiUrl = userSettings?.apiUrl || undefined;
+      const apiKey = userSettings?.apiKey || undefined;
+      const source = userSettings?.source || 'kokoro';
+
       // 逐段合成并缓存
       for (const chunk of chunks) {
         if (!chunk.trim()) continue;
@@ -232,6 +238,9 @@ async function processJob(
             voice: job.voice,
             speed: job.speed,
             response_format: 'wav',
+            tts_source: source,
+            apiUrl,
+            apiKey,
           });
 
           if (result.success && result.audio) {

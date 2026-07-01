@@ -24,6 +24,6 @@ describe('Error Handler', () => {
     const res = await request(app).get('/test-unexpected');
     expect(res.status).toBe(500);
     expect(res.body.success).toBe(false);
-    expect(res.body.error).toBe('Internal server error');
+    expect(res.body.error).toBe('服务器内部错误，请稍后重试');
   });
 });

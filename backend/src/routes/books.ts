@@ -47,17 +47,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     fs.mkdirSync(booksDir, { recursive: true });
   }
 
-  // Multer config - 500MB max file size
+  // Multer config - 500MB max file size, no fileFilter (validation done in handler)
   const upload = multer({
     dest: path.join(dataDir, 'uploads'),
     limits: { fileSize: 500 * 1024 * 1024 },
-    fileFilter: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      if (ext !== '.epub' && ext !== '.txt') {
-        return cb(new AppError(400, '仅支持 EPUB 和 TXT 格式'));
-      }
-      cb(null, true);
-    },
   });
 
   // Ensure uploads directory exists
@@ -65,6 +58,9 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
+
+  /** Allowed file extensions */
+  const SUPPORTED_EXTS = ['.epub', '.txt'];
 
   /**
    * Process a single uploaded file: save, parse, insert into DB.
@@ -162,14 +158,41 @@ export function createBooksRouter(db: any, dataDir: string): Router {
 
       const now = new Date().toISOString();
       const results: any[] = [];
+      const skipped: Array<{ fileName: string; reason: string }> = [];
       const userId = req.user!.userId;
 
+      // Separate supported and unsupported files
+      const supportedFiles: Express.Multer.File[] = [];
       for (const file of files) {
-        const finalBook = await processUpload(file, now, userId);
-        results.push(finalBook);
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (!SUPPORTED_EXTS.includes(ext)) {
+          skipped.push({ fileName: file.originalname, reason: `不支持 ${ext} 格式，仅支持 EPUB 和 TXT` });
+          continue;
+        }
+        supportedFiles.push(file);
       }
 
-      res.status(201).json({ success: true, data: results });
+      if (supportedFiles.length === 0) {
+        return res.json({
+          success: true,
+          data: [],
+          skipped,
+          message: '没有可上传的书籍（所选文件均不支持）',
+        });
+      }
+
+      // Process each supported file; individual failures don't block others
+      for (const file of supportedFiles) {
+        try {
+          const finalBook = await processUpload(file, now, userId);
+          results.push(finalBook);
+        } catch (err: any) {
+          // processUpload itself handles internal errors, but wrap any unexpected ones
+          skipped.push({ fileName: file.originalname, reason: err.message || '未知错误' });
+        }
+      }
+
+      res.status(201).json({ success: true, data: results, skipped: skipped.length > 0 ? skipped : undefined });
     } catch (err) {
       next(err);
     }

@@ -17,26 +17,26 @@ function Layout() {
     <div className="min-h-screen flex flex-col bg-white dark:bg-gray-900 transition-colors">
       {!isReader && (
         <header className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 transition-colors">
-          <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+                      <div className="max-w-7xl mx-auto px-3 py-2 sm:px-4 sm:py-3 flex items-center justify-between">
             <Link to="/" className="text-xl font-bold text-blue-600 dark:text-blue-400">
               📚 iReader
             </Link>
-            <nav className="flex items-center gap-3">
+            <nav className="flex items-center gap-1 sm:gap-3">
               <Link
                 to="/"
-                className={`px-3 py-1 rounded ${
+                className={`px-2 sm:px-3 py-1 rounded text-xs sm:text-sm ${
                   location.pathname === '/' ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300' : ''
                 }`}
               >
-                书架
+                <span className="sm:hidden">📚</span><span className="hidden sm:inline">书架</span>
               </Link>
               <Link
                 to="/settings"
-                className={`px-3 py-1 rounded ${
+                className={`px-2 sm:px-3 py-1 rounded text-xs sm:text-sm ${
                   location.pathname === '/settings' ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300' : ''
                 }`}
               >
-                设置
+                <span className="sm:hidden">⚙️</span><span className="hidden sm:inline">设置</span>
               </Link>
               {/* 用户信息 */}
               {user && (
@@ -55,10 +55,10 @@ function Layout() {
               {/* 退出登录 */}
               <button
                 onClick={handleLogout}
-                className="px-3 py-1 rounded text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                className="p-1 sm:px-3 sm:py-1 rounded text-xs sm:text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                 title="退出登录"
               >
-                退出
+                <span className="sm:hidden">🚪</span><span className="hidden sm:inline">退出</span>
               </button>
             </nav>
           </div>

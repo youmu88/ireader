@@ -88,39 +88,58 @@ useEffect(() => {
 
   // ── Upload (支持多文件) ──
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
 
-    // Validate all files first
-    for (let i = 0; i < files.length; i++) {
-      const ext = files[i].name.split('.').pop()?.toLowerCase();
-      if (ext !== 'epub' && ext !== 'txt') {
-        setUploadProgress(`「${files[i].name}」格式不支持，仅支持 EPUB 和 TXT`);
-        return;
+    const files = Array.from(fileList);
+
+    // Separate supported and unsupported files
+    const supported: File[] = [];
+    const skipped: string[] = [];
+    for (const file of files) {
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      if (ext === 'epub' || ext === 'txt') {
+        supported.push(file);
+      } else {
+        skipped.push(file.name);
       }
     }
 
+    // If nothing supported, show message and stop
+    if (supported.length === 0) {
+      setUploadProgress(
+        skipped.length === 1
+          ? `「${skipped[0]}」格式不支持，仅支持 EPUB 和 TXT`
+          : `所选文件均不支持（仅支持 EPUB 和 TXT）`
+      );
+      return;
+    }
+
     setUploading(true);
-    setUploadProgress(`准备上传 ${files.length} 个文件...`);
+    const skipMsg = skipped.length > 0 ? `（已跳过 ${skipped.length} 个不支持的文件）` : '';
+    setUploadProgress(`上传中 ${supported.length} 个文件${skipMsg}...`);
 
     try {
       const formData = new FormData();
-      for (let i = 0; i < files.length; i++) {
-        formData.append('files', files[i]);
+      for (const file of supported) {
+        formData.append('files', file);
       }
 
-      const res = await axios.post('/api/books/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const res = await axios.post('/api/books/upload', formData);
 
       const uploaded = res.data.data || [];
+      const serverSkipped: Array<{ fileName: string; reason: string }> = res.data.skipped || [];
       const success = uploaded.filter((b: any) => b?.status === 'ready').length;
       const failed = uploaded.filter((b: any) => b?.status === 'failed').length;
       const processing = uploaded.filter((b: any) => b?.status === 'processing').length;
 
-      setUploadProgress(
-        `上传完成 ✅ 成功 ${success}${failed ? `，失败 ${failed}` : ''}${processing ? `，处理中 ${processing}` : ''}`
-      );
+      const parts: string[] = [`上传完成 ✅ 成功 ${success}`];
+      if (failed) parts.push(`失败 ${failed}`);
+      if (processing) parts.push(`处理中 ${processing}`);
+      if (serverSkipped.length > 0) parts.push(`跳过 ${serverSkipped.length} 个`);
+      else if (skipped.length > 0) parts.push(`跳过 ${skipped.length} 个`);
+
+      setUploadProgress(parts.join('，'));
       await loadData();
 
       // Reset after short delay
@@ -196,7 +215,7 @@ useEffect(() => {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
         <p className="text-gray-500 dark:text-gray-400">加载中...</p>
       </div>
     );
@@ -204,7 +223,7 @@ useEffect(() => {
 
   if (error) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <p className="text-red-700 dark:text-red-300">{error}</p>
           <button
@@ -219,7 +238,7 @@ useEffect(() => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold">我的书架</h1>
@@ -336,10 +355,10 @@ useEffect(() => {
           </div>
         </div>
       )}
-      <div className="flex gap-6">
+      <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
         {/* Category Sidebar */}
-        <div className="w-48 shrink-0">
-          <div className="space-y-1">
+        <div className="w-full sm:w-48 shrink-0 overflow-x-auto scrollbar-hide">
+          <div className="flex sm:flex-col gap-1 pb-1 sm:pb-0">
             <button
               onClick={() => setSelectedCategoryId(null)}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
@@ -449,7 +468,7 @@ useEffect(() => {
                     )}
                   </a>
                   {/* Action buttons */}
-                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={(e) => handleEditBook(book, e)}
                       className="w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-blue-600"
