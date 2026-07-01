@@ -38,14 +38,31 @@ function ReaderPage() {
   const [chapterLoading, setChapterLoading] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fontSize, setFontSize] = useState(18);
-  const [fontFamily, setFontFamily] = useState<'sans' | 'serif' | 'mono'>('sans');
-  const [lineHeight, setLineHeight] = useState(1.8);
+  // ── 阅读偏好持久化（localStorage） ──
+  const READER_PREFS_KEY = 'ireader_reader_prefs';
+  const loadReaderPrefs = () => {
+    try {
+      const raw = localStorage.getItem(READER_PREFS_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+    return null;
+  };
+  const saveReaderPrefs = (prefs: Record<string, any>) => {
+    try {
+      const current = loadReaderPrefs() || {};
+      localStorage.setItem(READER_PREFS_KEY, JSON.stringify({ ...current, ...prefs }));
+    } catch { /* ignore */ }
+  };
+  const initialPrefs = loadReaderPrefs() || {};
+
+  const [fontSize, setFontSize] = useState(initialPrefs.fontSize ?? 18);
+  const [fontFamily, setFontFamily] = useState<'sans' | 'serif' | 'mono'>(initialPrefs.fontFamily ?? 'sans');
+  const [lineHeight, setLineHeight] = useState(initialPrefs.lineHeight ?? 1.8);
   const [ttsState, setTtsState] = useState<PlayerState>('idle');
   const [ttsProgress, setTtsProgress] = useState(0);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
-  const [readingMode, setReadingMode] = useState<'scroll' | 'paginated'>('scroll');
+  const [readingMode, setReadingMode] = useState<'scroll' | 'paginated'>(initialPrefs.readingMode ?? 'scroll');
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [showEpubView, setShowEpubView] = useState(false); // toggle epubjs vs text view
@@ -71,6 +88,17 @@ function ReaderPage() {
     if (!bookId) return;
     loadBook();
   }, [bookId]);
+  // Load book and chapters
+  useEffect(() => {
+    if (!bookId) return;
+    loadBook();
+  }, [bookId]);
+
+  // ── 持久化阅读偏好 ──
+  useEffect(() => { saveReaderPrefs({ fontSize }); }, [fontSize]);
+  useEffect(() => { saveReaderPrefs({ fontFamily }); }, [fontFamily]);
+  useEffect(() => { saveReaderPrefs({ lineHeight }); }, [lineHeight]);
+  useEffect(() => { saveReaderPrefs({ readingMode }); }, [readingMode]);
 
   // Separate effect for EPUB loading — waits for DOM (readerRef) to be ready
   useEffect(() => {
