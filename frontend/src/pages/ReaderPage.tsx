@@ -241,19 +241,30 @@ function ReaderPage() {
 
   /** Strip HTML tags for plain text display */
   const stripHtml = useCallback((html: string): string => {
-    return html
-      .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '')
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#(\d+);/g, (_m: any, n: string) => String.fromCharCode(parseInt(n, 10)))
-      .replace(/\s+/g, ' ')
-      .trim();
+    let s = html;
+    // Convert block-level closing tags to newlines (preserves paragraph structure)
+    s = s.replace(/<\/(?:p|div|h[1-6]|blockquote|li|tr|th|td)>/gi, '\n');
+    // Convert <br> tags to newlines
+    s = s.replace(/<br\s*\/?>/gi, '\n');
+    // Also add newlines before block-level opening tags for extra spacing
+    s = s.replace(/<(?:p|div|h[1-6]|blockquote|li|tr|th|td)[^>]*>/gi, '\n');
+    // Remove head/script/style blocks
+    s = s.replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '');
+    s = s.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+    s = s.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+    // Remove all remaining HTML tags
+    s = s.replace(/<[^>]+>/g, '');
+    // Decode HTML entities
+    s = s.replace(/&nbsp;/g, ' ')
+         .replace(/&amp;/g, '&')
+         .replace(/&lt;/g, '<')
+         .replace(/&gt;/g, '>')
+         .replace(/&quot;/g, '"')
+         .replace(/&#(\d+);/g, (_m: any, n: string) => String.fromCharCode(parseInt(n, 10)));
+    // Normalize: collapse multiple spaces but preserve single newlines
+    s = s.replace(/[ \t]+/g, ' ');
+    s = s.replace(/\n{3,}/g, '\n\n');
+    return s.trim();
   }, []);
 
   // Load chapter content
@@ -359,8 +370,9 @@ function ReaderPage() {
 
     debounceSaveProgress({ chapterId: chapter.id, percentage: chapter.order / chapters.length });
 
-    // For EPUB: also navigate epubjs rendition
-    if (book?.format === 'epub' && renditionRef.current && chapter.href) {
+    // Only navigate epubjs rendition when the epubjs view is actually visible
+    // (avoiding triggering relocated events during text view auto-scroll)
+    if (book?.format === 'epub' && showEpubView && renditionRef.current && chapter.href) {
       try {
         await renditionRef.current.display(chapter.href);
       } catch {
@@ -766,7 +778,7 @@ function ReaderPage() {
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [readingMode, book?.format]);
+  }, [readingMode, book?.format, showEpubView]);
 
   /** 根据 pageIndex 获取分页后的 TXT 内容 */
 

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import yauzl from 'yauzl';
+import EPub from 'epub';
 
 const TEXT_ENCODING = 'utf-8';
 
@@ -24,41 +25,124 @@ export interface EpubParseResult {
   extractedDir: string;
 }
 
-function extractText(data: string, pattern: RegExp): string | null {
-  const m = data.match(pattern);
-  return m ? m[1].trim() : null;
-}
-
-function extractTextFromXml(xml: string, tag: string): string | null {
-  const re = new RegExp(`<${tag}[^>]*>([^<]*)<\\/${tag}>`, 'i');
-  const m = xml.match(re);
-  return m ? m[1].trim() : null;
+/**
+ * Build a map from resolved href → TOC title using the epub library's toc tree.
+ */
+function buildTocTitleMap(tocItems: any[]): Map<string, string> {
+  const map = new Map<string, string>();
+  function walk(items: any[]) {
+    for (const item of items) {
+      if (item.href && item.title) {
+        // epub library's item.href is already relative to EPUB root
+        const resolved = item.href.startsWith('/') ? item.href.slice(1) : item.href;
+        // Only store the first (most specific) TOC entry for each href
+        if (!map.has(resolved)) {
+          map.set(resolved, item.title);
+        }
+      }
+      if (item.subitems?.length) {
+        walk(item.subitems);
+      }
+    }
+  }
+  walk(tocItems);
+  return map;
 }
 
 /**
- * Parse EPUB file and extract metadata + chapters + cover.
- * Returns extracted files directory for frontend to load.
+ * Parse EPUB file using the `epub` npm package (reliable XML parsing)
+ * while still extracting files via yauzl for content serving.
  */
 export async function parseEpub(epubPath: string, outputDir: string): Promise<EpubParseResult> {
-  return new Promise((resolve, reject) => {
+  // ── Step 1: Use `epub` package for metadata + chapter structure ──
+  let epub: any;
+  try {
+    epub = new EPub(epubPath);
+    await epub.parse();
+  } catch (err: any) {
+    throw new Error(`Failed to parse EPUB metadata: ${err.message}`);
+  }
+
+  const title = epub.metadata?.title || 'Unknown Title';
+  const author = epub.metadata?.creator || null;
+
+  // Build TOC title → href map
+  const tocTitleMap = buildTocTitleMap(epub.toc || []);
+
+  // Generate chapters from flow (spine items)
+  const chapters: EpubChapter[] = [];
+  const seenHrefs = new Set<string>();
+  let order = 0;
+
+  for (const item of (epub.flow || [])) {
+    order++;
+    if (!item.href) continue;
+
+    // Resolve href relative to OPF directory (same as epub library does internally)
+    const resolvedHref = item.href.startsWith('/') ? item.href.slice(1) : item.href;
+
+    if (seenHrefs.has(resolvedHref)) continue;
+    seenHrefs.add(resolvedHref);
+
+    // Title priority: TOC title > flow item title > auto-generated
+    let chapterTitle = tocTitleMap.get(resolvedHref) || item.title || '';
+    if (!chapterTitle) {
+      chapterTitle = `Chapter ${order}`;
+    }
+
+    // Detect level from TOC hierarchy if available
+    let level = 1;
+    // Simple level heuristic: check if TOC has nesting for this href
+    for (const tocItem of (epub.toc || [])) {
+      if (tocItem.subitems?.length) {
+        for (const sub of tocItem.subitems) {
+          const subResolved = sub.href
+            ? (sub.href.startsWith('/') ? sub.href.slice(1) : sub.href)
+            : '';
+          if (subResolved === resolvedHref) {
+            level = 2;
+            break;
+          }
+        }
+      }
+    }
+
+    chapters.push({
+      id: `ch-${order}`,
+      title: chapterTitle,
+      href: resolvedHref,
+      order,
+      level,
+    });
+  }
+
+  // ── Step 2: Extract cover image path ──
+  let coverPath: string | null = null;
+
+  // Strategy 1: epub.metadata.cover (most reliable)
+  if (epub.metadata?.cover) {
+    const coverId = epub.metadata.cover;
+    if (epub.manifest?.[coverId]?.href) {
+      coverPath = epub.manifest[coverId].href.startsWith('/')
+        ? epub.manifest[coverId].href.slice(1)
+        : epub.manifest[coverId].href;
+    }
+  }
+
+  // ── Step 3: Extract all files from EPUB using yauzl ──
+  const extractedDir = path.join(outputDir, 'extracted');
+
+  await new Promise<void>((resolve, reject) => {
     yauzl.open(epubPath, { lazyEntries: true }, (err, zipfile) => {
       if (err) return reject(err);
       if (!zipfile) return reject(new Error('Failed to open EPUB'));
-
-      const extractedFiles: Map<string, Buffer> = new Map();
-      let containerXml = '';
-      let opfContent = '';
-      let ncxContent = '';
-      let navXhtml = '';
-      let opfPath = '';
 
       zipfile.readEntry();
 
       zipfile.on('entry', (entry: any) => {
         const fileName = entry.fileName;
 
-        if (entry.fileName.endsWith('/')) {
-          // Directory entry, skip
+        if (fileName.endsWith('/')) {
           zipfile.readEntry();
           return;
         }
@@ -73,207 +157,25 @@ export async function parseEpub(epubPath: string, outputDir: string): Promise<Ep
           readStream.on('data', (chunk: Buffer) => chunks.push(chunk));
           readStream.on('end', () => {
             const data = Buffer.concat(chunks);
-
-            if (fileName === 'META-INF/container.xml') {
-              containerXml = data.toString(TEXT_ENCODING);
-            } else if (fileName.endsWith('.opf')) {
-              opfContent = data.toString(TEXT_ENCODING);
-              opfPath = fileName;
-            } else if (fileName.endsWith('toc.ncx')) {
-              ncxContent = data.toString(TEXT_ENCODING);
-            } else if (fileName.includes('toc') && fileName.endsWith('.xhtml')) {
-              navXhtml = data.toString(TEXT_ENCODING);
+            const targetPath = path.join(extractedDir, fileName);
+            const targetDir = path.dirname(targetPath);
+            if (!fs.existsSync(targetDir)) {
+              fs.mkdirSync(targetDir, { recursive: true });
             }
-
-            // Store extracted files for later serving
-            extractedFiles.set(fileName, data);
+            fs.writeFileSync(targetPath, data);
             zipfile.readEntry();
           });
         });
       });
 
-      zipfile.on('end', async () => {
-        try {
-          // Resolve OPF path from container.xml if needed
-          if (!opfContent && containerXml) {
-            const rootfileMatch = containerXml.match(/full-path="([^"]+)"/);
-            if (rootfileMatch) {
-              const resolvedOpfPath = rootfileMatch[1];
-              const opfBuf = extractedFiles.get(resolvedOpfPath);
-              if (opfBuf) {
-                opfContent = opfBuf.toString(TEXT_ENCODING);
-                opfPath = resolvedOpfPath;
-              }
-            }
-          }
-
-          if (!opfContent) {
-            throw new Error('Could not find OPF file in EPUB');
-          }
-
-          // Extract metadata
-          const title = extractTextFromXml(opfContent, 'dc:title')
-            || extractText(opfContent, /<title[^>]*>([^<]+)<\/title>/i)
-            || 'Unknown Title';
-          const author = extractTextFromXml(opfContent, 'dc:creator')
-            || extractTextFromXml(opfContent, 'dc:contributor');
-
-          // Extract cover — multiple strategies
-          let coverPath: string | null = null;
-
-          // Strategy 1: <meta name="cover" content="cover-id">
-          const coverMetaMatch = opfContent.match(/<meta[^>]*name="cover"[^>]*content="([^"]+)"[^>]*\/?>/i);
-          if (coverMetaMatch) {
-            const coverId = coverMetaMatch[1];
-            const coverHrefMatch = opfContent.match(new RegExp(`<item[^>]*id="${coverId}"[^>]*href="([^"]+)"`));
-            if (coverHrefMatch) {
-              coverPath = path.join(path.dirname(opfPath), coverHrefMatch[1]);
-            }
-          }
-
-          // Strategy 2: <item properties="cover-image">
-          if (!coverPath) {
-            const coverItemMatch = opfContent.match(/<item[^>]+properties="[^"]*cover-image[^"]*"[^>]*href="([^"]+)"/i);
-            if (coverItemMatch) {
-              coverPath = path.join(path.dirname(opfPath), coverItemMatch[1]);
-            }
-          }
-
-          // Strategy 3: item with id containing "cover"
-          if (!coverPath) {
-            const coverIdMatch = opfContent.match(/<item[^>]+id="([^"]*cover[^"]*)"[^>]*href="([^"]+)"/i);
-            if (coverIdMatch) {
-              coverPath = path.join(path.dirname(opfPath), coverIdMatch[2]);
-            }
-          }
-
-          // Strategy 4: first image in manifest
-          if (!coverPath) {
-            const firstImage = opfContent.match(/<item[^>]+media-type="image\/[^"]+"[^>]*href="([^"]+)"/i);
-            if (firstImage) {
-              coverPath = path.join(path.dirname(opfPath), firstImage[1]);
-            }
-          }
-
-          // Extract chapters from NCX or nav
-          const chapters: EpubChapter[] = [];
-          const seenHrefs = new Set<string>();
-
-          if (ncxContent) {
-            // Parse NCX TOC
-            const navPointRegex = /<navPoint[^>]*>([\s\S]*?)<\/navPoint>/gi;
-            let navMatch;
-            let order = 0;
-
-            const parseNavPoints = (xml: string, parentLevel: number): void => {
-              const navPointRegex2 = /<navPoint[^>]*>([\s\S]*?)<\/navPoint>/gi;
-              let m;
-              while ((m = navPointRegex2.exec(xml)) !== null) {
-                order++;
-                const content = m[1];
-                const titleMatch = content.match(/<navLabel>\s*<text>([^<]*)<\/text>\s*<\/navLabel>/i);
-                const hrefMatch = content.match(/<content[^>]*src="([^"]+)"/i);
-                if (titleMatch && hrefMatch) {
-                  const href = hrefMatch[1];
-                  // Resolve relative path against OPF directory
-                  const resolvedHref = path.posix.join(path.dirname(opfPath), href);
-                  if (!seenHrefs.has(resolvedHref)) {
-                    seenHrefs.add(resolvedHref);
-                    chapters.push({
-                      id: `ch-${order}`,
-                      title: titleMatch[1].trim(),
-                      href: resolvedHref,
-                      order,
-                      level: parentLevel,
-                    });
-                  }
-                }
-                // Recursively parse child navPoints
-                const childrenMatch = content.match(/<navPoint[^>]*>([\s\S]*?)<\/navPoint>/gi);
-                if (childrenMatch && childrenMatch.length > 0) {
-                  parseNavPoints(content, parentLevel + 1);
-                }
-              }
-            };
-
-            parseNavPoints(ncxContent, 1);
-          } else if (navXhtml) {
-            // Parse XHTML nav
-            const navRegex = /<nav[^>]*>([\s\S]*?)<\/nav>/gi;
-            const listItemRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
-            let order = 0;
-
-            const navs = navXhtml.match(navRegex);
-            if (navs) {
-              for (const nav of navs) {
-                const items = [...nav.matchAll(listItemRegex)];
-                for (const item of items) {
-                  order++;
-                  const linkMatch = item[1].match(/<a[^>]*href="([^"]+)"[^>]*>([^<]*)<\/a>/i);
-                  if (linkMatch) {
-                    const href = linkMatch[1];
-                    const resolvedHref = path.posix.join(path.dirname(opfPath), href);
-                    if (!seenHrefs.has(resolvedHref)) {
-                      seenHrefs.add(resolvedHref);
-                      chapters.push({
-                        id: `ch-${order}`,
-                        title: linkMatch[2].trim(),
-                        href: resolvedHref,
-                        order,
-                        level: 1,
-                      });
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          // Fallback: use spine itemrefs as chapters
-          if (chapters.length === 0) {
-            const spineRefs = [...opfContent.matchAll(/<itemref[^>]*idref="([^"]+)"[^>]*\/?>/gi)];
-            let order = 0;
-            for (const ref of spineRefs) {
-              order++;
-              const itemMatch = opfContent.match(new RegExp(`<item[^>]*id="${ref[1]}"[^>]*href="([^"]+)"`));
-              if (itemMatch) {
-                const href = path.posix.join(path.dirname(opfPath), itemMatch[1]);
-                chapters.push({
-                  id: `ch-${order}`,
-                  title: `Chapter ${order}`,
-                  href,
-                  order,
-                  level: 1,
-                });
-              }
-            }
-          }
-
-          // Save extracted files to output directory
-          const extractedDir = path.join(outputDir, 'extracted');
-          if (!fs.existsSync(extractedDir)) {
-            fs.mkdirSync(extractedDir, { recursive: true });
-          }
-          for (const [filePath, content] of extractedFiles) {
-            const targetPath = path.join(extractedDir, filePath);
-            const targetDir = path.dirname(targetPath);
-            if (!fs.existsSync(targetDir)) {
-              fs.mkdirSync(targetDir, { recursive: true });
-            }
-            fs.writeFileSync(targetPath, content);
-          }
-
-          resolve({
-            meta: { title, author, coverPath },
-            chapters,
-            extractedDir,
-          });
-        } catch (parseErr) {
-          reject(parseErr);
-        }
-      });
-
+      zipfile.on('end', () => resolve());
       zipfile.on('error', reject);
     });
   });
+
+  return {
+    meta: { title, author, coverPath },
+    chapters,
+    extractedDir,
+  };
 }
