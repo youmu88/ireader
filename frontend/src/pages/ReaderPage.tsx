@@ -82,8 +82,9 @@ function ReaderPage() {
   const chaptersRef = useRef(chapters);
   const currentChapterRef = useRef(currentChapter);
   const prevShowEpubViewRef = useRef(showEpubView);
-  const autoLoadNextRef = useRef(false);
+  const loadingNextChapterRef = useRef(false);
   const bottomSentinelRef = useRef<HTMLDivElement>(null);
+  const goToNextChapterRef = useRef<((_fromAutoScroll?: boolean) => Promise<void>) | null>(null);
   const epubTextScrollRef = useRef<HTMLDivElement>(null);
   const txtScrollRef = useRef<HTMLDivElement>(null);
   const savedTtsProgressRef = useRef<{chapterId: string; segmentIndex: number; progress: number} | null>(null);
@@ -212,14 +213,15 @@ function ReaderPage() {
         }
         // 自动跳转下一章：检测到当前 spine item 接近末尾（比例 > 95%）时自动跳转
         const start = location?.start;
-        if (start?.percentage != null && start.percentage > 0.95 && !autoLoadNextRef.current && start.href) {
+        if (start?.percentage != null && start.percentage > 0.95 && !loadingNextChapterRef.current && start.href) {
           const chs = chaptersRef.current;
           const idx = chs.findIndex((c: Chapter) => c.href && start.href.startsWith(c.href));
           if (idx >= 0 && idx < chs.length - 1) {
-            autoLoadNextRef.current = true;
+            loadingNextChapterRef.current = true;
             setTimeout(() => {
-              renditionRef.current?.display(chs[idx + 1].href);
-              setTimeout(() => { autoLoadNextRef.current = false; }, 3000);
+              renditionRef.current?.display(chs[idx + 1].href).then(() => {
+                setTimeout(() => { loadingNextChapterRef.current = false; }, 2000);
+              });
             }, 600);
           }
         }
@@ -301,19 +303,25 @@ function ReaderPage() {
     if (!chapters.length) return;
     const idx = chapters.findIndex(c => c.id === currentChapterId);
     if (idx < 0) return;
+    // 并行预加载后续2章，互不等待，大幅提高预加载速度
+    const isEpub = book?.format === 'epub';
+    const preloadTasks = [];
     for (let i = 1; i <= 2; i++) {
       const next = chapters[idx + i];
       if (next && !preloadedChaptersRef.current.has(next.id)) {
-        try {
-          const res = await axios.get(`/api/books/${bookId}/chapters/${next.id}/content`);
-          const rawContent = res.data.data?.content || '';
-          const isEpub = book?.format === 'epub';
-          preloadedChaptersRef.current.set(next.id, {
-            content: isEpub ? stripHtml(rawContent) : rawContent,
-          });
-        } catch { /* 预加载失败不影响核心功能 */ }
+        preloadTasks.push(
+          axios.get(`/api/books/${bookId}/chapters/${next.id}/content`)
+            .then(res => {
+              const rawContent = res.data.data?.content || '';
+              preloadedChaptersRef.current.set(next.id, {
+                content: isEpub ? stripHtml(rawContent) : rawContent,
+              });
+            })
+            .catch(() => { /* 预加载失败不影响核心功能 */ })
+        );
       }
     }
+    await Promise.all(preloadTasks);
   }, [chapters, bookId, book, stripHtml]);
 
   // Debounced progress save
@@ -350,6 +358,8 @@ function ReaderPage() {
       await navigateToChapter(chapters[idx + 1], _fromAutoScroll);
     }
   };
+  // 保持 ref 始终指向最新渲染的函数，供 IntersectionObserver 回调使用
+  goToNextChapterRef.current = goToNextChapter;
 
   const goToPrevChapter = async () => {
     if (!currentChapter) return;
@@ -616,23 +626,26 @@ function ReaderPage() {
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!entry?.isIntersecting || autoLoadNextRef.current) return;
+        if (!entry?.isIntersecting || loadingNextChapterRef.current) return;
         const idx = chaptersRef.current.findIndex(
           (c: Chapter) => c.id === currentChapterRef.current?.id
         );
         if (idx < 0 || idx >= chaptersRef.current.length - 1) return;
 
-        autoLoadNextRef.current = true;
-        goToNextChapter(true); // 自动滚动加载：追加内容保持连续
-        // 防抖：5 秒内不再重复触发
-        setTimeout(() => { autoLoadNextRef.current = false; }, 5000);
+        // 动态加载门控：仅在章节实际加载完成前阻止重复触发
+        // 加载完成后立即允许下一触发，无需等待固定超时
+        loadingNextChapterRef.current = true;
+        const loadPromise = goToNextChapterRef.current!(true);
+        loadPromise.finally(() => {
+          loadingNextChapterRef.current = false;
+        });
       },
       { root: scrollContainer, threshold: 0, rootMargin: '0px 0px 400px 0px' }
     );
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [readingMode, txtContent, chapters, currentChapter]);
+  }, [readingMode]);
 
   /** 根据 pageIndex 获取分页后的 TXT 内容 */
 
