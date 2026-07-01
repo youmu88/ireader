@@ -46,7 +46,7 @@ export interface TTSPlayerCallbacks {
  * 将长文本按句子边界分成适度长度的段落
  * 每段 < 200 字符，优先按句号 / 段落分
  */
-function splitText(text: string): string[] {
+export function splitText(text: string): string[] {
   const segments: string[] = [];
 
   // 按双换行分段（段落级）
@@ -113,6 +113,8 @@ export class TTSPlayer {
   private preGenCount = 3;
   private isDestroyed = false;
   private currentSegmentText = '';
+  private volume = 1.0;
+
 
   // ── 初始化 ──
 
@@ -159,6 +161,19 @@ export class TTSPlayer {
 
   getSpeed(): number {
     return this.speed;
+  }
+
+  // ── 设置音量 ──
+
+  setVolume(volume: number): void {
+    this.volume = Math.max(0, Math.min(1.0, volume));
+    if (this.gainNode) {
+      this.gainNode.gain.value = this.volume;
+    }
+  }
+
+  getVolume(): number {
+    return this.volume;
   }
 
   getState(): PlayerState {

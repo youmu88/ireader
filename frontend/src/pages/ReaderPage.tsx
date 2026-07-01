@@ -4,6 +4,7 @@ import axios from 'axios';
 import {
   getDefaultPlayer,
   destroyDefaultPlayer,
+  splitText,
   type PlayerState,
 } from '../services/ttsPlayer';
 
@@ -62,6 +63,10 @@ function ReaderPage() {
   const [ttsProgress, setTtsProgress] = useState(0);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
   const [ttsSpeed, setTtsSpeed] = useState(1.0);
+  const [ttsVolume, setTtsVolume] = useState(() => {
+    try { const v = localStorage.getItem('ireader_tts_volume'); return v ? parseFloat(v) : 1.0; } catch { return 1.0; }
+  });
+  const [activeSegmentIndex, setActiveSegmentIndex] = useState(-1);
   const [readingMode, setReadingMode] = useState<'scroll' | 'paginated'>(initialPrefs.readingMode ?? 'scroll');
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -382,8 +387,9 @@ function ReaderPage() {
 
       player.setCallbacks({
         onStateChange: (s) => setTtsState(s),
-        onSegmentPlay: (_idx, _total) => {
+        onSegmentPlay: (idx, _total) => {
           setTtsSegmentText(player.getCurrentSegmentText());
+          setActiveSegmentIndex(idx);
         },
         onProgress: (p) => setTtsProgress(p),
         onError: (err) => console.warn('TTS 朗读错误:', err),
@@ -400,6 +406,7 @@ function ReaderPage() {
       await player.init({
         speed: ttsSpeed,
       });
+      player.setVolume(ttsVolume);
 
       const isHtml = book?.format === 'epub';
       await player.load(text, isHtml);
@@ -441,12 +448,57 @@ function ReaderPage() {
     setTtsState('idle');
     setTtsProgress(0);
     setTtsSegmentText('');
+    setActiveSegmentIndex(-1);
   }, [currentChapter, saveTtsProgress]);
+
+  /** 渲染带 TTS 高亮的文本内容 */
+  const renderHighlightedContent = useCallback((content: string): React.ReactNode => {
+    if (ttsState === 'idle' || activeSegmentIndex < 0 || !content) {
+      return content;
+    }
+    const segments = splitText(content);
+    if (activeSegmentIndex >= segments.length) return content;
+
+    const target = segments[activeSegmentIndex];
+    if (!target) return content;
+
+    // 按分段顺序找到当前段落在原始内容中的位置（处理重复文本）
+    let searchPos = 0;
+    let foundPos = -1;
+    for (let i = 0; i <= activeSegmentIndex && i < segments.length; i++) {
+      const seg = segments[i];
+      const pos = content.indexOf(seg, searchPos);
+      if (pos === -1) break;
+      foundPos = pos;
+      searchPos = pos + seg.length;
+    }
+    if (foundPos === -1) return content;
+
+    return (
+      <>
+        {content.slice(0, foundPos)}
+        <span
+          className="bg-yellow-200 dark:bg-yellow-700/70 rounded px-0.5 transition-colors duration-300"
+          aria-live="polite"
+        >
+          {target}
+        </span>
+        {content.slice(foundPos + target.length)}
+      </>
+    );
+  }, [ttsState, activeSegmentIndex]);
 
   /** 设置 TTS 语速 */
   const handleTTSSpeedChange = useCallback((speed: number) => {
     setTtsSpeed(speed);
     ttsPlayerRef.current?.setSpeed(speed);
+  }, []);
+
+  /** 设置 TTS 音量 */
+  const handleVolumeChange = useCallback((vol: number) => {
+    setTtsVolume(vol);
+    ttsPlayerRef.current?.setVolume(vol);
+    try { localStorage.setItem('ireader_tts_volume', String(vol)); } catch {}
   }, []);
 
   // After book loads, check for saved TTS progress and offer resume
@@ -739,7 +791,13 @@ function ReaderPage() {
                   <span className="text-gray-400 animate-pulse">加载中...</span>
                 </div>
               ) : txtContent ? (
-                <div className="whitespace-pre-wrap">{txtContent}</div>
+                ttsState !== 'idle' && activeSegmentIndex >= 0 ? (
+                  <div className="whitespace-pre-wrap">
+                    {renderHighlightedContent(txtContent)}
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap">{txtContent}</div>
+                )
               ) : (
                 <div className="flex items-center justify-center py-12">
                   <span className="text-gray-400">暂无内容</span>
@@ -820,7 +878,11 @@ function ReaderPage() {
                   <span className="text-gray-400 animate-pulse">加载中...</span>
                 </div>
               ) : (
-                readingMode === 'paginated' ? getPaginatedContent(txtContent, pageIndex, totalPages) : txtContent
+                readingMode === 'paginated'
+                  ? getPaginatedContent(txtContent, pageIndex, totalPages)
+                  : ttsState !== 'idle' && activeSegmentIndex >= 0
+                    ? renderHighlightedContent(txtContent)
+                    : txtContent
               )}
             </div>
             {/* 底部哨兵元素：用于 IntersectionObserver 检测滚动到末尾 */}
@@ -908,6 +970,20 @@ function ReaderPage() {
               >
                 快
               </button>
+            </div>
+
+            {/* 音量控制 */}
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-gray-500 dark:text-gray-400 mr-1" title="音量">🔊</span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={ttsVolume}
+                onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                className="w-20 h-1.5 rounded-full accent-blue-500 cursor-pointer"
+              />
             </div>
           </div>
         </div>
