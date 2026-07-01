@@ -3,6 +3,16 @@
  * 封装后端 TTS API 调用，包括设置管理、音色查询、连接测试、语音合成
  */
 
+import { getToken } from './authService';
+
+/**
+ * 获取认证请求头（自动附加 Bearer token）
+ */
+function getAuthHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export interface TTSource {
   id: string;
   name: string;
@@ -72,7 +82,7 @@ export async function testConnection(source: string): Promise<HealthResult> {
  * 获取 TTS 设置
  */
 export async function fetchTTSSettings(): Promise<TTSSettings> {
-  const res = await fetch(`${API_BASE}/settings`);
+  const res = await fetch(`${API_BASE}/settings`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error('Failed to fetch TTS settings');
   const json = await res.json();
   if (!json.success) throw new Error(json.error || 'Failed to fetch TTS settings');
@@ -85,7 +95,7 @@ export async function fetchTTSSettings(): Promise<TTSSettings> {
 export async function saveTTSSettings(settings: Partial<TTSSettings>): Promise<TTSSettings> {
   const res = await fetch(`${API_BASE}/settings`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify(settings),
   });
   if (!res.ok) throw new Error('Failed to save TTS settings');
@@ -98,7 +108,7 @@ export async function saveTTSSettings(settings: Partial<TTSSettings>): Promise<T
  * 清除 TTS 音频缓存
  */
 export async function clearTTSCache(): Promise<{ deleted: number }> {
-  const res = await fetch(`${API_BASE}/cache/clear`, { method: 'POST' });
+  const res = await fetch(`${API_BASE}/cache/clear`, { method: 'POST', headers: getAuthHeaders() });
   if (!res.ok) throw new Error('Failed to clear TTS cache');
   const json = await res.json();
   if (!json.success) throw new Error(json.error || 'Failed to clear TTS cache');

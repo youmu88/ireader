@@ -10,6 +10,7 @@
  */
 
 import { fetchTTSSettings } from './ttsService';
+import { getToken } from './authService';
 
 // ===== 类型定义 =====
 
@@ -452,9 +453,13 @@ export class TTSPlayer {
   }
 
   private async fetchTTSAudio(text: string): Promise<ArrayBuffer> {
+    const token = getToken();
     const res = await fetch('/api/tts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({
         input: text,
         voice: this.voice,

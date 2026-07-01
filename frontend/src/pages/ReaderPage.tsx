@@ -119,6 +119,18 @@ function ReaderPage() {
   } | null>(null);
   const [cachingInProgress, setCachingInProgress] = useState(false);
 
+  // ── 服务端统计信息（阅读进度 + 语音预合成 + 缓存概况） ──
+  interface ServerBookStats {
+    readingPercentage: number;
+    voiceGenerationRate: number;
+    totalChapters: number;
+    completedVoiceChapters: number;
+    ttsCacheCount: number;
+    cachedChapters: number;
+    cacheType: string | null;
+  }
+  const [serverStats, setServerStats] = useState<ServerBookStats | null>(null);
+
   /** 检查当前书籍的客户端缓存状态 */
   const checkCacheStatus = useCallback(async () => {
     if (!bookId) return;
@@ -136,6 +148,17 @@ function ReaderPage() {
     } catch {
       setCacheStatus(null);
     }
+  }, [bookId]);
+
+  /** 加载服务端统计信息（阅读进度 + 语音预合成 + 缓存概况） */
+  const loadServerStats = useCallback(async () => {
+    if (!bookId) return;
+    try {
+      const res = await axios.get(`/api/books/${bookId}/stats`);
+      if (res.data.success) {
+        setServerStats(res.data.data);
+      }
+    } catch { /* 静默失败 */ }
   }, [bookId]);
 
   /** 缓存当前章节到客户端 */
@@ -256,8 +279,9 @@ function ReaderPage() {
         preloadNextChapters(targetChapter.id);
       }
 
-      // 检查客户端缓存状态
+      // 检查客户端缓存状态 + 加载服务端统计
       checkCacheStatus();
+      loadServerStats();
     } catch (err: any) {
       setError(err.response?.data?.error || '加载图书失败');
     } finally {
@@ -650,6 +674,8 @@ function ReaderPage() {
             clearInterval(sleepTimerIntervalRef.current);
             sleepTimerIntervalRef.current = null;
           }
+          // 播放结束时刷新服务端统计（TTS 缓存可能已增加）
+          loadServerStats();
           // 检查是否还有已追加的下一章内容（TTS 已自动继续播放）
           // 如果没有追加内容（最后一章），走正常章节跳转
           if (player.getOriginalChunkCount() === 0) {
@@ -1340,6 +1366,63 @@ function ReaderPage() {
                   : '⏰ 定时'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 服务端统计面板：阅读进度 + 语音预合成 + 缓存概况 ── */}
+      {serverStats && (
+        <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-2">
+          <div className="flex items-center gap-4 max-w-3xl mx-auto text-xs text-gray-600 dark:text-gray-400 flex-wrap">
+            {/* 阅读进度 */}
+            <span title="阅读进度" className="flex items-center gap-1">
+              📖 阅读 {Math.round(serverStats.readingPercentage * 100)}%
+              <span className="inline-block w-16 h-1.5 bg-gray-300 dark:bg-gray-600 rounded-full overflow-hidden align-middle">
+                <span
+                  className="block h-full bg-blue-500 rounded-full"
+                  style={{ width: `${Math.round(serverStats.readingPercentage * 100)}%` }}
+                />
+              </span>
+            </span>
+
+            {/* 章节进度 */}
+            <span title="章节进度">
+              {currentChapter
+                ? `📑 ${chapters.findIndex((c) => c.id === currentChapter.id) + 1}/${serverStats.totalChapters}章`
+                : `📑 共${serverStats.totalChapters}章`}
+            </span>
+
+            {/* 语音预合成进度 */}
+            <span title="后台语音预合成进度" className="flex items-center gap-1">
+              🔊 预合成 {serverStats.completedVoiceChapters}/{serverStats.totalChapters}章
+              ({Math.round(serverStats.voiceGenerationRate * 100)}%)
+              <span className="inline-block w-16 h-1.5 bg-gray-300 dark:bg-gray-600 rounded-full overflow-hidden align-middle">
+                <span
+                  className="block h-full bg-green-500 rounded-full"
+                  style={{ width: `${Math.round(serverStats.voiceGenerationRate * 100)}%` }}
+                />
+              </span>
+            </span>
+
+            {/* TTS 音频缓存 */}
+            {serverStats.ttsCacheCount !== undefined && serverStats.ttsCacheCount > 0 && (
+              <span title="服务端 TTS 音频缓存条目数">🎙️ 语音缓存 {serverStats.ttsCacheCount}条</span>
+            )}
+
+            {/* 内容缓存 */}
+            {serverStats.cachedChapters > 0 && (
+              <span title="服务端内容缓存章节数">
+                💾 内容缓存 {serverStats.cachedChapters}章
+                {serverStats.cacheType ? `（${serverStats.cacheType === 'full_book' ? '全书' : '部分'}）` : ''}
+              </span>
+            )}
+
+            {/* 客户端离线缓存 */}
+            {cacheStatus && cacheStatus.chapterCount > 0 && (
+              <span title="客户端离线缓存（IndexedDB）">
+                📦 离线 {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章
+              </span>
+            )}
           </div>
         </div>
       )}

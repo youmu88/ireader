@@ -6,7 +6,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { sql } from 'drizzle-orm';
-import { voiceCache, ttsCache } from '../db/schema.js';
+import { voiceCache, ttsCache, bookChapters, ttsGenerationJobs } from '../db/schema.js';
 import fs from 'fs';
 
 const MAX_VOICES_PER_BOOK = 3;
@@ -139,15 +139,12 @@ export function getBookVoiceStats(
   bookId: string,
   userId: string,
 ): { totalChapters: number; generatedChapters: number; currentVoice: string | null } {
-  const { bookChapters: bc } = require('../db/schema.js');
-  const totalChapters = db.select({ count: sql<number>`count(*)` }).from(bc)
+  const totalChapters = db.select({ count: sql<number>`count(*)` }).from(bookChapters)
     .where(sql`book_id = ${bookId}`)
     .get()?.count ?? 0;
 
   // 统计已生成语音的章节数（通过 tts_generation_jobs 表）
-  const generatedChapters = db.select({ count: sql<number>`count(*)` }).from(
-    require('../db/schema.js').ttsGenerationJobs
-  )
+  const generatedChapters = db.select({ count: sql<number>`count(*)` }).from(ttsGenerationJobs)
     .where(sql`book_id = ${bookId} AND user_id = ${userId} AND status = 'completed'`)
     .get()?.count ?? 0;
 

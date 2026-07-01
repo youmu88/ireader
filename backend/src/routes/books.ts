@@ -4,10 +4,11 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { sql } from 'drizzle-orm';
-import { books, bookChapters, readingProgress } from '../db/schema.js';
+import { books, bookChapters, readingProgress, ttsGenerationJobs, ttsSettings, ttsCache } from '../db/schema.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requireAuth } from '../middleware/auth.js';
 import { parseBook, getChapterContent, parseTxt } from '../parser/index.js';
+import { getBookCacheStats } from '../services/contentCacheService.js';
 
 /**
  * Simple string hash (djb2) for deterministic hue generation.
@@ -405,8 +406,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       const bookId = req.params.id;
       const { voice, speed, chapterCount } = req.body;
 
-      // 获取当前 TTS 设置
-      const { ttsSettings } = await import('../db/schema.js');
+      // 获取当前 TTS 设置（ttsSettings 已通过顶部静态导入）
       const settings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
       const ttsVoice = voice || settings?.voiceId || 'zf_xiaobei';
       const ttsSpeed = speed ?? settings?.speed ?? 1.0;
@@ -431,7 +431,6 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     try {
       const userId = req.user!.userId;
       const bookId = req.params.id;
-      const { ttsGenerationJobs } = require('../db/schema.js');
       const jobs = db.select().from(ttsGenerationJobs)
         .where(sql`book_id = ${bookId} AND user_id = ${userId}`)
         .orderBy(sql`created_at DESC`)
@@ -457,20 +456,23 @@ export function createBooksRouter(db: any, dataDir: string): Router {
         .get();
       const readingPercentage = progress?.percentage ?? 0;
 
-      // 语音生成率
+      // 语音生成率（后台 TTS 预生成任务）
       const totalChapters = db.select({ count: sql<number>`count(*)` }).from(bookChapters)
         .where(sql`book_id = ${bookId}`)
         .get()?.count ?? 0;
 
-      const { ttsGenerationJobs } = require('../db/schema.js');
       const completedJobs = db.select({ count: sql<number>`count(*)` }).from(ttsGenerationJobs)
         .where(sql`book_id = ${bookId} AND user_id = ${userId} AND status = 'completed'`)
         .get()?.count ?? 0;
 
       const voiceGenerationRate = totalChapters > 0 ? Math.min(1, completedJobs / totalChapters) : 0;
 
-      // 缓存统计
-      const { getBookCacheStats } = require('../services/contentCacheService.js');
+      // TTS 音频缓存总数（用户级别的全局缓存条目数）
+      const ttsCacheCount = db.select({ count: sql<number>`count(*)` }).from(ttsCache)
+        .where(sql`user_id = ${userId}`)
+        .get()?.count ?? 0;
+
+      // 内容缓存统计（已通过顶部静态导入 getBookCacheStats）
       const cacheStats = getBookCacheStats(db, bookId, userId);
 
       res.json({
@@ -480,6 +482,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
           voiceGenerationRate,
           totalChapters,
           completedVoiceChapters: completedJobs,
+          ttsCacheCount,
           cachedChapters: cacheStats.cachedChapters,
           cacheType: cacheStats.cacheType,
         },
