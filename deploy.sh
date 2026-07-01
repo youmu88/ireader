@@ -175,9 +175,52 @@ create_directories() {
 }
 
 # ============================================================
+# 查找并终止所有占用目标端口的进程（端口级清理，更彻底）
+# ============================================================
+kill_processes_on_port() {
+  local port=$1
+
+  if ! command -v lsof &>/dev/null; then
+    log "lsof 不可用，跳过端口级进程清理"
+    return
+  fi
+
+  local pids
+  pids="$(lsof -ti \":${port}\" 2>/dev/null || true)"
+  if [ -n "${pids}" ]; then
+    log "发现端口 ${port} 被以下进程占用: $(echo "${pids}" | tr '\n' ' ')"
+    for pid in ${pids}; do
+      if [ "${pid}" = "$$" ] || [ "${pid}" = "${PPID:-}" ]; then
+        continue
+      fi
+      log "  终止进程 (PID: ${pid})..."
+      kill "${pid}" 2>/dev/null || true
+    done
+    sleep 2
+    local remaining
+    remaining="$(lsof -ti \":${port}\" 2>/dev/null || true)"
+    if [ -n "${remaining}" ]; then
+      log "部分进程未响应，强制终止: $(echo "${remaining}" | tr '\n' ' ')"
+      for pid in ${remaining}; do
+        kill -9 "${pid}" 2>/dev/null || true
+      done
+      sleep 1
+    fi
+    log "端口 ${port} 已释放"
+  else
+    log "端口 ${port} 未被占用"
+  fi
+}
+
+
+# ============================================================
 # 停止旧实例
 # ============================================================
 stop_old_instance() {
+  # 方式1: 基于端口的进程清理（可发现 PID 文件未追踪的残留进程）
+  kill_processes_on_port "${PORT}"
+
+  # 方式2: 基于 PID 文件的进程清理（向后兼容）
   if [ -f "${PID_FILE}" ]; then
     local old_pid
     old_pid="$(cat "${PID_FILE}")"
@@ -201,7 +244,7 @@ stop_old_instance() {
     fi
     rm -f "${PID_FILE}"
   else
-    log "未发现运行中的旧实例"
+    log "未发现运行中的旧实例（PID 文件）"
   fi
 }
 
