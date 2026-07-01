@@ -4,6 +4,7 @@ import path from 'path';
 import { initDatabase } from './db/init.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import healthRouter from './routes/health.js';
+import { createAuthRouter } from './routes/auth.js';
 import { createBooksRouter } from './routes/books.js';
 import { createCategoriesRouter } from './routes/categories.js';
 import { createProgressRouter } from './routes/progress.js';
@@ -30,6 +31,7 @@ app.use(express.static(staticDir));
 
 // API routes
 app.use('/api', healthRouter);
+app.use('/api/auth', createAuthRouter(db));
 app.use('/api/books', createBooksRouter(db, DATA_DIR));
 app.use('/api/categories', createCategoriesRouter(db));
 app.use('/api', createProgressRouter(db));

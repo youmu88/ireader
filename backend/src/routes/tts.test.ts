@@ -9,6 +9,7 @@ import request from 'supertest';
 import path from 'path';
 import fs from 'fs';
 import { initDatabase } from '../db/init.js';
+import { createAuthRouter } from './auth.js';
 import { createTtsRouter } from './tts.js';
 import { errorHandler } from '../middleware/errorHandler.js';
 
@@ -16,6 +17,7 @@ describe('TTS Routes', () => {
   const testId = `tts-test-${Date.now()}`;
   const testDbPath = path.join('/tmp', `${testId}.sqlite`);
   let app: express.Express;
+  let authToken: string;
   let ttsAvailable = false;
 
   beforeAll(async () => {
@@ -30,8 +32,15 @@ describe('TTS Routes', () => {
     const db = initDatabase(testDbPath);
     app = express();
     app.use(express.json());
+    app.use('/api/auth', createAuthRouter(db));
     app.use('/api/tts', createTtsRouter(db));
     app.use(errorHandler);
+
+    // Register a test user and get token
+    const registerRes = await request(app)
+      .post('/api/auth/register')
+      .send({ username: 'tts-test-user', password: 'test123456' });
+    authToken = registerRes.body.data.token;
   });
 
   afterAll(() => {
@@ -94,6 +103,7 @@ describe('TTS Routes', () => {
     it('should synthesize audio or return error gracefully', async () => {
       const res = await request(app)
         .post('/api/tts')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({ input: '你好世界', voice: 'zf_xiaobei' });
       if (ttsAvailable) {
         expect(res.status).toBe(200);
@@ -121,7 +131,6 @@ describe('TTS Routes', () => {
         }
       } catch (err: any) {
         // 当 TTS 服务不可用时，某些环境可能抛出 ECONNRESET
-        // 而非返回正常 HTTP 响应，这是可接受的降级行为
         if (!ttsAvailable && (err.code === 'ECONNRESET' || err.message?.includes('socket hang up'))) {
           return; // TTS 服务未运行，连接被重置属于正常行为
         }
@@ -132,7 +141,9 @@ describe('TTS Routes', () => {
 
   describe('GET /api/tts/settings', () => {
     it('should return TTS settings from database', async () => {
-      const res = await request(app).get('/api/tts/settings');
+      const res = await request(app)
+        .get('/api/tts/settings')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('source');
@@ -141,7 +152,9 @@ describe('TTS Routes', () => {
     });
 
     it('should have default values', async () => {
-      const res = await request(app).get('/api/tts/settings');
+      const res = await request(app)
+        .get('/api/tts/settings')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.body.data.source).toBe('kokoro');
       expect(res.body.data.voiceId).toBe('zf_xiaobei');
       expect(res.body.data.speed).toBe(1.0);
@@ -153,6 +166,7 @@ describe('TTS Routes', () => {
     it('should update TTS settings', async () => {
       const res = await request(app)
         .put('/api/tts/settings')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({ source: 'megatts3', voiceId: 'voice1', speed: 1.5 });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -162,7 +176,9 @@ describe('TTS Routes', () => {
     });
 
     it('should persist updated settings', async () => {
-      const res = await request(app).get('/api/tts/settings');
+      const res = await request(app)
+        .get('/api/tts/settings')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.body.data.source).toBe('megatts3');
       expect(res.body.data.voiceId).toBe('voice1');
     });
@@ -170,9 +186,12 @@ describe('TTS Routes', () => {
     it('should allow partial updates', async () => {
       await request(app)
         .put('/api/tts/settings')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({ speed: 0.8 });
 
-      const res = await request(app).get('/api/tts/settings');
+      const res = await request(app)
+        .get('/api/tts/settings')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.body.data.speed).toBe(0.8);
       expect(res.body.data.source).toBe('megatts3'); // should keep previous value
     });

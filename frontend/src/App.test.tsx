@@ -5,19 +5,7 @@ import { ThemeProvider } from './services/themeService';
 import App from './App';
 
 describe('App', () => {
-  it('should render the bookshelf page in loading state by default', () => {
-    render(
-      <BrowserRouter>
-        <ThemeProvider>
-          <App />
-        </ThemeProvider>
-      </BrowserRouter>
-    );
-    // Initial render shows loading state before API responds
-    expect(screen.getByText('加载中...')).toBeDefined();
-  });
-
-  it('should render navigation links', () => {
+  it('should render login page when not authenticated', () => {
     render(
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <ThemeProvider>
@@ -25,8 +13,8 @@ describe('App', () => {
         </ThemeProvider>
       </BrowserRouter>
     );
-    expect(screen.getByText('书架')).toBeDefined();
-    expect(screen.getByText('设置')).toBeDefined();
+    // When not authenticated, show login page
+    expect(screen.getByText('登录你的账号')).toBeDefined();
   });
 
   it('should render app title', () => {

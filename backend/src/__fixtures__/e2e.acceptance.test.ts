@@ -13,6 +13,16 @@
  *   - README 可指导启动和部署
  *   - 无阻塞级 bug
  */
+/**
+ * iReader E2E 全链路验收测试（带账号鉴权）
+ * =======================================
+ * 覆盖完整用户路径：
+ *   注册/登录 → 上传 EPUB → 阅读 → 保存进度 → 恢复
+ *   上传 TXT  → 阅读 → 保存进度 → 恢复
+ *   分类筛选、设置
+ *
+ * 所有 API 请求均需附带 Bearer Token（除 health/auth 外）
+ */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
 import request from 'supertest';
@@ -20,6 +30,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { initDatabase } from '../db/init.js';
+import { createAuthRouter } from '../routes/auth.js';
 import { createBooksRouter } from '../routes/books.js';
 import { createCategoriesRouter } from '../routes/categories.js';
 import { createProgressRouter } from '../routes/progress.js';
@@ -37,24 +48,32 @@ describe('E2E Full Flow Acceptance', () => {
   const testDataDir = path.join('/tmp', testId);
   let app: express.Express;
   let db: ReturnType<typeof initDatabase>;
+  let authToken: string;
   let epubId: string;
   let txtId: string;
-  let categoryId: string;
   let epubChapterIds: string[] = [];
   let txtChapterIds: string[] = [];
+  const auth = () => ({ 'Authorization': `Bearer ${authToken}` });
 
-  beforeAll(() => {
+  beforeAll(async () => {
     fs.mkdirSync(testDataDir, { recursive: true });
     db = initDatabase(testDbPath);
 
     app = express();
     app.use(express.json());
+    app.use('/api/auth', createAuthRouter(db));
     app.use('/api', healthRouter);
     app.use('/api/books', createBooksRouter(db, testDataDir));
     app.use('/api/categories', createCategoriesRouter(db));
     app.use('/api', createProgressRouter(db));
     app.use('/api/tts', createTtsRouter(db, testDataDir));
     app.use(errorHandler);
+
+    // Register + Login to get auth token
+    const registerRes = await request(app)
+      .post('/api/auth/register')
+      .send({ username: 'e2e-user', password: 'e2epass123' });
+    authToken = registerRes.body.data.token;
   });
 
   afterAll(() => {
@@ -82,7 +101,7 @@ describe('E2E Full Flow Acceptance', () => {
   // ════════════════════════════════════════════
   describe('2. Categories', () => {
     it('should have default "未分类" category', async () => {
-      const res = await request(app).get('/api/categories');
+      const res = await request(app).get('/api/categories').set(auth());
       expect(res.status).toBe(200);
       const uncategorized = res.body.data.find((c: any) => c.name === '未分类');
       expect(uncategorized).toBeDefined();
@@ -91,14 +110,14 @@ describe('E2E Full Flow Acceptance', () => {
     it('POST /api/categories should create a category', async () => {
       const res = await request(app)
         .post('/api/categories')
+        .set(auth())
         .send({ name: '科幻小说' });
       expect(res.status).toBe(201);
       expect(res.body.data.name).toBe('科幻小说');
-      categoryId = res.body.data.id;
     });
 
     it('GET /api/categories should list all categories', async () => {
-      const res = await request(app).get('/api/categories');
+      const res = await request(app).get('/api/categories').set(auth());
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBeGreaterThanOrEqual(2);
     });
@@ -115,6 +134,7 @@ describe('E2E Full Flow Acceptance', () => {
 
       const res = await request(app)
         .post('/api/books/upload')
+        .set(auth())
         .attach('files', epubPath)
 
       expect(res.status).toBe(201);
@@ -128,7 +148,7 @@ describe('E2E Full Flow Acceptance', () => {
     });
 
     it('3.2 should get chapters list', async () => {
-      const res = await request(app).get(`/api/books/${epubId}/chapters`);
+      const res = await request(app).get(`/api/books/${epubId}/chapters`).set(auth());
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.length).toBeGreaterThanOrEqual(3);
@@ -136,7 +156,7 @@ describe('E2E Full Flow Acceptance', () => {
     });
 
     it('3.3 should get book details', async () => {
-      const res = await request(app).get(`/api/books/${epubId}`);
+      const res = await request(app).get(`/api/books/${epubId}`).set(auth());
       expect(res.status).toBe(200);
       expect(res.body.data.id).toBe(epubId);
       expect(res.body.data.title).toBe('三体：科学边界');
@@ -145,6 +165,7 @@ describe('E2E Full Flow Acceptance', () => {
     it('3.4 should save reading progress at 30%', async () => {
       const res = await request(app)
         .put(`/api/books/${epubId}/progress`)
+        .set(auth())
         .send({
           chapterId: epubChapterIds[0],
           percentage: 30,
@@ -155,7 +176,7 @@ describe('E2E Full Flow Acceptance', () => {
     });
 
     it('3.5 should retrieve saved progress', async () => {
-      const res = await request(app).get(`/api/books/${epubId}/progress`);
+      const res = await request(app).get(`/api/books/${epubId}/progress`).set(auth());
       expect(res.status).toBe(200);
       expect(res.body.data).not.toBeNull();
       expect(res.body.data.percentage).toBe(30);
@@ -165,15 +186,16 @@ describe('E2E Full Flow Acceptance', () => {
     it('3.6 should update progress to 75% and verify', async () => {
       const res1 = await request(app)
         .put(`/api/books/${epubId}/progress`)
+        .set(auth())
         .send({ percentage: 75, chapterId: epubChapterIds[1] });
       expect(res1.status).toBe(200);
 
-      const res2 = await request(app).get(`/api/books/${epubId}/progress`);
+      const res2 = await request(app).get(`/api/books/${epubId}/progress`).set(auth());
       expect(res2.body.data.percentage).toBe(75);
     });
 
     it('3.7 should get EPUB file', async () => {
-      const res = await request(app).get(`/api/books/${epubId}/file`);
+      const res = await request(app).get(`/api/books/${epubId}/file`).set(auth());
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toContain('application/epub+zip');
     });
@@ -190,6 +212,7 @@ describe('E2E Full Flow Acceptance', () => {
 
       const res = await request(app)
         .post('/api/books/upload')
+        .set(auth())
         .attach('files', txtPath)
 
       expect(res.status).toBe(201);
@@ -202,34 +225,34 @@ describe('E2E Full Flow Acceptance', () => {
     });
 
     it('4.2 should get TXT chapters', async () => {
-      const res = await request(app).get(`/api/books/${txtId}/chapters`);
+      const res = await request(app).get(`/api/books/${txtId}/chapters`).set(auth());
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBeGreaterThanOrEqual(5);
       txtChapterIds = res.body.data.map((c: any) => c.id);
     });
 
     it('4.3 should read TXT chapter content', async () => {
-      const res = await request(app).get(`/api/books/${txtId}/chapters/${txtChapterIds[0]}/content`);
+      const res = await request(app).get(`/api/books/${txtId}/chapters/${txtChapterIds[0]}/content`).set(auth());
       expect(res.status).toBe(200);
       expect(res.body.data.content).toBeTruthy();
       expect(res.body.data.content.length).toBeGreaterThan(50);
-      // Should contain chapter title
       expect(res.body.data.content).toContain('科学边界');
     });
 
     it('4.4 should save and retrieve TXT progress', async () => {
       await request(app)
         .put(`/api/books/${txtId}/progress`)
+        .set(auth())
         .send({ percentage: 42, chapterId: txtChapterIds[2] });
 
-      const res = await request(app).get(`/api/books/${txtId}/progress`);
+      const res = await request(app).get(`/api/books/${txtId}/progress`).set(auth());
       expect(res.body.data.percentage).toBe(42);
       expect(res.body.data.chapterId).toBe(txtChapterIds[2]);
     });
 
     it('4.5 should read different chapters of TXT', async () => {
       for (let i = 1; i < txtChapterIds.length; i++) {
-        const res = await request(app).get(`/api/books/${txtId}/chapters/${txtChapterIds[i]}/content`);
+        const res = await request(app).get(`/api/books/${txtId}/chapters/${txtChapterIds[i]}/content`).set(auth());
         expect(res.status).toBe(200);
         expect(res.body.data.content.length).toBeGreaterThan(30);
       }
@@ -250,6 +273,7 @@ describe('E2E Full Flow Acceptance', () => {
     it('5.2 should save TTS settings', async () => {
       const res = await request(app)
         .put('/api/tts/settings')
+        .set(auth())
         .send({
           enabled: true,
           source: 'kokoro',
@@ -264,7 +288,7 @@ describe('E2E Full Flow Acceptance', () => {
     });
 
     it('5.3 should read saved TTS settings', async () => {
-      const res = await request(app).get('/api/tts/settings');
+      const res = await request(app).get('/api/tts/settings').set(auth());
       expect(res.status).toBe(200);
       expect(res.body.data.source).toBe('kokoro');
       expect(res.body.data.speed).toBe(1.2);
@@ -273,10 +297,10 @@ describe('E2E Full Flow Acceptance', () => {
     it('5.4 should update TTS settings partially', async () => {
       const res = await request(app)
         .put('/api/tts/settings')
+        .set(auth())
         .send({ speed: 1.5 });
       expect(res.status).toBe(200);
       expect(res.body.data.speed).toBe(1.5);
-      // Previous values should persist
       expect(res.body.data.source).toBe('kokoro');
     });
   });
@@ -286,7 +310,7 @@ describe('E2E Full Flow Acceptance', () => {
   // ════════════════════════════════════════════
   describe('6. Book Management', () => {
     it('6.1 should list all uploaded books', async () => {
-      const res = await request(app).get('/api/books');
+      const res = await request(app).get('/api/books').set(auth());
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBe(2);
     });
@@ -294,23 +318,23 @@ describe('E2E Full Flow Acceptance', () => {
     it('6.2 should update book metadata', async () => {
       const res = await request(app)
         .put(`/api/books/${epubId}`)
+        .set(auth())
         .send({ title: '三体（更新版）' });
       expect(res.status).toBe(200);
       expect(res.body.data.title).toBe('三体（更新版）');
     });
 
     it('6.3 should delete TXT book', async () => {
-      const res = await request(app).delete(`/api/books/${txtId}`);
+      const res = await request(app).delete(`/api/books/${txtId}`).set(auth());
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
 
-      // Verify deletion
-      const listRes = await request(app).get('/api/books');
+      const listRes = await request(app).get('/api/books').set(auth());
       expect(listRes.body.data.length).toBe(1);
     });
 
     it('6.4 should return 404 for deleted book', async () => {
-      const res = await request(app).get(`/api/books/${txtId}`);
+      const res = await request(app).get(`/api/books/${txtId}`).set(auth());
       expect(res.status).toBe(404);
     });
   });
@@ -325,8 +349,8 @@ describe('E2E Full Flow Acceptance', () => {
       try {
         const res = await request(app)
           .post('/api/books/upload')
+          .set(auth())
           .attach('files', invalidPath);
-        // Multer fileFilter will reject .pdf files
         expect(res.status).toBe(400);
       } finally {
         fs.unlinkSync(invalidPath);
@@ -334,7 +358,7 @@ describe('E2E Full Flow Acceptance', () => {
     });
 
     it('7.2 should return 404 for non-existent book', async () => {
-      const res = await request(app).get('/api/books/non-existent-id');
+      const res = await request(app).get('/api/books/non-existent-id').set(auth());
       expect(res.status).toBe(404);
     });
 

@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { initDatabase } from '../db/init.js';
+import { createAuthRouter } from './auth.js';
 import { createBooksRouter } from './books.js';
 import { createCategoriesRouter } from './categories.js';
 import { createProgressRouter } from './progress.js';
@@ -17,19 +18,30 @@ describe('API Integration', () => {
   const testDbPath = path.join('/tmp', `${testId}.sqlite`);
   const testDataDir = path.join('/tmp', testId);
   let app: express.Express;
+  let authToken: string;
+  let testUserId: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     // Create test data directory
     fs.mkdirSync(testDataDir, { recursive: true });
 
     const db = initDatabase(testDbPath);
     app = express();
     app.use(express.json());
+    app.use('/api/auth', createAuthRouter(db));
     app.use('/api', healthRouter);
     app.use('/api/books', createBooksRouter(db, testDataDir));
     app.use('/api/categories', createCategoriesRouter(db));
     app.use('/api', createProgressRouter(db));
     app.use(errorHandler);
+
+    // Register test user and get token
+    const registerRes = await request(app)
+      .post('/api/auth/register')
+      .send({ username: `integ-user`, password: 'test123456', displayName: '测试用户' });
+    expect(registerRes.status).toBe(201);
+    authToken = registerRes.body.data.token;
+    testUserId = registerRes.body.data.userId;
   });
 
   afterAll(() => {
@@ -37,14 +49,6 @@ describe('API Integration', () => {
     try {
       if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
       if (fs.existsSync(testDataDir)) fs.rmSync(testDataDir, { recursive: true, force: true });
-    } catch { /* ignore */ }
-  });
-
-  afterAll(() => {
-    try {
-      if (fs.existsSync(testDbPath)) {
-        fs.unlinkSync(testDbPath);
-      }
     } catch { /* ignore */ }
   });
 
@@ -59,6 +63,41 @@ describe('API Integration', () => {
     });
   });
 
+  // ── Auth ──
+  describe('Auth API', () => {
+    it('POST /api/auth/login should login', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({ username: `integ-user`, password: 'test123456' });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.token).toBeTruthy();
+      expect(res.body.data.username).toBe(`integ-user`);
+    });
+
+    it('POST /api/auth/register should reject duplicate username', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({ username: `integ-user`, password: 'test123456' });
+      expect(res.status).toBe(409);
+    });
+
+    it('POST /api/auth/login should reject wrong password', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({ username: `integ-user`, password: 'wrongpass' });
+      expect(res.status).toBe(401);
+    });
+
+    it('GET /api/auth/me should return user info', async () => {
+      const res = await request(app)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.username).toBe(`integ-user`);
+    });
+  });
+
   // ── Categories ──
   describe('Categories CRUD', () => {
     let categoryId: string;
@@ -66,6 +105,7 @@ describe('API Integration', () => {
     it('POST /api/categories should create a category', async () => {
       const res = await request(app)
         .post('/api/categories')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({ name: '科幻' });
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
@@ -76,13 +116,16 @@ describe('API Integration', () => {
     it('POST /api/categories should reject empty name', async () => {
       const res = await request(app)
         .post('/api/categories')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({ name: '' });
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
     });
 
     it('GET /api/categories should list categories', async () => {
-      const res = await request(app).get('/api/categories');
+      const res = await request(app)
+        .get('/api/categories')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.length).toBeGreaterThanOrEqual(1);
@@ -95,6 +138,7 @@ describe('API Integration', () => {
     it('PUT /api/categories/:id should update category name', async () => {
       const res = await request(app)
         .put(`/api/categories/${categoryId}`)
+        .set('Authorization', `Bearer ${authToken}`)
         .send({ name: '科幻小说' });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -103,18 +147,23 @@ describe('API Integration', () => {
     it('PUT /api/categories/:id should reject invalid id', async () => {
       const res = await request(app)
         .put('/api/categories/non-existent')
+        .set('Authorization', `Bearer ${authToken}`)
         .send({ name: '测试' });
       expect(res.status).toBe(404);
     });
 
     it('DELETE /api/categories/:id should delete category', async () => {
-      const res = await request(app).delete(`/api/categories/${categoryId}`);
+      const res = await request(app)
+        .delete(`/api/categories/${categoryId}`)
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
     });
 
     it('DELETE /api/categories/:id should reject non-existent', async () => {
-      const res = await request(app).delete('/api/categories/non-existent');
+      const res = await request(app)
+        .delete('/api/categories/non-existent')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(404);
     });
   });
@@ -124,22 +173,26 @@ describe('API Integration', () => {
     let bookId: string;
 
     it('GET /api/books should return empty list initially', async () => {
-      const res = await request(app).get('/api/books');
+      const res = await request(app)
+        .get('/api/books')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
     });
 
-    // POST /api/books/upload will be tested after upload implementation
-
     it('GET /api/books/:id should return 404 for non-existent', async () => {
-      const res = await request(app).get('/api/books/non-existent');
+      const res = await request(app)
+        .get('/api/books/non-existent')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(404);
       expect(res.body.success).toBe(false);
     });
 
     it('DELETE /api/books/:id should return 404 for non-existent', async () => {
-      const res = await request(app).delete('/api/books/non-existent');
+      const res = await request(app)
+        .delete('/api/books/non-existent')
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(404);
       expect(res.body.success).toBe(false);
     });
@@ -150,13 +203,16 @@ describe('API Integration', () => {
     const testBookId = uuidv4();
 
     it('GET /api/books/:id/progress should return 404 for non-existent book', async () => {
-      const res = await request(app).get(`/api/books/${testBookId}/progress`);
+      const res = await request(app)
+        .get(`/api/books/${testBookId}/progress`)
+        .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(404);
     });
 
     it('PUT /api/books/:id/progress should return 404 for non-existent book', async () => {
       const res = await request(app)
         .put(`/api/books/${testBookId}/progress`)
+        .set('Authorization', `Bearer ${authToken}`)
         .send({ percentage: 50 });
       expect(res.status).toBe(404);
     });

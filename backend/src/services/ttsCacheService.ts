@@ -61,12 +61,16 @@ export function findCache(
   text: string,
   voice: string,
   speed: number,
+  userId?: string,
 ): CacheEntry | null {
   const textHash = generateCacheKey(text, voice, speed);
-  const result = db.select()
+  let query: any = db.select()
     .from(ttsCache)
-    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed}`)
-    .get();
+    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed}`);
+  if (userId) {
+    query = query.where(sql`user_id = ${userId}`);
+  }
+  const result = query.get();
   return result || null;
 }
 
@@ -94,6 +98,7 @@ export function saveToCache(
   speed: number,
   audioBuffer: Buffer,
   format: string = 'wav',
+  userId?: string,
 ): CacheEntry {
   const textHash = generateCacheKey(text, voice, speed);
   const cacheDir = getCacheDir(dataDir);
@@ -104,11 +109,14 @@ export function saveToCache(
 
   const now = new Date().toISOString();
 
-  // 检查是否已有记录
-  const existing = db.select()
+  // 检查是否已有记录（按用户隔离）
+  let query: any = db.select()
     .from(ttsCache)
-    .where(sql`text_hash = ${textHash}`)
-    .get();
+    .where(sql`text_hash = ${textHash}`);
+  if (userId) {
+    query = query.where(sql`user_id = ${userId}`);
+  }
+  const existing = query.get();
 
   if (existing) {
     // 更新已有记录
@@ -123,6 +131,7 @@ export function saveToCache(
   const id = uuidv4();
   db.insert(ttsCache).values({
     id,
+    userId: userId || 'default-user',
     textHash,
     voice,
     speed,
@@ -171,8 +180,13 @@ export function clearCacheByText(
 export function clearAllCache(
   db: ReturnType<typeof import('../db/init.js').initDatabase>,
   dataDir: string,
+  userId?: string,
 ): number {
-  const allEntries = db.select().from(ttsCache).all();
+  let query: any = db.select().from(ttsCache);
+  if (userId) {
+    query = query.where(sql`user_id = ${userId}`);
+  }
+  const allEntries = query.all();
   let deleted = 0;
   for (const entry of allEntries) {
     try {
@@ -180,7 +194,11 @@ export function clearAllCache(
         fs.unlinkSync(entry.audioPath);
       }
     } catch { /* 忽略 */ }
-    db.delete(ttsCache).where(sql`id = ${entry.id}`).run();
+    let delQuery: any = db.delete(ttsCache).where(sql`id = ${entry.id}`);
+    if (userId) {
+      delQuery = delQuery.where(sql`user_id = ${userId}`);
+    }
+    delQuery.run();
     deleted++;
   }
   return deleted;

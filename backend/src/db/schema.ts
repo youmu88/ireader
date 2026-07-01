@@ -1,7 +1,18 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
 
+// ── 用户表 ──
+export const users = sqliteTable('users', {
+  id: text('id').primaryKey(),
+  username: text('username').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  displayName: text('display_name'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
 export const books = sqliteTable('books', {
   id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   author: text('author'),
   format: text('format', { enum: ['epub', 'txt'] }).notNull(),
@@ -17,6 +28,7 @@ export const books = sqliteTable('books', {
 
 export const categories = sqliteTable('categories', {
   id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   parentId: text('parent_id'),
   sort: integer('sort').notNull().default(0),
@@ -35,6 +47,7 @@ export const bookChapters = sqliteTable('book_chapters', {
 
 export const readingProgress = sqliteTable('reading_progress', {
   id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
   chapterId: text('chapter_id'),
   cfi: text('cfi'),
@@ -46,11 +59,13 @@ export const readingProgress = sqliteTable('reading_progress', {
 
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   value: text('value').notNull(),
 });
 
 export const ttsCache = sqliteTable('tts_cache', {
   id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   textHash: text('text_hash').notNull(),
   voice: text('voice').notNull(),
   speed: real('speed').notNull(),
@@ -58,9 +73,8 @@ export const ttsCache = sqliteTable('tts_cache', {
   createdAt: text('created_at').notNull(),
 });
 
-
 export const ttsSettings = sqliteTable('tts_settings', {
-  id: integer('id').primaryKey(),
+  userId: text('user_id').primaryKey().notNull().references(() => users.id, { onDelete: 'cascade' }),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   source: text('source').notNull().default('kokoro'),
   voiceId: text('voice_id').notNull().default('zf_xiaobei'),

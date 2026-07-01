@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema.js';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 
 export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
   const resolvedPath = dbPath || path.join(process.env.DATA_DIR || process.cwd(), 'ireader.sqlite');
@@ -18,10 +19,20 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
   
   const db = drizzle(sqlite, { schema });
   
-  // Create tables
+  // Create tables (new version with user_id support)
   sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      display_name TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS books (
       id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       author TEXT,
       format TEXT NOT NULL CHECK(format IN ('epub', 'txt')),
@@ -37,6 +48,7 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
 
     CREATE TABLE IF NOT EXISTS categories (
       id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       parent_id TEXT,
       sort INTEGER NOT NULL DEFAULT 0
@@ -55,6 +67,7 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
 
     CREATE TABLE IF NOT EXISTS reading_progress (
       id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
       chapter_id TEXT,
       cfi TEXT,
@@ -66,11 +79,13 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
 
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       value TEXT NOT NULL
     );
 
-        CREATE TABLE IF NOT EXISTS tts_cache (
+    CREATE TABLE IF NOT EXISTS tts_cache (
       id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       text_hash TEXT NOT NULL,
       voice TEXT NOT NULL,
       speed REAL NOT NULL,
@@ -78,9 +93,8 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       created_at TEXT NOT NULL
     );
 
-
-CREATE TABLE IF NOT EXISTS tts_settings (
-      id INTEGER PRIMARY KEY CHECK(id = 1),
+    CREATE TABLE IF NOT EXISTS tts_settings (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       enabled INTEGER NOT NULL DEFAULT 1,
       source TEXT NOT NULL DEFAULT 'kokoro',
       voice_id TEXT NOT NULL DEFAULT 'zf_xiaobei',
@@ -92,19 +106,67 @@ CREATE TABLE IF NOT EXISTS tts_settings (
     );
   `);
 
-  // Insert default settings if not exists
-  const defaultTtsSettings = sqlite.prepare('SELECT id FROM tts_settings WHERE id = 1').get();
-  if (!defaultTtsSettings) {
-    sqlite.prepare(`
-      INSERT INTO tts_settings (id, enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
-      VALUES (1, 1, 'kokoro', 'zf_xiaobei', 1.0, 3, 32, 128, ?)
-    `).run(new Date().toISOString());
-  }
+  // ── 旧表迁移：检查是否需要从旧版升级 ──
+  const userCount = sqlite.prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number };
+  if (userCount.cnt === 0) {
+    // 创建默认管理员用户（密码：admin123）
+    const defaultUserId = 'default-user';
+    const salt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = crypto.pbkdf2Sync('admin123', salt, 100000, 64, 'sha512').toString('hex');
+    const fullHash = `${salt}:${passwordHash}`;
+    const now = new Date().toISOString();
 
-  // Insert default category if not exists
-  const defaultCat = sqlite.prepare("SELECT id FROM categories WHERE name = '未分类'").get();
-  if (!defaultCat) {
-    sqlite.prepare("INSERT INTO categories (id, name, sort) VALUES (?, '未分类', 0)").run('default-uncategorized');
+    sqlite.prepare(`
+      INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(defaultUserId, 'admin', fullHash, '管理员', now, now);
+
+    // 检查旧表是否有数据需要迁移
+    const oldBooksCount = sqlite.prepare('SELECT COUNT(*) as cnt FROM books').get() as { cnt: number };
+
+    if (oldBooksCount.cnt > 0) {
+      // 检查 books 表是否有 user_id 列（旧表没有则已用新 DDL 重建，需要从临时表迁移）
+      const columns = sqlite.prepare("PRAGMA table_info('books')").all() as { name: string }[];
+      const hasUserId = columns.some(c => c.name === 'user_id');
+
+      if (!hasUserId) {
+        // 旧版表结构：数据在旧表中，新表是空的
+        // 直接将旧数据复制到新表
+        sqlite.exec(`
+          INSERT OR IGNORE INTO categories (id, user_id, name, parent_id, sort)
+          SELECT id, '${defaultUserId}', name, parent_id, sort FROM categories
+          WHERE id NOT IN (SELECT id FROM categories WHERE user_id = '${defaultUserId}');
+
+          INSERT OR IGNORE INTO reading_progress (id, user_id, book_id, chapter_id, cfi, text_offset, percentage, page_index, updated_at)
+          SELECT id, '${defaultUserId}', book_id, chapter_id, cfi, text_offset, percentage, page_index, updated_at FROM reading_progress;
+
+          INSERT OR IGNORE INTO settings (key, user_id, value)
+          SELECT key, '${defaultUserId}', value FROM settings;
+
+          INSERT OR IGNORE INTO tts_cache (id, user_id, text_hash, voice, speed, audio_path, created_at)
+          SELECT id, '${defaultUserId}', text_hash, voice, speed, audio_path, created_at FROM tts_cache;
+
+          INSERT OR IGNORE INTO tts_settings (user_id, enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
+          SELECT '${defaultUserId}', enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at FROM tts_settings;
+        `);
+      }
+    }
+
+    // 为新用户创建默认分类
+    const defaultCat = sqlite.prepare("SELECT id FROM categories WHERE user_id = ? AND name = '未分类'").get(defaultUserId);
+    if (!defaultCat) {
+      sqlite.prepare("INSERT INTO categories (id, user_id, name, sort) VALUES (?, ?, '未分类', 0)")
+        .run(crypto.randomUUID(), defaultUserId);
+    }
+
+    // 为新用户创建默认 TTS 设置
+    const ttsExist = sqlite.prepare('SELECT user_id FROM tts_settings WHERE user_id = ?').get(defaultUserId);
+    if (!ttsExist) {
+      sqlite.prepare(`
+        INSERT INTO tts_settings (user_id, enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
+        VALUES (?, 1, 'kokoro', 'zf_xiaobei', 1.0, 3, 32, 128, ?)
+      `).run(defaultUserId, now);
+    }
   }
 
   return db;

@@ -6,6 +6,7 @@ import multer from 'multer';
 import { sql } from 'drizzle-orm';
 import { books, bookChapters, readingProgress } from '../db/schema.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { requireAuth } from '../middleware/auth.js';
 import { parseBook, getChapterContent, parseTxt } from '../parser/index.js';
 
 /**
@@ -68,7 +69,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
    * Process a single uploaded file: save, parse, insert into DB.
    * Returns the final book record or null on failure.
    */
-  const processUpload = async (file: Express.Multer.File, now: string): Promise<any> => {
+  const processUpload = async (file: Express.Multer.File, now: string, userId: string): Promise<any> => {
     const ext = path.extname(file.originalname).toLowerCase();
     const format = ext === '.epub' ? 'epub' : 'txt';
     const bookId = uuidv4();
@@ -84,6 +85,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     // Create book record (processing)
     const bookRecord = {
       id: bookId,
+      userId,
       title: path.basename(file.originalname, ext),
       author: null,
       format,
@@ -150,7 +152,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   };
 
   // ── POST /api/books/upload - 上传图书（支持多文件）──
-  router.post('/upload', upload.array('files', 10), async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/upload', requireAuth, upload.array('files', 10), async (req: Request, res: Response, next: NextFunction) => {
     try {
       const files = req.files as Express.Multer.File[] | undefined;
       if (!files || files.length === 0) {
@@ -159,9 +161,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
 
       const now = new Date().toISOString();
       const results: any[] = [];
+      const userId = req.user!.userId;
 
       for (const file of files) {
-        const finalBook = await processUpload(file, now);
+        const finalBook = await processUpload(file, now, userId);
         results.push(finalBook);
       }
 
@@ -222,9 +225,16 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   });
 
   // ── GET /api/books - 图书列表 ──
-  router.get('/', (req: Request, res: Response, next: NextFunction) => {
+  router.get('/', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
-      const allBooks = db.select().from(books).all();
+      const userId = req.user!.userId;
+      // Support category filter
+      const categoryId = req.query.category_id as string | undefined;
+      let query = db.select().from(books).where(sql`user_id = ${userId}`);
+      if (categoryId) {
+        query = query.where(sql`category_id = ${categoryId}`);
+      }
+      const allBooks = query.all();
       res.json({ success: true, data: allBooks });
     } catch (err) {
       next(err);
@@ -232,9 +242,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   });
 
   // ── GET /api/books/:id - 图书详情 ──
-  router.get('/:id', (req: Request, res: Response, next: NextFunction) => {
+  router.get('/:id', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
-      const book = db.select().from(books).where(sql`id = ${req.params.id}`).get();
+      const userId = req.user!.userId;
+      const book = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
       if (!book) throw new AppError(404, '图书不存在');
       res.json({ success: true, data: book });
     } catch (err) {
@@ -243,9 +254,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   });
 
   // ── PUT /api/books/:id - 更新图书信息 ──
-  router.put('/:id', (req: Request, res: Response, next: NextFunction) => {
+  router.put('/:id', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
-      const existing = db.select().from(books).where(sql`id = ${req.params.id}`).get();
+      const userId = req.user!.userId;
+      const existing = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
       if (!existing) throw new AppError(404, '图书不存在');
 
       const updateData: any = { updatedAt: new Date().toISOString() };
@@ -253,7 +265,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       if (req.body.author !== undefined) updateData.author = req.body.author;
       if (req.body.categoryId !== undefined) updateData.categoryId = req.body.categoryId;
 
-      db.update(books).set(updateData).where(sql`id = ${req.params.id}`).run();
+      db.update(books).set(updateData).where(sql`id = ${req.params.id} AND user_id = ${userId}`).run();
       const updated = db.select().from(books).where(sql`id = ${req.params.id}`).get();
       res.json({ success: true, data: updated });
     } catch (err) {
@@ -262,9 +274,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   });
 
   // ── GET /api/books/:id/file - 获取原始文件 ──
-  router.get('/:id/file', (req: Request, res: Response, next: NextFunction) => {
+  router.get('/:id/file', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
-      const book = db.select().from(books).where(sql`id = ${req.params.id}`).get();
+      const userId = req.user!.userId;
+      const book = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
       if (!book) throw new AppError(404, '图书不存在');
       if (!fs.existsSync(book.filePath)) throw new AppError(404, '文件不存在');
 
@@ -278,9 +291,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   });
 
   // ── GET /api/books/:id/chapters - 获取章节目录 ──
-  router.get('/:id/chapters', (req: Request, res: Response, next: NextFunction) => {
+  router.get('/:id/chapters', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
-      const book = db.select().from(books).where(sql`id = ${req.params.id}`).get();
+      const userId = req.user!.userId;
+      const book = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
       if (!book) throw new AppError(404, '图书不存在');
 
       const chapters = db.select().from(bookChapters)
@@ -295,9 +309,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   });
 
   // ── GET /api/books/:id/chapters/:chapterId/content - 获取章节内容（TXT） ──
-  router.get('/:id/chapters/:chapterId/content', (req: Request, res: Response, next: NextFunction) => {
+  router.get('/:id/chapters/:chapterId/content', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
-      const book = db.select().from(books).where(sql`id = ${req.params.id}`).get();
+      const userId = req.user!.userId;
+      const book = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
       if (!book) throw new AppError(404, '图书不存在');
 
       const chapter = db.select().from(bookChapters)
@@ -335,9 +350,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   });
 
   // ── DELETE /api/books/:id - 删除图书 ──
-  router.delete('/:id', (req: Request, res: Response, next: NextFunction) => {
+  router.delete('/:id', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
-      const book = db.select().from(books).where(sql`id = ${req.params.id}`).get();
+      const userId = req.user!.userId;
+      const book = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
       if (!book) throw new AppError(404, '图书不存在');
 
       // Delete reading progress
