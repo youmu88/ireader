@@ -72,7 +72,7 @@ describe('API Integration', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.token).toBeTruthy();
-      expect(res.body.data.username).toBe(`integ-user`);
+      expect(res.body.data.user.username).toBe(`integ-user`);
     });
 
     it('POST /api/auth/register should reject duplicate username', async () => {

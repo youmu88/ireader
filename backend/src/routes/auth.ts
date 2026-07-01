@@ -96,10 +96,12 @@ export function createAuthRouter(db: any): Router {
       res.status(201).json({
         success: true,
         data: {
-          userId,
-          username: username.trim(),
-          displayName: displayName || username.trim(),
           token,
+          user: {
+            userId,
+            username: username.trim(),
+            displayName: displayName || username.trim(),
+          },
         },
       });
     } catch (err: any) {
@@ -133,10 +135,12 @@ export function createAuthRouter(db: any): Router {
       res.json({
         success: true,
         data: {
-          userId: user.id,
-          username: user.username,
-          displayName: user.displayName,
           token,
+          user: {
+            userId: user.id,
+            username: user.username,
+            displayName: user.displayName,
+          },
         },
       });
     } catch (err: any) {

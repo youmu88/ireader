@@ -79,8 +79,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const res = await registerApi(username, password, displayName);
         if (res.success && res.data) {
-          setToken(res.data.token);
-          setUser(res.data.user);
           return null;
         }
         return res.error || '注册失败';

@@ -33,6 +33,9 @@ export default function LoginPage() {
 
       if (errMsg) {
         setError(errMsg);
+      } else if (isRegister) {
+        // 注册成功：切换到登录模式，预填充刚注册的用户名密码
+        setIsRegister(false);
       } else {
         navigate('/', { replace: true });
       }
