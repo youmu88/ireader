@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import {
+  cacheBookChapters,
+  cacheSingleChapter,
+  getCachedChapterContent,
+  getBookCacheStatus,
+  clearBookCache,
+} from '../services/offlineCacheService';
 import axios from 'axios';
 import {
   getDefaultPlayer,
@@ -104,6 +111,93 @@ function ReaderPage() {
   const savedProgressRef = useRef<any>(null);
   /** Display chapter title — stays on original chapter during append mode */
   const [displayChapter, setDisplayChapter] = useState<Chapter | null>(null);
+  // ── 客户端离线缓存 ──
+  const [cacheStatus, setCacheStatus] = useState<{
+    chapterCount: number;
+    totalChapters: number;
+    hasAudio: boolean;
+  } | null>(null);
+  const [cachingInProgress, setCachingInProgress] = useState(false);
+
+  /** 检查当前书籍的客户端缓存状态 */
+  const checkCacheStatus = useCallback(async () => {
+    if (!bookId) return;
+    try {
+      const status = await getBookCacheStatus(bookId);
+      if (status) {
+        setCacheStatus({
+          chapterCount: status.cachedChapters,
+          totalChapters: status.totalChapters,
+          hasAudio: status.cachedAudioSegments > 0,
+        });
+      } else {
+        setCacheStatus(null);
+      }
+    } catch {
+      setCacheStatus(null);
+    }
+  }, [bookId]);
+
+  /** 缓存当前章节到客户端 */
+  const handleCacheCurrentChapter = useCallback(async () => {
+    if (!bookId || !currentChapter || !book) return;
+    setCachingInProgress(true);
+    try {
+      // 获取当前章节内容
+      const res = await axios.get(`/api/books/${bookId}/chapters/${currentChapter.id}/content`);
+      const rawContent = res.data.data?.content || '';
+      const content = book.format === 'epub' ? stripHtml(rawContent) : rawContent;
+      await cacheSingleChapter(bookId, book.title, {
+        chapterId: currentChapter.id,
+        title: currentChapter.title,
+        order: currentChapter.order,
+        content,
+      });
+      await checkCacheStatus();
+    } catch (err) {
+      console.warn('缓存章节失败:', err);
+    } finally {
+      setCachingInProgress(false);
+    }
+  }, [bookId, currentChapter, book, checkCacheStatus]);
+
+  /** 缓存全书到客户端 */
+  const handleCacheFullBook = useCallback(async () => {
+    if (!bookId || !book || !chapters.length) return;
+    setCachingInProgress(true);
+    try {
+      // 批量获取所有章节内容
+      const chapterData: { chapterId: string; title: string; order: number; content: string }[] = [];
+      for (const ch of chapters) {
+        const res = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`);
+        const rawContent = res.data.data?.content || '';
+        const content = book.format === 'epub' ? stripHtml(rawContent) : rawContent;
+        chapterData.push({
+          chapterId: ch.id,
+          title: ch.title,
+          order: ch.order,
+          content,
+        });
+      }
+      await cacheBookChapters(bookId, book.title, chapterData);
+      await checkCacheStatus();
+    } catch (err) {
+      console.warn('缓存全书失败:', err);
+    } finally {
+      setCachingInProgress(false);
+    }
+  }, [bookId, book, chapters, checkCacheStatus]);
+
+  /** 清除客户端缓存 */
+  const handleClearCache = useCallback(async () => {
+    if (!bookId) return;
+    try {
+      await clearBookCache(bookId);
+      setCacheStatus(null);
+    } catch (err) {
+      console.warn('清除缓存失败:', err);
+    }
+  }, [bookId]);
 
   // Load book and chapters
   useEffect(() => {
@@ -161,6 +255,9 @@ function ReaderPage() {
         // 首次加载后立即预加载后续章节
         preloadNextChapters(targetChapter.id);
       }
+
+      // 检查客户端缓存状态
+      checkCacheStatus();
     } catch (err: any) {
       setError(err.response?.data?.error || '加载图书失败');
     } finally {
@@ -276,20 +373,26 @@ function ReaderPage() {
         setDisplayChapter(chapter);
       }
 
-      // 获取章节内容（优先使用预加载内容）
+      // 获取章节内容（优先使用预加载内容，其次离线缓存，最后 API）
       let content: string;
       const preloaded = preloadedChaptersRef.current.get(chapter.id);
       if (preloaded) {
         content = preloaded.content;
         preloadedChaptersRef.current.delete(chapter.id);
       } else {
-        // append 模式下不显示「加载中...」闪烁：保持现有内容可见，静默加载
-        if (!_append) setChapterLoading(true);
-        const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`);
-        const rawContent = res.data.data?.content || '';
-        const isEpub = _isEpub ?? (book?.format === 'epub');
-        content = isEpub ? stripHtml(rawContent) : rawContent;
-        if (!_append) setChapterLoading(false);
+        // 尝试从客户端离线缓存读取
+        const cachedContent = await getCachedChapterContent(bookId!, chapter.id);
+        if (cachedContent) {
+          content = cachedContent;
+        } else {
+          // append 模式下不显示「加载中...」闪烁：保持现有内容可见，静默加载
+          if (!_append) setChapterLoading(true);
+          const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`);
+          const rawContent = res.data.data?.content || '';
+          const isEpub = _isEpub ?? (book?.format === 'epub');
+          content = isEpub ? stripHtml(rawContent) : rawContent;
+          if (!_append) setChapterLoading(false);
+        }
       }
 
       // 内容为空时的兜底显示（避免静默失败）
@@ -930,6 +1033,11 @@ function ReaderPage() {
         bookFormat={book?.format}
         showEpubView={showEpubView}
         onToggleEpubView={() => setShowEpubView(v => !v)}
+        cacheStatus={cacheStatus}
+        cachingInProgress={cachingInProgress}
+        onCacheChapter={handleCacheCurrentChapter}
+        onCacheFullBook={handleCacheFullBook}
+        onClearCache={handleClearCache}
       />
 
       {/* Reader Content */}
@@ -1312,6 +1420,11 @@ function ReaderTopBar({
   bookFormat,
   showEpubView,
   onToggleEpubView,
+  cacheStatus,
+  cachingInProgress,
+  onCacheChapter,
+  onCacheFullBook,
+  onClearCache,
 }: {
   title: string;
   onBack: () => void;
@@ -1331,6 +1444,12 @@ function ReaderTopBar({
   bookFormat?: 'epub' | 'txt';
   showEpubView?: boolean;
   onToggleEpubView?: () => void;
+  // 离线缓存
+  cacheStatus?: { chapterCount: number; totalChapters: number; hasAudio: boolean } | null;
+  cachingInProgress?: boolean;
+  onCacheChapter?: () => void;
+  onCacheFullBook?: () => void;
+  onClearCache?: () => void;
 }) {
   const ttsLabel = ttsState === 'playing' ? '🔊 朗读中' :
     ttsState === 'paused' ? '🔇 已暂停' :
@@ -1362,6 +1481,45 @@ function ReaderTopBar({
           >
             {ttsLabel}
           </button>
+        )}
+        {/* 离线缓存按钮 */}
+        {onCacheChapter && (
+          <>
+            <button
+              onClick={onCacheChapter}
+              disabled={cachingInProgress}
+              className={`text-xs px-2 py-1 rounded transition-colors ${
+                cacheStatus?.chapterCount
+                  ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+              }`}
+              title="缓存当前章节到本地（离线可用）"
+            >
+              {cachingInProgress ? '⏳' : '💾'} 缓存本章
+            </button>
+            <button
+              onClick={onCacheFullBook}
+              disabled={cachingInProgress}
+              className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+              title="缓存全书到本地（离线可用）"
+            >
+              💾 缓存全书
+            </button>
+            {cacheStatus && cacheStatus.chapterCount > 0 && (
+              <>
+                <span className="text-xs text-green-600 dark:text-green-400" title="已缓存章节数">
+                  📦 {cacheStatus.chapterCount}/{cacheStatus.totalChapters}
+                </span>
+                <button
+                  onClick={onClearCache}
+                  className="text-xs px-1 py-1 rounded text-red-500 hover:text-red-700 dark:hover:text-red-300"
+                  title="清除本地缓存"
+                >
+                  ✕
+                </button>
+              </>
+            )}
+          </>
         )}
         {onToggleToc && (
           <button

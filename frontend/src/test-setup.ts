@@ -1,4 +1,8 @@
 import '@testing-library/jest-dom';
+import '@testing-library/jest-dom';
+
+// Polyfill IndexedDB for jsdom (used by offlineCacheService)
+import 'fake-indexeddb/auto';
 
 // Mock window.matchMedia for jsdom (used by themeService)
 Object.defineProperty(window, 'matchMedia', {
