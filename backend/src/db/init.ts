@@ -93,6 +93,43 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS book_content_cache (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      chapter_id TEXT,
+      content TEXT NOT NULL,
+      cache_type TEXT NOT NULL DEFAULT 'chapter' CHECK(cache_type IN ('full_book', 'chapter', 'partial')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS tts_generation_jobs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      chapter_id TEXT,
+      voice TEXT NOT NULL,
+      speed REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+      progress INTEGER NOT NULL DEFAULT 0,
+      total_chunks INTEGER NOT NULL DEFAULT 0,
+      completed_chunks INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS voice_cache (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      voice TEXT NOT NULL,
+      speed REAL NOT NULL,
+      last_used_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS tts_settings (
       user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       enabled INTEGER NOT NULL DEFAULT 1,

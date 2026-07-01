@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 
 interface Book {
@@ -11,6 +11,15 @@ interface Book {
   status: 'processing' | 'ready' | 'failed';
   parseError: string | null;
   createdAt: string;
+}
+
+interface BookStats {
+  readingPercentage: number;
+  voiceGenerationRate: number;
+  totalChapters: number;
+  completedVoiceChapters: number;
+  cachedChapters: number;
+  cacheType: string | null;
 }
 
 interface Category {
@@ -28,6 +37,27 @@ function BookshelfPage() {
   const [showUpload, setShowUpload] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+const [bookStats, setBookStats] = useState<Record<string, BookStats>>({});
+// 加载书籍统计信息
+const loadBookStats = useCallback(async (bookId: string) => {
+  try {
+    const res = await axios.get(`/api/books/${bookId}/stats`);
+    if (res.data.success) {
+      setBookStats(prev => ({ ...prev, [bookId]: res.data.data }));
+    }
+  } catch {
+    // 静默失败，不影响书架展示
+  }
+}, []);
+
+// 当书籍列表变化时加载统计信息
+useEffect(() => {
+  books.forEach(book => {
+    if (book.status === 'ready' && !bookStats[book.id]) {
+      loadBookStats(book.id);
+    }
+  });
+}, [books, bookStats, loadBookStats]);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingBook, setEditingBook] = useState<Book | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -386,6 +416,35 @@ function BookshelfPage() {
                         </span>
                       )}
                     </div>
+                    {/* 阅读百分比 + 语音生成率 */}
+                    {book.status === 'ready' && bookStats[book.id] && (
+                      <div className="mt-2 space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-500 dark:text-gray-400">阅读</span>
+                          <span className="text-gray-700 dark:text-gray-300 font-medium">
+                            {Math.round(bookStats[book.id].readingPercentage * 100)}%
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.round(bookStats[book.id].readingPercentage * 100)}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-500 dark:text-gray-400">语音</span>
+                          <span className="text-gray-700 dark:text-gray-300 font-medium">
+                            {Math.round(bookStats[book.id].voiceGenerationRate * 100)}%
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-green-500 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.round(bookStats[book.id].voiceGenerationRate * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </a>
                   {/* Action buttons */}
                   <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

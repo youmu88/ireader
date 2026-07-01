@@ -375,5 +375,119 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     }
   });
 
+  // ── POST /api/books/:id/cache - 缓存书籍内容（全书或 N 章节） ──
+  router.post('/:id/cache', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const bookId = req.params.id;
+      const { type, count } = req.body; // type: 'full' | 'partial', count: number of chapters
+
+      const { cacheFullBook, cacheNChapters } = await import('../services/contentCacheService.js');
+      let result: { cached: number; failed: number };
+
+      if (type === 'full') {
+        result = await cacheFullBook(db, bookId, userId, dataDir);
+      } else {
+        const chapterCount = Math.max(1, Math.min(count || 5, 100));
+        result = await cacheNChapters(db, bookId, userId, dataDir, chapterCount);
+      }
+
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ── POST /api/books/:id/tts-generate - 后台生成 TTS 语音 ──
+  router.post('/:id/tts-generate', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const bookId = req.params.id;
+      const { voice, speed, chapterCount } = req.body;
+
+      // 获取当前 TTS 设置
+      const { ttsSettings } = await import('../db/schema.js');
+      const settings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
+      const ttsVoice = voice || settings?.voiceId || 'zf_xiaobei';
+      const ttsSpeed = speed ?? settings?.speed ?? 1.0;
+
+      const { createFullBookGenerationJob, createPartialGenerationJob } = await import('../services/ttsGenerationService.js');
+
+      let job;
+      if (chapterCount && chapterCount > 0) {
+        job = createPartialGenerationJob(db, bookId, userId, ttsVoice, ttsSpeed, chapterCount);
+      } else {
+        job = createFullBookGenerationJob(db, bookId, userId, ttsVoice, ttsSpeed);
+      }
+
+      res.status(201).json({ success: true, data: job });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ── GET /api/books/:id/tts-jobs - 获取书籍的 TTS 生成任务列表 ──
+  router.get('/:id/tts-jobs', requireAuth, (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const bookId = req.params.id;
+      const { ttsGenerationJobs } = require('../db/schema.js');
+      const jobs = db.select().from(ttsGenerationJobs)
+        .where(sql`book_id = ${bookId} AND user_id = ${userId}`)
+        .orderBy(sql`created_at DESC`)
+        .all();
+      res.json({ success: true, data: jobs });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ── GET /api/books/:id/stats - 获取书籍统计信息（阅读百分比 + 语音生成率） ──
+  router.get('/:id/stats', requireAuth, (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const bookId = req.params.id;
+
+      const book = db.select().from(books).where(sql`id = ${bookId} AND user_id = ${userId}`).get();
+      if (!book) throw new AppError(404, '图书不存在');
+
+      // 阅读百分比
+      const progress = db.select().from(readingProgress)
+        .where(sql`book_id = ${bookId} AND user_id = ${userId}`)
+        .get();
+      const readingPercentage = progress?.percentage ?? 0;
+
+      // 语音生成率
+      const totalChapters = db.select({ count: sql<number>`count(*)` }).from(bookChapters)
+        .where(sql`book_id = ${bookId}`)
+        .get()?.count ?? 0;
+
+      const { ttsGenerationJobs } = require('../db/schema.js');
+      const completedJobs = db.select({ count: sql<number>`count(*)` }).from(ttsGenerationJobs)
+        .where(sql`book_id = ${bookId} AND user_id = ${userId} AND status = 'completed'`)
+        .get()?.count ?? 0;
+
+      const voiceGenerationRate = totalChapters > 0 ? Math.min(1, completedJobs / totalChapters) : 0;
+
+      // 缓存统计
+      const { getBookCacheStats } = require('../services/contentCacheService.js');
+      const cacheStats = getBookCacheStats(db, bookId, userId);
+
+      res.json({
+        success: true,
+        data: {
+          readingPercentage,
+          voiceGenerationRate,
+          totalChapters,
+          completedVoiceChapters: completedJobs,
+          cachedChapters: cacheStats.cachedChapters,
+          cacheType: cacheStats.cacheType,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   return router;
 }
