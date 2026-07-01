@@ -57,6 +57,13 @@ function ReaderPage() {
   const progressSaveTimer = useRef<any>(null);
   const ttsProgressSaveTimer = useRef<any>(null);
   const ttsPlayerRef = useRef<ReturnType<typeof getDefaultPlayer> | null>(null);
+  const chaptersRef = useRef(chapters);
+  const currentChapterRef = useRef(currentChapter);
+  const prevShowEpubViewRef = useRef(showEpubView);
+  const autoLoadNextRef = useRef(false);
+  const bottomSentinelRef = useRef<HTMLDivElement>(null);
+  const epubTextScrollRef = useRef<HTMLDivElement>(null);
+  const txtScrollRef = useRef<HTMLDivElement>(null);
   const savedTtsProgressRef = useRef<{chapterId: string; segmentIndex: number; progress: number} | null>(null);
 
   // Load book and chapters
@@ -401,6 +408,61 @@ function ReaderPage() {
 
 
   /** 根据 pageIndex 获取分页后的 TXT 内容 */
+
+  // ── Sync refs with state for closure‑safe access in event handlers ──
+  useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
+  useEffect(() => { currentChapterRef.current = currentChapter; }, [currentChapter]);
+
+  // ── Fix Bug 1: 从「原版」切换到「文本」时重新加载当前章节内容 ──
+  useEffect(() => {
+    const wasOriginal = prevShowEpubViewRef.current === true;
+    prevShowEpubViewRef.current = showEpubView;
+
+    if (wasOriginal && !showEpubView && book?.format === 'epub') {
+      // 从 epubjs 视图切回纯文本视图 → 获取当前章节并加载内容
+      if (renditionRef.current) {
+        const location = (renditionRef.current as any).currentLocation?.();
+        const href = location?.start?.href;
+        if (href) {
+          const matched = chapters.find((c: Chapter) => c.href && href.startsWith(c.href));
+          if (matched) {
+            loadChapterContent(matched);
+          }
+        }
+      }
+    }
+  }, [showEpubView]);
+
+  // ── Fix Bug 2: 滚动到底部时自动加载下一章 ──
+  useEffect(() => {
+    if (readingMode !== 'scroll') return;
+
+    // 找到当前可见的滚动容器（EPUB 文本视图 或 TXT 视图，只存在一个）
+    const scrollContainer = epubTextScrollRef.current || txtScrollRef.current;
+    const sentinel = bottomSentinelRef.current;
+    if (!scrollContainer || !sentinel) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting || autoLoadNextRef.current) return;
+        const idx = chaptersRef.current.findIndex(
+          (c: Chapter) => c.id === currentChapterRef.current?.id
+        );
+        if (idx < 0 || idx >= chaptersRef.current.length - 1) return;
+
+        autoLoadNextRef.current = true;
+        goToNextChapter();
+        // 防抖：5 秒内不再重复触发
+        setTimeout(() => { autoLoadNextRef.current = false; }, 5000);
+      },
+      { root: scrollContainer, threshold: 0, rootMargin: '0px 0px 100px 0px' }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [readingMode, txtContent, chapters, currentChapter]);
+
+  /** 根据 pageIndex 获取分页后的 TXT 内容 */
   const getPaginatedContent = useCallback((content: string, page: number, total: number): string => {
     if (readingMode !== 'paginated' || total <= 1) return content;
     const lines = content.split('\n');
@@ -550,6 +612,7 @@ function ReaderPage() {
         {/* EPUB Text View (used when !showEpubView or as fallback) */}
         {book?.format === 'epub' && !showEpubView && (
           <div
+            ref={epubTextScrollRef}
             className="flex-1 px-6 py-4 max-w-3xl mx-auto overflow-y-auto"
           >
             {currentChapter && (
@@ -579,6 +642,8 @@ function ReaderPage() {
                 </div>
               )}
             </div>
+            {/* 底部哨兵元素：用于 IntersectionObserver 检测滚动到末尾 */}
+            <div ref={bottomSentinelRef} className="h-4" />
           </div>
         )}
 
@@ -625,6 +690,7 @@ function ReaderPage() {
         {/* TXT Reader */}
         {book?.format === 'txt' && (
           <div
+            ref={txtScrollRef}
             className={`flex-1 px-6 py-4 max-w-3xl mx-auto ${readingMode === 'scroll' ? 'overflow-y-auto' : 'overflow-hidden flex flex-col'}`}
           >
             {currentChapter && (
@@ -653,6 +719,8 @@ function ReaderPage() {
                 readingMode === 'paginated' ? getPaginatedContent(txtContent, pageIndex, totalPages) : txtContent
               )}
             </div>
+            {/* 底部哨兵元素：用于 IntersectionObserver 检测滚动到末尾 */}
+            <div ref={bottomSentinelRef} className="h-4" />
           </div>
         )}
 
