@@ -88,6 +88,9 @@ function ReaderPage() {
   const txtScrollRef = useRef<HTMLDivElement>(null);
   const savedTtsProgressRef = useRef<{chapterId: string; segmentIndex: number; progress: number} | null>(null);
   /** Preloaded next-chapter contents for smooth scroll transitions */
+  /** Track chapter IDs accumulated during auto-scroll for continuous reading */
+  const accumulatedIdsRef = useRef<Set<string>>(new Set());
+  /** Preloaded next-chapter contents for smooth scroll transitions */
   const preloadedChaptersRef = useRef<Map<string, {content: string}>>(new Map());
   /** Saved reading progress from API, consumed by loadEpub */
   const savedProgressRef = useRef<any>(null);
@@ -228,22 +231,38 @@ function ReaderPage() {
   }, []);
 
   // Load chapter content
-  const loadChapterContent = async (chapter: Chapter, _offset?: number, _isEpub?: boolean) => {
+  const loadChapterContent = async (chapter: Chapter, _offset?: number, _isEpub?: boolean, _append?: boolean) => {
     try {
       setCurrentChapter(chapter);
 
-      // 优先使用预加载内容，实现无缝过渡
+      // 获取章节内容（优先使用预加载内容）
+      let content: string;
       const preloaded = preloadedChaptersRef.current.get(chapter.id);
       if (preloaded) {
-        setTxtContent(preloaded.content);
+        content = preloaded.content;
         preloadedChaptersRef.current.delete(chapter.id);
       } else {
         setChapterLoading(true);
         const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`);
         const rawContent = res.data.data?.content || '';
         const isEpub = _isEpub ?? (book?.format === 'epub');
-        setTxtContent(isEpub ? stripHtml(rawContent) : rawContent);
+        content = isEpub ? stripHtml(rawContent) : rawContent;
         setChapterLoading(false);
+      }
+
+      // 追加模式（滚动自动加载）：内容接在已有内容后面，实现平滑连续阅读
+      if (_append && !accumulatedIdsRef.current.has(chapter.id)) {
+        accumulatedIdsRef.current.add(chapter.id);
+        setTxtContent(prev => {
+          // 首次追加：若 prev 尚未包含当前章节，则用「章节标题 + 分隔线」衔接
+          const separator = '\n\n' + chapter.title + '\n' + '─'.repeat(30) + '\n\n';
+          return prev + separator + content;
+        });
+      } else {
+        // 手动跳转：替换内容，重置累积记录
+        accumulatedIdsRef.current.clear();
+        accumulatedIdsRef.current.add(chapter.id);
+        setTxtContent(content);
       }
 
       // 预加载后续章节，确保滚动到末尾时内容已就绪
@@ -287,9 +306,9 @@ function ReaderPage() {
   }, [bookId]);
 
   // TXT chapter navigation
-  const navigateToChapter = async (chapter: Chapter) => {
+  const navigateToChapter = async (chapter: Chapter, _append?: boolean) => {
     setShowToc(false);
-    await loadChapterContent(chapter);
+    await loadChapterContent(chapter, undefined, undefined, _append);
     debounceSaveProgress({ chapterId: chapter.id, percentage: chapter.order / chapters.length });
 
     // For EPUB: also navigate epubjs rendition
@@ -303,11 +322,11 @@ function ReaderPage() {
   };
 
   // TXT next/prev chapter
-  const goToNextChapter = async () => {
+  const goToNextChapter = async (_fromAutoScroll?: boolean) => {
     if (!currentChapter) return;
     const idx = chapters.findIndex((c) => c.id === currentChapter.id);
     if (idx < chapters.length - 1) {
-      await navigateToChapter(chapters[idx + 1]);
+      await navigateToChapter(chapters[idx + 1], _fromAutoScroll);
     }
   };
 
@@ -579,7 +598,7 @@ function ReaderPage() {
         if (idx < 0 || idx >= chaptersRef.current.length - 1) return;
 
         autoLoadNextRef.current = true;
-        goToNextChapter();
+        goToNextChapter(true); // 自动滚动加载：追加内容保持连续
         // 防抖：5 秒内不再重复触发
         setTimeout(() => { autoLoadNextRef.current = false; }, 5000);
       },
@@ -1004,8 +1023,8 @@ function ReaderPage() {
               ? `${chapters.findIndex((c) => c.id === currentChapter.id) + 1} / ${chapters.length}`
               : ''}
           </span>
-          <button
-            onClick={goToNextChapter}
+                          <button
+            onClick={() => goToNextChapter()}
             disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter.id) === chapters.length - 1}
             className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-300 dark:hover:bg-gray-600"
           >
