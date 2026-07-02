@@ -334,6 +334,17 @@ export class TTSPlayer {
     this.currentSegmentText = this.chunks[index]?.text || '';
   }
 
+  /**
+   * 按进度百分比（0~1）跳转到对应分段
+   * 用于拖动进度条 seek
+   */
+  async seekTo(progress: number): Promise<void> {
+    if (this.isDestroyed || this.chunks.length === 0) return;
+    const clampedProgress = Math.max(0, Math.min(1, progress));
+    const targetIndex = Math.round(clampedProgress * (this.chunks.length - 1));
+    await this.jumpToSegment(targetIndex);
+  }
+
   // ── 加载文本 ──
   /** 获取原始章节的分段数量（appendSegments 前的边界） */
   getOriginalChunkCount(): number {

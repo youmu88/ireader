@@ -128,6 +128,10 @@ function ReaderPage() {
   const savedTtsProgressRef = useRef<{chapterId: string; segmentIndex: number; progress: number} | null>(null);
   /** 当前书籍 ID 的 ref（用于异步操作的书籍切换守卫） */
   const currentBookIdRef = useRef<string | undefined>(bookId);
+  /** 进度条容器 ref（用于拖拽 seek） */
+  const progressBarRef = useRef<HTMLDivElement>(null);
+  /** 是否正在拖拽进度条（防止 mouseup 未触发导致的卡住） */
+  const isDraggingRef = useRef(false);
 
   // ── 睡眠计时器 ──
 
@@ -374,6 +378,14 @@ function ReaderPage() {
             targetChapter = saved;
             savedProgressRef.current = savedProgress; // 供 loadEpub 恢复精确位置
           }
+        }
+        // ⭐ 对于 TXT 书籍也从后端加载 TTS 精确分段位置（与 loadEpub 对 EPUB 的处理对称）
+        if (!isEpub && savedProgress?.textOffset != null && savedProgress?.percentage != null && savedProgress?.chapterId) {
+          savedTtsProgressRef.current = {
+            chapterId: savedProgress.chapterId,
+            segmentIndex: savedProgress.textOffset,
+            progress: savedProgress.percentage,
+          };
         }
       } catch { /* 无保存的进度 */ }
 
@@ -1046,6 +1058,24 @@ function ReaderPage() {
     setActiveSegmentIndex(-1);
   }, [currentChapter, saveTtsProgress]);
 
+  /** 拖动 TTS 进度条 seek */
+  const handleTTSSeek = useCallback(async (progress: number) => {
+    const player = ttsPlayerRef.current;
+    if (!player || player.getState() === 'idle') return;
+    const wasPlaying = player.getState() === 'playing';
+    if (wasPlaying) player.pause();
+    try {
+      await player.seekTo(progress);
+      const idx = player.getCurrentIndex() + 1;
+      const total = player.getTotalChunks();
+      setTtsProgress(total > 0 ? (idx + 1) / total : 0);
+      setTtsSegmentText(player.getCurrentSegmentText());
+      if (wasPlaying) await player.play();
+    } catch {
+      // seek 失败不阻塞
+    }
+  }, []);
+
   /** 设置睡眠计时器 */
   const handleSetSleepTimer = useCallback((minutes: number | null) => {
     setSleepTimerMinutes(minutes);
@@ -1123,6 +1153,39 @@ function ReaderPage() {
   }, []);
 
   // After book loads, check for saved TTS progress and offer resume
+  // ⭐ 全局鼠标/触摸拖拽进度条 seek
+  useEffect(() => {
+    const bar = progressBarRef.current;
+    if (!bar) return;
+
+    const handleGlobalMove = (clientX: number) => {
+      if (!isDraggingRef.current) return;
+      const rect = bar.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      handleTTSSeek(pct);
+    };
+
+    const onMouseMove = (e: MouseEvent) => handleGlobalMove(e.clientX);
+    const onMouseUp = () => { isDraggingRef.current = false; };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length > 0) handleGlobalMove(e.touches[0].clientX);
+    };
+    const onTouchEnd = () => { isDraggingRef.current = false; };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('touchmove', onTouchMove, { passive: true });
+    document.addEventListener('touchend', onTouchEnd);
+
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [handleTTSSeek]);
+
+  // ⭐ 同时检查 localStorage（页面刷新后恢复）和 后端 API 进度
   // ⭐ 同时检查 localStorage（页面刷新后恢复）和 后端 API 进度
   useEffect(() => {
     if (!currentChapter || !chapters.length) return;
@@ -1762,9 +1825,26 @@ function ReaderPage() {
                           </button>
                         </div>
                       </div>
-                      {/* 进度条 */}
-                      <div className="bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                        <div className="bg-blue-500 h-full rounded-full transition-all duration-300" style={{ width: `${Math.round(ttsProgress * 100)}%` }} />
+                      {/* 进度条 — 可点击/拖拽 seek */}
+                      <div
+                        ref={progressBarRef}
+                        className="bg-gray-200 dark:bg-gray-700 rounded-full h-3 cursor-pointer relative group"
+                        onMouseDown={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                          isDraggingRef.current = true;
+                          handleTTSSeek(pct);
+                        }}
+                      >
+                        <div
+                          className="bg-blue-500 h-full rounded-full transition-none"
+                          style={{ width: `${Math.round(ttsProgress * 100)}%` }}
+                        />
+                        {/* 拖拽手柄 */}
+                        <div
+                          className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-blue-500 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+                          style={{ left: `calc(${Math.round(ttsProgress * 100)}% - 8px)` }}
+                        />
                       </div>
                     </div>
                   )}
