@@ -304,6 +304,29 @@ function ReaderPage() {
       setTtsProgress(total > 0 ? (idx + 1) / total : 0);
       setTtsSegmentText(player.getCurrentSegmentText());
       setActiveSegmentIndex(idx);
+
+      // ⭐ 将当前播放状态同步到 localStorage（作为恢复备份）
+      if (idx >= 0 && total > 0 && player.currentBookId) {
+        savePlaybackToLocalStorage({
+          bookId: player.currentBookId,
+          chapterId: currentChapterRef.current?.id || '',
+          segmentIndex: idx,
+          bookTitle: (player as any).bookTitle,
+          chapterTitle: player.chapterTitle || '',
+          timestamp: Date.now(),
+        });
+      }
+
+      // ⭐ 重启进度保存定时器（卸载时被清除），确保后台播放时进度持续保存
+      if (!ttsProgressSaveTimer.current && currentChapterRef.current && bookId) {
+        startTtsProgressSaver(
+          bookId,
+          currentChapterRef.current.id,
+          currentChapterRef.current.title || '',
+          player
+        );
+      }
+
               // 挂载新回调（旧的 setter 来自已卸载的组件）
       player.setCallbacks({
         onStateChange: (s) => { setTtsState(s); },
@@ -1397,16 +1420,34 @@ function ReaderPage() {
     if (pageIndex >= pages) setPageIndex(0);
   }, [txtContent, book?.format, readingMode]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — 使用 ref 避免闭包捕获到 null state
   useEffect(() => {
     return () => {
-      // Save final TTS position before leaving (全书百分比)
-      if (ttsPlayerRef.current && currentChapter) {
+      // ⭐ 使用 currentChapterRef.current（ref）而非 currentChapter（state，在 [] 闭包中为 null）
+      const chap = currentChapterRef.current;
+      if (ttsPlayerRef.current && chap) {
         const idx = ttsPlayerRef.current.getCurrentIndex();
         const total = ttsPlayerRef.current.getTotalChunks();
         if (idx >= 0 && total > 0) {
+          // ⭐ 直接 axios.put（绕过 debounceSaveProgress，避免 800ms 延时被后面的 clearTimeout 取消）
+          const cIdx = chaptersRef.current.findIndex((c: any) => c.id === chap.id);
+          const totalCh = chaptersRef.current.length;
           const chapterPct = (idx + 1) / total;
-          saveTtsProgress(currentChapter.id, idx, chapterPct);
+          const bookPct = cIdx >= 0 && totalCh > 0
+            ? (cIdx + chapterPct) / totalCh
+            : chapterPct;
+          axios.put(`/api/books/${bookId}/progress`, {
+            chapterId: chap.id,
+            textOffset: idx,
+            percentage: bookPct,
+          }).catch(() => {});
+          // 同时也持久化到 localStorage
+          savePlaybackToLocalStorage({
+            bookId: bookId || '',
+            chapterId: chap.id,
+            segmentIndex: idx,
+            timestamp: Date.now(),
+          });
         }
       }
       if (renditionRef.current) {
