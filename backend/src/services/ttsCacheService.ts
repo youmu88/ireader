@@ -75,11 +75,22 @@ export function findCache(
 }
 
 /**
- * 检查缓存是否有效（文件存在）
+ * 检查缓存是否有效（文件存在 + hash 一致性校验）
+ * 防止 DB 记录中 audio_path 指向与 text_hash 不匹配的错误文件
  */
 export function isCacheValid(entry: CacheEntry): boolean {
   try {
-    return fs.existsSync(entry.audioPath);
+    if (!fs.existsSync(entry.audioPath)) return false;
+    // ⭐ 验证 audio_path 的文件 hash 与 text_hash 一致
+    // 文件名格式为 {textHash}.{format}，如 25b8993c...wav
+    const filename = path.basename(entry.audioPath);
+    const dotIdx = filename.lastIndexOf('.');
+    const fileHash = dotIdx > 0 ? filename.substring(0, dotIdx) : filename;
+    if (fileHash !== entry.textHash) {
+      console.warn(`[TTS Cache] 缓存记录 hash 不匹配，已丢弃: text_hash=${entry.textHash}, audio_file=${filename}`);
+      return false;
+    }
+    return true;
   } catch {
     return false;
   }
