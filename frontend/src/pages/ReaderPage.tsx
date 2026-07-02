@@ -79,7 +79,8 @@ function ReaderPage() {
   const [readingMode, setReadingMode] = useState<'scroll' | 'paginated'>(initialPrefs.readingMode ?? 'scroll');
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  const [showEpubView, setShowEpubView] = useState(false); // toggle epubjs vs text view
+  const showEpubView = false; // 原版/文本切换按钮已移除，固定为文本视图
+
   const [showTtsResumeBanner, setShowTtsResumeBanner] = useState(false); // show resume prompt
   // ── 悬浮UI控制（全屏阅读：点击屏幕显示/隐藏所有控件） ──
   const [showUi, setShowUi] = useState(false);
@@ -93,7 +94,6 @@ function ReaderPage() {
   const ttsPlayerRef = useRef<ReturnType<typeof getDefaultPlayer> | null>(null);
   const chaptersRef = useRef(chapters);
   const currentChapterRef = useRef(currentChapter);
-  const prevShowEpubViewRef = useRef(showEpubView);
   const loadingNextChapterRef = useRef(false);
   const bottomSentinelRef = useRef<HTMLDivElement>(null);
   const goToNextChapterRef = useRef<((_fromAutoScroll?: boolean) => Promise<void>) | null>(null);
@@ -1000,27 +1000,7 @@ function ReaderPage() {
   useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
   useEffect(() => { currentChapterRef.current = currentChapter; }, [currentChapter]);
 
-  // ── Fix Bug 1: 从「原版」切换到「文本」时重新加载当前章节内容 ──
-  useEffect(() => {
-    const wasOriginal = prevShowEpubViewRef.current === true;
-    prevShowEpubViewRef.current = showEpubView;
-
-    if (wasOriginal && !showEpubView && book?.format === 'epub') {
-      // 从 epubjs 视图切回纯文本视图 → 获取当前章节并加载内容
-      if (renditionRef.current) {
-        const location = (renditionRef.current as any).currentLocation?.();
-        const href = location?.start?.href;
-        if (href) {
-          const matched = chapters.find((c: Chapter) => c.href && href.startsWith(c.href));
-          if (matched) {
-            loadChapterContent(matched);
-          }
-        }
-      }
-    }
-  }, [showEpubView]);
-
-  // ── Fix Bug 2: 滚动到底部时自动加载下一章 ──
+// ── Fix Bug 2: 滚动到底部时自动加载下一章 ──
   // 最小触发间隔（毫秒）：防止内容较短时 rootMargin 导致连续快速触发
   const lastChapterLoadTimeRef = useRef(0);
   const MIN_CHAPTER_INTERVAL = 800;
@@ -1257,7 +1237,8 @@ function ReaderPage() {
             {/* 底部章节导航（用户手动跳转，作为跨章节滚动失效时的备选方案） */}
             <div className="border-t border-gray-200 dark:border-gray-700 mt-4 pt-3 flex items-center justify-between text-sm">
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   const idx = chapters.findIndex((c) => c.id === (currentChapter?.id || ''));
                   if (idx > 0) navigateToChapter(chapters[idx - 1]);
                 }}
@@ -1272,7 +1253,10 @@ function ReaderPage() {
                   : ''}
               </span>
               <button
-                onClick={() => goToNextChapter()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goToNextChapter();
+                }}
                 disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter.id) === chapters.length - 1}
                 className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-300 dark:hover:bg-gray-600"
               >
@@ -1428,11 +1412,61 @@ function ReaderPage() {
 
             {/* 底部控制面板 */}
             <div className="relative z-10 pointer-events-none">
-              <div className="pointer-events-auto bg-white dark:bg-gray-800 rounded-t-2xl shadow-2xl max-h-[55vh] overflow-y-auto">
-                <div className="p-4 space-y-3">
-                  {/* ── 字号 ── */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">字号</span>
+              <div className="pointer-events-auto bg-white dark:bg-gray-800 rounded-t-2xl shadow-2xl max-h-[55vh] overflow-y-auto mx-auto max-w-3xl">
+                  <div className="p-4 space-y-3">
+                    {/* ── 朗读/缓存（排在第一排） ── */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={ttsState !== 'idle' ? handleStopTTS : handleStartTTS}
+                        disabled={ttsState === 'loading'}
+                        className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${ttsState !== 'idle' ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                      >
+                        {ttsState === 'playing' ? '🔊 朗读中' : ttsState === 'paused' ? '⏸ 已暂停' : ttsState === 'loading' ? '⏳ 加载中' : '🔊 朗读'}
+                      </button>
+                      <button
+                        onClick={handleCacheCurrentChapter}
+                        disabled={cachingInProgress}
+                        className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        💾 缓存本章
+                      </button>
+                      <button
+                        onClick={handleCacheFullBook}
+                        disabled={cachingInProgress}
+                        className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        📦 全书缓存
+                      </button>
+                      {book?.format === 'epub' && (
+                        <button
+                          onClick={() => {}}
+                          className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${showEpubView ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                        >
+                          {showEpubView ? '📄 文本' : '📖 原版'}
+                        </button>
+                      )}
+                      {cacheStatus && cacheStatus.chapterCount > 0 && (
+                        <button
+                          onClick={handleClearCache}
+                          className="text-xs px-2 py-1.5 rounded-full text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                        >
+                          ✕ 清缓存
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 缓存状态 */}
+                    {cacheStatus && cacheStatus.chapterCount > 0 && (
+                      <div className="text-xs text-green-600 dark:text-green-400">
+                        📦 已离线缓存 {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章
+                      </div>
+                    )}
+
+                    <div className="border-t border-gray-100 dark:border-gray-700" />
+
+                    {/* ── 字号 ── */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">字号</span>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => setFontSize(Math.max(12, fontSize - 2))}
@@ -1490,65 +1524,7 @@ function ReaderPage() {
                     </div>
                   </div>
 
-                  <div className="border-t border-gray-100 dark:border-gray-700" />
 
-                  {/* ── 功能按钮区 ── */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      onClick={ttsState !== 'idle' ? handleStopTTS : handleStartTTS}
-                      disabled={ttsState === 'loading'}
-                      className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
-                        ttsState !== 'idle'
-                          ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                      }`}
-                    >
-                      {ttsState === 'playing' ? '🔊 朗读中' : ttsState === 'paused' ? '⏸ 已暂停' : ttsState === 'loading' ? '⏳ 加载中' : '🔊 朗读'}
-                    </button>
-                    <button
-                      onClick={handleCacheCurrentChapter}
-                      disabled={cachingInProgress}
-                      className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                    >
-                      💾 缓存本章
-                    </button>
-                    <button
-                      onClick={handleCacheFullBook}
-                      disabled={cachingInProgress}
-                      className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                    >
-                      📦 全书缓存
-                    </button>
-                    {book?.format === 'epub' && (
-                      <button
-                        onClick={() => setShowEpubView(v => !v)}
-                        className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
-                          showEpubView
-                            ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
-                      >
-                        {showEpubView ? '📄 文本' : '📖 原版'}
-                      </button>
-                    )}
-                    {cacheStatus && cacheStatus.chapterCount > 0 && (
-                      <button
-                        onClick={handleClearCache}
-                        className="text-xs px-2 py-1.5 rounded-full text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-                      >
-                        ✕ 清缓存
-                      </button>
-                    )}
-                  </div>
-
-                  {/* 缓存状态 */}
-                  {cacheStatus && cacheStatus.chapterCount > 0 && (
-                    <div className="text-xs text-green-600 dark:text-green-400">
-                      📦 已离线缓存 {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章
-                    </div>
-                  )}
-
-                  {/* ── TTS 朗读控制（仅 TTS 激活时显示） ── */}
                   {ttsState !== 'idle' && (
                     <div className="space-y-2 pt-1">
                       <div className="border-t border-gray-100 dark:border-gray-700" />
@@ -1681,9 +1657,6 @@ function ReaderTopBar({
   ttsActive,
   onStartTTS,
   onStopTTS,
-  bookFormat,
-  showEpubView,
-  onToggleEpubView,
   cacheStatus,
   cachingInProgress,
   onCacheChapter,
@@ -1729,6 +1702,7 @@ function ReaderTopBar({
         <h1 className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate max-w-xs">
           {title}
         </h1>
+        <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1 shrink-0">v0.1.0</span>
       </div>
       <div className="flex items-center gap-3">
         {/* TTS 朗读按钮 */}
@@ -1793,20 +1767,7 @@ function ReaderTopBar({
             📑 目录
           </button>
         )}
-        {/* EPUB 视图切换 */}
-        {bookFormat === 'epub' && onToggleEpubView && (
-          <button
-            onClick={onToggleEpubView}
-            className={`text-xs px-2 py-1 rounded transition-colors ${
-              showEpubView
-                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-            }`}
-            title={showEpubView ? '切换到纯文本视图' : '切换到原版渲染'}
-          >
-            {showEpubView ? '📄 文本' : '📖 原版'}
-          </button>
-        )}
+        {/* EPUB 视图切换（已移除——原按钮有 bug 且无实际用途） */}
         {/* 字体族选择 */}
         {onFontFamilyChange && (
           <select

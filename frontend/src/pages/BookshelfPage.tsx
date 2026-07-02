@@ -454,8 +454,8 @@ useEffect(() => {
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-gray-500 dark:text-gray-400">语音</span>
                           <span className="text-gray-700 dark:text-gray-300 font-medium">
-                            {bookStats[book.id].completedVoiceChapters}/{bookStats[book.id].totalChapters}章
-                            {bookStats[book.id].ttsCacheCount ? ` · ${bookStats[book.id].ttsCacheCount}缓存` : ''}
+                            {Math.round((bookStats[book.id].voiceGenerationRate || 0) * bookStats[book.id].totalChapters)}/{bookStats[book.id].totalChapters}章
+                            {bookStats[book.id].ttsCacheCount ? ` · ${bookStats[book.id].ttsCacheCount}条` : ''}
                           </span>
                         </div>
                         <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
