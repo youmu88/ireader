@@ -18,7 +18,11 @@
     "typecheck:frontend": "cd frontend && npm run typecheck",
     "lint": "npm run lint:backend && npm run lint:frontend",
     "lint:backend": "cd backend && npm run lint",
-    "lint:frontend": "cd frontend && npm run lint"
+    "lint:frontend": "cd frontend && npm run lint",
+    "archive:deploy": "bash scripts/auto-archive-deploy.sh",
+    "archive:deploy:dry-run": "bash scripts/auto-archive-deploy.sh --dry-run",
+    "archive:build": "bash scripts/auto-archive-deploy.sh --skip-deploy",
+    "archive:quick": "bash scripts/auto-archive-deploy.sh --skip-tests"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

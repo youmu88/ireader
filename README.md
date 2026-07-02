@@ -134,6 +134,55 @@ ireader/
 7. 启动服务
 8. 健康检查确认服务就绪
 9. 输出访问地址
+### 部署流程
+
+1. 检查 Node.js/npm 环境
+2. 创建目标目录结构
+3. 停止旧实例（如有）
+4. 构建项目（增量或全量）
+5. 复制构建产物到目标目录
+6. 安装生产依赖
+7. 启动服务
+8. 健康检查确认服务就绪
+9. 输出访问地址
+
+## 自动部署 & Git 归档（一键流水线）
+
+开发完成后，一条命令完成 **类型检查 → 构建 → 测试 → 部署 → Git 提交并推送** 全流程。
+
+```bash
+# 完整流程（推荐）
+npm run archive:deploy
+
+# 自定义 commit message
+npm run archive:deploy -- "feat: 添加TTS错误提示横幅"
+# 或直接传参
+bash scripts/auto-archive-deploy.sh "fix: 修复EPUB图片丢失"
+
+# 跳过测试（快速部署归档）
+npm run archive:quick
+
+# 跳过部署（仅构建 + 归档）
+npm run archive:build
+
+# 预览模式（看看要执行什么，不实际执行）
+npm run archive:deploy:dry-run
+
+# 完整参数
+bash scripts/auto-archive-deploy.sh --skip-tests --skip-deploy "my message"
+```
+
+### 流水线详解
+
+| 步骤 | 命令 | 失败即终止 |
+|------|------|-----------|
+| 1️⃣ 类型检查 | `npm run typecheck` | ✅ |
+| 2️⃣ 构建 | `npm run build` | ✅ |
+| 3️⃣ 测试 | `npm test` | ✅ (可用 `--skip-tests` 跳过) |
+| 4️⃣ 部署 | `./deploy.sh` | ✅ (可用 `--skip-deploy` 跳过) |
+| 5️⃣ Git 归档 | `git add -A && git commit && git push` | ⚠️ push 失败不影响本地 |
+
+> 💡 **最佳实践**：每天结束开发时跑一次 `npm run archive:deploy`，代码自动上线 + 归档，不留手尾。
 
 ## 技术栈
 

@@ -1,9 +1,14 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { initDatabase } from './db/init.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import healthRouter from './routes/health.js';
+
+// ESM-compatible current directory
+const __filename = fileURLToPath(import.meta.url);
+const _curDir = path.dirname(__filename);
 import { createAuthRouter } from './routes/auth.js';
 import { createBooksRouter } from './routes/books.js';
 import { createCategoriesRouter } from './routes/categories.js';
@@ -26,7 +31,8 @@ app.use(cors());
 app.use(express.json());
 
 // Static files (served in production)
-const staticDir = path.join(process.cwd(), '..', 'frontend', 'dist');
+// Use process.cwd() as project root for both tsx/dev and compiled/prod modes
+const staticDir = path.join(process.cwd(), 'frontend', 'dist');
 app.use(express.static(staticDir));
 
 // API routes

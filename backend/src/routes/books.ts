@@ -515,5 +515,43 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     }
   });
 
+  // ── GET /api/books/:id/files/* - 获取 EPUB 提取的静态资源（图片/CSS/字体等） ──
+  router.get('/:id/files/*', requireAuth, (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const book = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
+      if (!book) throw new AppError(404, '图书不存在');
+      if (book.format !== 'epub') throw new AppError(400, '仅 EPUB 格式支持此操作');
+
+      const fileRelPath = req.params[0];
+      if (!fileRelPath) throw new AppError(400, '文件路径不能为空');
+
+      // Security: prevent path traversal
+      const normalizedPath = path.normalize(fileRelPath);
+      if (normalizedPath.startsWith('..') || normalizedPath.includes('..')) {
+        throw new AppError(403, '禁止访问上级目录');
+      }
+
+      const extractedDir = path.join(path.dirname(book.filePath), 'extracted');
+      const filePath = path.join(extractedDir, normalizedPath);
+
+      if (!fs.existsSync(filePath)) {
+        throw new AppError(404, '文件不存在');
+      }
+
+      // Security: ensure resolved path stays within extracted directory
+      const resolvedPath = path.resolve(filePath);
+      const resolvedExtractedDir = path.resolve(extractedDir);
+      if (!resolvedPath.startsWith(resolvedExtractedDir)) {
+        throw new AppError(403, '禁止越权访问');
+      }
+
+      res.sendFile(filePath);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  return router;
   return router;
 }

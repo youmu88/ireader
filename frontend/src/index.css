@@ -13,3 +13,58 @@ body {
     'Ubuntu', 'Cantarell', sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+
+/* EPUB HTML content rendering */
+.epub-content {
+  line-height: inherit;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+.epub-content img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 1em auto;
+  border-radius: 4px;
+}
+.epub-content p {
+  margin: 0.8em 0;
+}
+.epub-content h1, .epub-content h2, .epub-content h3 {
+  margin: 1.2em 0 0.6em;
+  font-weight: 600;
+}
+.epub-content a {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+.epub-content blockquote {
+  border-left: 3px solid #d1d5db;
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  color: #6b7280;
+}
+.dark .epub-content blockquote {
+  border-left-color: #4b5563;
+  color: #9ca3af;
+}
+.epub-content ul, .epub-content ol {
+  margin: 0.8em 0;
+  padding-left: 1.5em;
+}
+.epub-content li {
+  margin: 0.3em 0;
+}
+.epub-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+.epub-content td, .epub-content th {
+  border: 1px solid #d1d5db;
+  padding: 0.5em;
+}
+.dark .epub-content td, .dark .epub-content th {
+  border-color: #4b5563;
+}

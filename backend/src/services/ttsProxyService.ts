@@ -13,7 +13,7 @@ config();
 const DEFAULT_TTS_URL = process.env.TTS_URL || 'http://127.0.0.1:8880';
 const DEFAULT_MEGATTS3_URL = process.env.MEGATTS3_URL || 'http://127.0.0.1:8882';
 const DEFAULT_EDGETTS_URL = process.env.EDGETTS_URL || 'http://127.0.0.1:8883';
-const DEFAULT_TTS_SOURCE = process.env.TTS_DEFAULT_SOURCE || 'kokoro';
+const DEFAULT_TTS_SOURCE = process.env.TTS_DEFAULT_SOURCE || 'edgetts';
 const TTS_REQUEST_TIMEOUT_MS = parseInt(process.env.TTS_REQUEST_TIMEOUT_MS || '30000', 10);
 
 const PRESET_URLS: Record<string, string> = {
