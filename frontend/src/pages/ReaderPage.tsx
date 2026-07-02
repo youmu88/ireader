@@ -1437,14 +1437,6 @@ function ReaderPage() {
                       >
                         📦 全书缓存
                       </button>
-                      {book?.format === 'epub' && (
-                        <button
-                          onClick={() => {}}
-                          className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${showEpubView ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
-                        >
-                          {showEpubView ? '📄 文本' : '📖 原版'}
-                        </button>
-                      )}
                       {cacheStatus && cacheStatus.chapterCount > 0 && (
                         <button
                           onClick={handleClearCache}
