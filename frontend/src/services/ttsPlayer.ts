@@ -223,6 +223,12 @@ export class TTSPlayer {
   private generation = 0;
   /** 所有 blob URL 清单，用于统一清理 */
   private allBlobUrls: string[] = [];
+  /** timeupdate 兜底处理器引用（用于移除监听） */
+  private timeupdateHandler: (() => void) | null = null;
+  /** 防止 timeupdate 重复触发 playNext 的守卫标志 */
+  private playedViaTimeupdate = false;
+  /** 并发 fetch 的最大并发数（后台受限时限制，避免被浏览器完全限流） */
+  private static readonly MAX_CONCURRENT_FETCHES = 6;
   /** 当前书籍信息（用于 Media Session 锁屏封面） */
   private bookTitle = '';
   private bookCoverUrl = '';
@@ -504,6 +510,11 @@ export class TTSPlayer {
       document.removeEventListener('visibilitychange', this.boundVisibilityHandler);
       this.boundVisibilityHandler = null;
     }
+    // 清理 timeupdate 兜底监听
+    if (this.timeupdateHandler && this.audioElement) {
+      this.audioElement.removeEventListener('timeupdate', this.timeupdateHandler);
+      this.timeupdateHandler = null;
+    }
     // 清除 Media Session 元数据
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = null;
@@ -567,7 +578,7 @@ export class TTSPlayer {
       } catch { /* Media Session 不可用则静默跳过 */ }
     }
 
-    // ── 2. visibilitychange：后台时预取所有音频 + 切回前台时同步状态 ──
+    // ── 2. visibilitychange：后台时预取所有音频 + 切回前台时自动续播 ──
     this.boundVisibilityHandler = () => {
       if (this.isDestroyed) return;
       if (document.visibilityState === 'hidden') {
@@ -577,9 +588,19 @@ export class TTSPlayer {
         this.prefetchAllRemaining();
       } else if (document.visibilityState === 'visible') {
         this.isBackground = false;
-        if (this.state === 'playing') {
-          this.updateMediaSessionState('playing');
+        // ⭐ 回到前台时检查是否需要续播：
+        //    移动端后台时 onended 可能被节流，导致播完上一个 chunk 后
+        //    playNext() 未被调用，播放链断裂。
+        if (this.state === 'playing' && this.audioElement) {
+          const dur = this.audioElement.duration;
+          const ct = this.audioElement.currentTime;
+          const isEnded = this.audioElement.ended ||
+            (dur > 0 && ct > 0 && ct >= dur - 0.3);
+          if (isEnded) {
+            this.playNext();
+          }
         }
+        this.updateMediaSessionState('playing');
       }
     };
     document.addEventListener('visibilitychange', this.boundVisibilityHandler);
@@ -588,19 +609,22 @@ export class TTSPlayer {
   /**
    * 预取所有尚未准备好的音频片段（进入后台时调用）
    * 确保移动端后台播放时无需再发起 fetch 请求
+   *
+   * 使用并发池限制最大并发数，避免移动端后台一次性发起数百个 fetch
+   * 导致浏览器完全限流（通常后台仅允许 4-6 个并发请求）
    */
   private prefetchAllRemaining(): void {
     if (this.isDestroyed || this.chunks.length === 0) return;
-    const pendingCount = this.chunks.filter(c => c.status === 'pending').length;
-    if (pendingCount === 0) return;
-    // 从当前播放位置之后开始，预取所有 pending 片段
-    const startIdx = Math.max(0, this.currentIndex + 1);
-    for (let i = startIdx; i < this.chunks.length; i++) {
-      const chunk = this.chunks[i];
-      if (chunk && chunk.status === 'pending') {
-        this.fetchChunk(chunk).catch(() => {});
-      }
-    }
+    const pendingChunks = this.chunks.filter(
+      c => c.status === 'pending' && c.index > this.currentIndex
+    );
+    if (pendingChunks.length === 0) return;
+    // 用并发池预取，限制最大并发数
+    this.runWithConcurrency(
+      pendingChunks,
+      (chunk) => this.fetchChunk(chunk).catch(() => {}),
+      TTSPlayer.MAX_CONCURRENT_FETCHES
+    );
   }
 
   /** 更新 Media Session 播放状态（锁屏/通知栏状态同步） */
@@ -693,14 +717,48 @@ export class TTSPlayer {
 
   /**
    * 通过 <audio> 元素播放指定 Blob URL 的音频数据
+   *
+   * 添加 timeupdate 兜底监听：移动端后台时 <audio> 的 onended 事件可能被浏览器
+   * 节流/延迟，timeupdate 每 200-250ms 触发一次，可实时检测播放结束并手动续播。
    */
   private playChunk(blobUrl: string): void {
     if (!this.audioElement || this.isDestroyed) return;
 
     this.stopInternal();
 
+    // ── 移除旧的 timeupdate 监听 ──
+    if (this.timeupdateHandler) {
+      this.audioElement.removeEventListener('timeupdate', this.timeupdateHandler);
+      this.timeupdateHandler = null;
+    }
+
     this.audioElement.src = blobUrl;
     this.currentBlobUrl = blobUrl;
+    this.audioElement.playbackRate = this.speed;
+    this.audioElement.volume = this.volume;
+
+    // ── timeupdate 兜底监听：检测音频播放结束 ──
+    // 解决移动端后台 onended 被节流导致播放链断裂的问题
+    this.playedViaTimeupdate = false;
+    this.timeupdateHandler = () => {
+      if (this.isDestroyed || !this.audioElement || this.playedViaTimeupdate) return;
+      // 当 currentTime 接近 duration 时，认为该分段播放完毕
+      const dur = this.audioElement.duration;
+      const ct = this.audioElement.currentTime;
+      if (dur > 0 && ct > 0 && ct >= dur - 0.3) {
+        this.playedViaTimeupdate = true;
+        // 清除监听避免重复触发
+        if (this.timeupdateHandler) {
+          this.audioElement.removeEventListener('timeupdate', this.timeupdateHandler);
+          this.timeupdateHandler = null;
+        }
+        if (this.state === 'playing') {
+          this.playNext();
+        }
+      }
+    };
+    this.audioElement.addEventListener('timeupdate', this.timeupdateHandler);
+
     this.audioElement.playbackRate = this.speed;
     this.audioElement.volume = this.volume;
 
@@ -727,12 +785,19 @@ export class TTSPlayer {
   }
 
   private async preGenRange(start: number, end: number): Promise<void> {
+    const pendingChunks: TTSChunk[] = [];
     for (let i = start; i <= end; i++) {
       const chunk = this.chunks[i];
-      if (!chunk || chunk.status !== 'pending') continue;
-      // 不等待，后台异步生成
-      this.fetchChunk(chunk).catch(() => {});
+      if (chunk && chunk.status === 'pending') {
+        pendingChunks.push(chunk);
+      }
     }
+    // 用并发池预生成，限制最大并发数避免浏览器限流
+    await this.runWithConcurrency(
+      pendingChunks,
+      (chunk) => this.fetchChunk(chunk).catch(() => {}),
+      TTSPlayer.MAX_CONCURRENT_FETCHES
+    );
   }
 
   private async fetchChunk(chunk: TTSChunk, retryCount = 0): Promise<void> {
@@ -779,6 +844,27 @@ export class TTSPlayer {
       };
       check();
     });
+  }
+
+  /**
+   * 简易并发池：限制异步操作的最大并发数
+   * 用于后台预取时避免一次性发起数百个 fetch 被浏览器限流
+   */
+  private async runWithConcurrency<T extends { index: number }>(
+    items: T[],
+    fn: (item: T) => Promise<void>,
+    concurrency: number
+  ): Promise<void> {
+    if (items.length === 0) return;
+    let i = 0;
+    const next = async (): Promise<void> => {
+      while (i < items.length) {
+        const idx = i++;
+        await fn(items[idx]);
+      }
+    };
+    const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => next());
+    await Promise.all(workers);
   }
 
   private async fetchTTSAudio(text: string): Promise<ArrayBuffer> {
