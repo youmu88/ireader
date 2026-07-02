@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { sql } from 'drizzle-orm';
 import { getSources, getVoices, checkHealth, synthesize } from '../services/ttsProxyService.js';
-import { ttsSettings, ttsCache } from '../db/schema.js';
+import { ttsSettings, ttsCache, ttsGenerationJobs, books } from '../db/schema.js';
 import { findCache, isCacheValid, saveToCache, clearAllCache, evictStaleCache } from '../services/ttsCacheService.js';
 import { requireAuth } from '../middleware/auth.js';
 import { regenerateAllForNewVoice } from '../services/ttsGenerationService.js';
@@ -200,6 +200,29 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       res.json({ success: true, deleted, message: `已清除 ${deleted} 条缓存` });
     } catch (error) {
       res.status(500).json({ success: false, error: '清除缓存失败' });
+    }
+  });
+
+  // ── GET /api/tts/jobs - 获取当前用户所有 TTS 生成任务（含书名） ──
+  router.get('/jobs', requireAuth, (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.userId;
+      const jobs = db.select().from(ttsGenerationJobs)
+        .where(sql`tts_generation_jobs.user_id = ${userId}`)
+        .orderBy(sql`tts_generation_jobs.created_at DESC`)
+        .all() as any[];
+
+      // 附带书名
+      const enriched = jobs.map((job: any) => {
+        const book = db.select({ title: books.title }).from(books)
+          .where(sql`id = ${job.bookId}`)
+          .get() as any;
+        return { ...job, bookTitle: book?.title || '未知' };
+      });
+
+      res.json({ success: true, data: enriched });
+    } catch (error) {
+      res.status(500).json({ success: false, error: '获取 TTS 任务列表失败' });
     }
   });
 

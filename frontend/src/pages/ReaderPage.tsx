@@ -828,8 +828,12 @@ function ReaderPage() {
       return;
     }
     const nextCh = chaptersRef.current[ci + 1];
-    // 保存上一章完成进度
+    // 保存上一章完成进度（单个章节完成后标记为全书进度 = (ci+1)/total）
+    const totalChaps = chaptersRef.current.length;
+    const chapterDonePct = (ci + 1) / totalChaps;
     saveTtsProgress(currentChapterRef.current.id, -1, 1);
+    // 写入真实的全书进度
+    debounceSaveProgress({ chapterId: currentChapterRef.current.id, percentage: chapterDonePct });
     try {
       const res = await axios.get(`/api/books/${triggerBookId}/chapters/${nextCh.id}/content`);
       if (currentBookIdRef.current !== triggerBookId) return; // 书籍已切换
@@ -898,14 +902,20 @@ function ReaderPage() {
     return txtContent;
   }, [currentChapter, bookId, book, txtContent]);
 
-  /** 保存 TTS 播放进度 */
-  const saveTtsProgress = useCallback((chapterId: string, segmentIndex: number, progress: number) => {
+  /** 保存 TTS 播放进度（全书百分比） */
+  const saveTtsProgress = useCallback((chapterId: string, segmentIndex: number, _chapterPct: number) => {
+    // 转换为全书百分比：(当前章节索引 + 章节内进度) / 总章节数
+    const cIdx = chapters.findIndex(c => c.id === chapterId);
+    const total = chapters.length;
+    const bookPct = cIdx >= 0 && total > 0
+      ? (cIdx + _chapterPct) / total
+      : _chapterPct;
     debounceSaveProgress({
       chapterId,
       textOffset: segmentIndex,
-      percentage: progress,
+      percentage: bookPct,
     });
-  }, [debounceSaveProgress]);
+  }, [debounceSaveProgress, chapters]);
 
   /** 启动 TTS 进度定期保存（同时持久化到 localStorage，支持页面刷新恢复） */
   const startTtsProgressSaver = useCallback((bookId: string, chapterId: string, chapterTitle: string, player: any) => {
@@ -914,8 +924,9 @@ function ReaderPage() {
       const idx = player.getCurrentIndex();
       const total = player.getTotalChunks();
       if (idx >= 0 && total > 0) {
-        const pct = (idx + 1) / total;
-        saveTtsProgress(chapterId, idx, pct);
+        // 章节内 chunk 进度 (0~1)
+        const chapterPct = (idx + 1) / total;
+        saveTtsProgress(chapterId, idx, chapterPct);
         // ⭐ 同步持久化到 localStorage，页面刷新后可自动检测并弹出恢复横幅
         savePlaybackToLocalStorage({
           bookId,
@@ -1370,12 +1381,13 @@ function ReaderPage() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      // Save final TTS position before leaving
+      // Save final TTS position before leaving (全书百分比)
       if (ttsPlayerRef.current && currentChapter) {
         const idx = ttsPlayerRef.current.getCurrentIndex();
         const total = ttsPlayerRef.current.getTotalChunks();
         if (idx >= 0 && total > 0) {
-          saveTtsProgress(currentChapter.id, idx, (idx + 1) / total);
+          const chapterPct = (idx + 1) / total;
+          saveTtsProgress(currentChapter.id, idx, chapterPct);
         }
       }
       if (renditionRef.current) {

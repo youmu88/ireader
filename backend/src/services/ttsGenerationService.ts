@@ -297,9 +297,12 @@ async function processJob(
           if (result.success && result.audio) {
             // 保存到 TTS 缓存（按用户隔离）
             saveToCache(db, dataDir, chunk, job.voice, job.speed, result.audio, 'wav', job.userId);
+          } else if (result && !result.success) {
+            console.warn(`[TTS] 段落合成失败: ${result.error || '未知错误'} (book: ${job.bookId.slice(0,8)})`);
           }
-        } catch {
-          // 单段失败不中断整个任务
+        } catch (err: any) {
+          // 单段失败不中断整个任务，但记录错误
+          console.warn(`[TTS] 段落合成异常: ${err.message || err} (book: ${job.bookId.slice(0,8)})`);
         }
 
         completedChunks++;

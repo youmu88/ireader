@@ -3,6 +3,21 @@ import axios from 'axios';
 import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, type PlayerState } from '../services/ttsPlayer';
 import UploadQueue from '../components/UploadQueue';
 
+interface TTSJob {
+  id: string;
+  bookId: string;
+  bookTitle: string;
+  voice: string;
+  speed: number;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  progress: number;
+  totalChunks: number;
+  completedChunks: number;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface Book {
   id: string;
   title: string;
@@ -96,6 +111,54 @@ useEffect(() => {
   };
 
   const [batchActionLoading, setBatchActionLoading] = useState<string | null>(null);
+  // ── TTS 生成队列可视化 ──
+  const [ttsJobs, setTtsJobs] = useState<TTSJob[]>([]);
+  const [showTtsQueue, setShowTtsQueue] = useState(false);
+  const ttsQueuePollRef = useRef<ReturnType<typeof setInterval>>();
+
+  const fetchTTSJobs = useCallback(async () => {
+    try {
+      const res = await axios.get('/api/tts/jobs');
+      if (res.data.success) {
+        setTtsJobs(res.data.data);
+        // 如果没有活跃任务，停止轮询
+        const active = res.data.data.filter((j: TTSJob) => j.status === 'pending' || j.status === 'running');
+        if (active.length === 0 && ttsQueuePollRef.current) {
+          clearInterval(ttsQueuePollRef.current);
+          ttsQueuePollRef.current = undefined;
+        }
+      }
+    } catch { /* 静默 */ }
+  }, []);
+
+  // 当面板打开或有活跃任务时轮询
+  useEffect(() => {
+    if (showTtsQueue) {
+      fetchTTSJobs();
+      if (!ttsQueuePollRef.current) {
+        ttsQueuePollRef.current = setInterval(fetchTTSJobs, 3000);
+      }
+    }
+    return () => {
+      if (ttsQueuePollRef.current) {
+        clearInterval(ttsQueuePollRef.current);
+        ttsQueuePollRef.current = undefined;
+      }
+    };
+  }, [showTtsQueue, fetchTTSJobs]);
+
+  // 全局：只要有 pending/running 任务就后台轮询（更新书架 stats 显示）
+  useEffect(() => {
+    const hasActive = ttsJobs.some(j => j.status === 'pending' || j.status === 'running');
+    if (hasActive && !ttsQueuePollRef.current) {
+      ttsQueuePollRef.current = setInterval(fetchTTSJobs, 5000);
+    }
+    if (!hasActive && ttsQueuePollRef.current) {
+      clearInterval(ttsQueuePollRef.current);
+      ttsQueuePollRef.current = undefined;
+    }
+  }, [ttsJobs, fetchTTSJobs]);
+
   const handleBatchGenerateVoice = async () => {
     if (selectedIds.size === 0) return;
     setBatchActionLoading('voice');
@@ -103,7 +166,9 @@ useEffect(() => {
       await Promise.all([...selectedIds].map(id =>
         axios.post(`/api/books/${id}/tts-generate`)
       ));
-      alert(`已为 ${selectedIds.size} 本书提交语音预生成任务，后台正在处理中`);
+      // 提交成功 → 自动打开队列面板查看进展
+      setShowTtsQueue(true);
+      await fetchTTSJobs();
       exitSelectionMode();
       await loadData();
     } catch (err: any) {
@@ -529,6 +594,91 @@ useEffect(() => {
           </div>
         </div>
       )}
+
+      {/* ── TTS 预生成队列可视化面板 ── */}
+      {showTtsQueue && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowTtsQueue(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[70vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}>
+            {/* 标题栏 */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
+                🎙 语音生成队列
+                {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
+                  <span className="ml-2 inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                    任务进行中
+                  </span>
+                )}
+              </h3>
+              <div className="flex items-center gap-2">
+                <button onClick={fetchTTSJobs} className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">🔄 刷新</button>
+                <button onClick={() => setShowTtsQueue(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
+              </div>
+            </div>
+            {/* 列表 */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {ttsJobs.length === 0 ? (
+                <p className="text-center text-gray-400 dark:text-gray-500 py-8 text-sm">暂无语音生成任务</p>
+              ) : (
+                ttsJobs.slice(0, 30).map(job => {
+                  const pct = job.totalChunks > 0 ? Math.min(job.completedChunks / job.totalChunks, 1) : 0;
+                  const statusLabel: Record<string, string> = { pending: '排队中', running: '生成中', completed: '已完成', failed: '失败' };
+                  const statusColor: Record<string, string> = {
+                    pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+                    running: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+                    completed: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+                    failed: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+                  };
+                  return (
+                    <div key={job.id} className="border border-gray-100 dark:border-gray-700 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate max-w-[60%]">
+                          {job.bookTitle}
+                        </span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[job.status] || ''}`}>
+                          {statusLabel[job.status] || job.status}
+                        </span>
+                      </div>
+                      {(job.status === 'running' || job.status === 'pending') && (
+                        <div className="mt-2">
+                          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                            <span>{job.completedChunks || 0} / {job.totalChunks || '?'} 段</span>
+                            <span>{Math.round(pct * 100)}%</span>
+                          </div>
+                          <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                              style={{ width: `${Math.round(pct * 100)}%` }} />
+                          </div>
+                        </div>
+                      )}
+                      {job.status === 'completed' && (
+                        <div className="text-xs text-green-600 dark:text-green-400 mt-1">
+                          ✅ 已生成 {job.completedChunks || job.totalChunks || '全部'} 段语音
+                        </div>
+                      )}
+                      {job.status === 'failed' && (
+                        <div className="text-xs text-red-500 mt-1">{job.error || '生成失败'}</div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            {/* 底部按钮 */}
+            <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
+              <span className="text-xs text-gray-400">
+                共 {ttsJobs.length} 个任务 · {ttsJobs.filter(j => j.status === 'running').length} 个运行中
+              </span>
+              <button onClick={() => setShowTtsQueue(false)}
+                className="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white px-3 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-2xl">
           {/* 进度条与书架整排宽度一致 */}
