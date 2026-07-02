@@ -110,7 +110,7 @@ export class TTSPlayer {
   private callbacks: TTSPlayerCallbacks = {};
   private speed = 1.0;
   private source = 'kokoro';
-  private voice = 'zf_xiaobei';
+  private voice = 'zh-CN-XiaoxiaoNeural';
   private preGenCount = 3;
   private isDestroyed = false;
   private currentSegmentText = '';

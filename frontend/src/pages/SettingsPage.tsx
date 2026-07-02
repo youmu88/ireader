@@ -28,7 +28,7 @@ export default function SettingsPage() {
   const [sources, setSources] = useState<TTSource[]>([]);
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
   const [selectedSource, setSelectedSource] = useState('kokoro');
-  const [selectedVoice, setSelectedVoice] = useState('zf_xiaobei');
+  const [selectedVoice, setSelectedVoice] = useState('zh-CN-XiaoxiaoNeural');
   const [speed, setSpeed] = useState(1.0);
   const [apiUrl, setApiUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -68,7 +68,7 @@ export default function SettingsPage() {
         setSources(srcList);
         setTtsSettings(settings);
         setSelectedSource(settings.source || 'kokoro');
-        setSelectedVoice(settings.voiceId || 'zf_xiaobei');
+        setSelectedVoice(settings.voiceId || 'zh-CN-XiaoxiaoNeural');
         setSpeed(settings.speed ?? 1.0);
         setApiUrl(settings.apiUrl || '');
         setApiKey(settings.apiKey || '');
@@ -404,7 +404,7 @@ export default function SettingsPage() {
             iReader v0.1.0 — 图书阅读与听书服务端软件
           </p>
           <p className="text-xs text-gray-400 mt-2">
-            TTS 后端: {ttsSettings?.source || 'kokoro'} · 音色: {ttsSettings?.voiceId || 'zf_xiaobei'}
+            TTS 后端: {ttsSettings?.source || 'edgetts'} · 音色: {ttsSettings?.voiceId || 'zh-CN-XiaoxiaoNeural'}
           </p>
         </section>
       </div>

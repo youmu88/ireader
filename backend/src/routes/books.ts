@@ -431,7 +431,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
 
       // 获取当前 TTS 设置（ttsSettings 已通过顶部静态导入）
       const settings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
-      const ttsVoice = voice || settings?.voiceId || 'zf_xiaobei';
+      const ttsVoice = voice || settings?.voiceId || 'zh-CN-XiaoxiaoNeural';
       const ttsSpeed = speed ?? settings?.speed ?? 1.0;
 
       const { createFullBookGenerationJob, createPartialGenerationJob } = await import('../services/ttsGenerationService.js');

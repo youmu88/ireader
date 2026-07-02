@@ -22,7 +22,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
 
   // ── 音色列表（无需登录；支持自定义 apiUrl/apiKey 查询参数） ──
   router.get('/voices', async (req: Request, res: Response) => {
-    const source = (req.query.source as string) || 'kokoro';
+    const source = (req.query.source as string) || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
     const apiUrl = req.query.apiUrl as string | undefined;
     const apiKey = req.query.apiKey as string | undefined;
     const result = await getVoices(source, apiUrl, apiKey);
@@ -35,7 +35,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
 
   // ── 健康检查 / 连接测试（无需登录；支持自定义 apiUrl/apiKey 查询参数） ──
   router.get('/health', async (req: Request, res: Response) => {
-    const source = (req.query.source as string) || 'kokoro';
+    const source = (req.query.source as string) || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
     const apiUrl = req.query.apiUrl as string | undefined;
     const apiKey = req.query.apiKey as string | undefined;
     const result = await checkHealth(source, apiUrl, apiKey);
@@ -55,12 +55,12 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     const userSettings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
     const apiUrl = userSettings?.apiUrl || undefined;
     const apiKey = userSettings?.apiKey || undefined;
-    const source = tts_source || userSettings?.source || 'kokoro';
+    const source = tts_source || userSettings?.source || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
 
     // 尝试从缓存读取（按用户隔离）
     if (dataDir) {
       try {
-        const cached = findCache(db, input, voice || 'zf_xiaobei', speed || 1.0, userId);
+        const cached = findCache(db, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, userId);
         if (cached && isCacheValid(cached)) {
           const audioBuffer = fs.readFileSync(cached.audioPath);
           const ext = path.extname(cached.audioPath).toLowerCase();
@@ -83,7 +83,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     // 保存到缓存（按用户隔离）
     if (dataDir && result.audio) {
       try {
-        saveToCache(db, dataDir, input, voice || 'zf_xiaobei', speed || 1.0, result.audio, response_format || 'wav', userId);
+        saveToCache(db, dataDir, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, result.audio, response_format || 'wav', userId);
       } catch { /* 缓存写入失败不影响主流程 */ }
     }
 
@@ -95,7 +95,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
 
   // ── 连接测试（POST 版本，无需登录；支持自定义 apiUrl/apiKey） ──
   router.post('/test', async (req: Request, res: Response) => {
-    const source = req.body.tts_source || 'kokoro';
+    const source = req.body.tts_source || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
     const apiUrl = req.body.apiUrl as string | undefined;
     const apiKey = req.body.apiKey as string | undefined;
     const result = await checkHealth(source, apiUrl, apiKey);
@@ -116,8 +116,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         const defaults = {
           userId,
           enabled: true,
-          source: 'kokoro',
-          voiceId: 'zf_xiaobei',
+          source: process.env.TTS_DEFAULT_SOURCE || 'edgetts',
+          voiceId: 'zh-CN-XiaoxiaoNeural',
           speed: 1.0,
           apiUrl: null as string | null,
           apiKey: null as string | null,
@@ -161,8 +161,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         db.insert(ttsSettings).values({
           userId,
           enabled: enabled ?? true,
-          source: source ?? 'kokoro',
-          voiceId: voiceId ?? 'zf_xiaobei',
+          source: source ?? (process.env.TTS_DEFAULT_SOURCE || 'edgetts'),
+          voiceId: voiceId ?? 'zh-CN-XiaoxiaoNeural',
           speed: speed ?? 1.0,
           apiUrl: apiUrl || null,
           apiKey: apiKey || null,

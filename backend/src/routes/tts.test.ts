@@ -23,7 +23,7 @@ describe('TTS Routes', () => {
   beforeAll(async () => {
     // Check if TTS backend is available
     try {
-      const healthRes = await fetch('http://127.0.0.1:8880/health', { signal: AbortSignal.timeout(2000) });
+      const healthRes = await fetch('http://127.0.0.1:8883/health', { signal: AbortSignal.timeout(2000) });
       ttsAvailable = healthRes.ok;
     } catch {
       ttsAvailable = false;
@@ -71,7 +71,7 @@ describe('TTS Routes', () => {
 
   describe('GET /api/tts/voices', () => {
     it('should return voices list or error gracefully', async () => {
-      const res = await request(app).get('/api/tts/voices?source=kokoro');
+      const res = await request(app).get('/api/tts/voices?source=edgetts');
       if (ttsAvailable) {
         expect(res.status).toBe(200);
         expect(res.body.success).toBe(true);
@@ -87,7 +87,7 @@ describe('TTS Routes', () => {
 
   describe('GET /api/tts/health', () => {
     it('should return health status or error gracefully', async () => {
-      const res = await request(app).get('/api/tts/health?source=kokoro');
+      const res = await request(app).get('/api/tts/health?source=edgetts');
       if (ttsAvailable) {
         expect(res.status).toBe(200);
         expect(res.body.success).toBe(true);
@@ -104,7 +104,7 @@ describe('TTS Routes', () => {
       const res = await request(app)
         .post('/api/tts')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ input: '你好世界', voice: 'zf_xiaobei' });
+        .send({ input: '你好世界', voice: 'zh-CN-XiaoxiaoNeural' });
       if (ttsAvailable) {
         expect(res.status).toBe(200);
         expect(res.headers['content-type']).toMatch(/^audio\//);
@@ -121,7 +121,7 @@ describe('TTS Routes', () => {
       try {
         const res = await request(app)
           .post('/api/tts/test')
-          .send({ tts_source: 'kokoro' });
+          .send({ tts_source: 'edgetts' });
         if (ttsAvailable) {
           expect(res.status).toBe(200);
           expect(res.body.success).toBe(true);
@@ -155,8 +155,8 @@ describe('TTS Routes', () => {
       const res = await request(app)
         .get('/api/tts/settings')
         .set('Authorization', `Bearer ${authToken}`);
-      expect(res.body.data.source).toBe('kokoro');
-      expect(res.body.data.voiceId).toBe('zf_xiaobei');
+      expect(res.body.data.source).toBe('edgetts');
+      expect(res.body.data.voiceId).toBe('zh-CN-XiaoxiaoNeural');
       expect(res.body.data.speed).toBe(1.0);
       expect(res.body.data.enabled).toBe(true);
     });

@@ -227,7 +227,7 @@ async function processJob(
       const userSettings = db.select().from(ttsSettings).where(sql`user_id = ${job.userId}`).get();
       const apiUrl = userSettings?.apiUrl || undefined;
       const apiKey = userSettings?.apiKey || undefined;
-      const source = userSettings?.source || 'kokoro';
+      const source = userSettings?.source || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
 
       // 逐段合成并缓存
       for (const chunk of chunks) {

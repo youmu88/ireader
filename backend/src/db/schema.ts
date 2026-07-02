@@ -116,8 +116,8 @@ export const voiceCache = sqliteTable('voice_cache', {
 export const ttsSettings = sqliteTable('tts_settings', {
   userId: text('user_id').primaryKey().notNull().references(() => users.id, { onDelete: 'cascade' }),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-  source: text('source').notNull().default('kokoro'),
-  voiceId: text('voice_id').notNull().default('zf_xiaobei'),
+  source: text('source').notNull().default('edgetts'),
+  voiceId: text('voice_id').notNull().default('zh-CN-XiaoxiaoNeural'),
   speed: real('speed').notNull().default(1.0),
   apiUrl: text('api_url'),
   apiKey: text('api_key'),

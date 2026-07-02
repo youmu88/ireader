@@ -133,8 +133,8 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
     CREATE TABLE IF NOT EXISTS tts_settings (
       user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       enabled INTEGER NOT NULL DEFAULT 1,
-      source TEXT NOT NULL DEFAULT 'kokoro',
-      voice_id TEXT NOT NULL DEFAULT 'zf_xiaobei',
+      source TEXT NOT NULL DEFAULT 'edgetts',
+      voice_id TEXT NOT NULL DEFAULT 'zh-CN-XiaoxiaoNeural',
       speed REAL NOT NULL DEFAULT 1.0,
       api_url TEXT,
       api_key TEXT,
@@ -224,7 +224,7 @@ migrateOldTables(sqlite);
     if (!ttsExist) {
       sqlite.prepare(`
         INSERT INTO tts_settings (user_id, enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
-        VALUES (?, 1, 'kokoro', 'zf_xiaobei', 1.0, 3, 32, 128, ?)
+        VALUES (?, 1, 'edgetts', 'zh-CN-XiaoxiaoNeural', 1.0, 3, 32, 128, ?)
       `).run(defaultUserId, now);
     }
   }
@@ -287,7 +287,7 @@ function migrateOldTables(sqlite: Database.Database) {
         DROP TABLE IF EXISTS tts_settings;
         ALTER TABLE tts_settings_new RENAME TO tts_settings;
         INSERT OR IGNORE INTO tts_settings (user_id, enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
-        VALUES ('${defaultUserId}', 1, 'kokoro', 'zf_xiaobei', 1.0, 3, 32, 128, datetime('now'));
+        VALUES ('${defaultUserId}', 1, 'edgetts', 'zh-CN-XiaoxiaoNeural', 1.0, 3, 32, 128, datetime('now'));
       `);
     }
 

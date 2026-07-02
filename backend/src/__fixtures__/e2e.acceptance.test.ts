@@ -276,21 +276,21 @@ describe('E2E Full Flow Acceptance', () => {
         .set(auth())
         .send({
           enabled: true,
-          source: 'kokoro',
-          voiceId: 'zf_xiaobei',
+          source: 'edgetts',
+          voiceId: 'zh-CN-XiaoxiaoNeural',
           speed: 1.2,
         });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.enabled).toBe(true);
-      expect(res.body.data.source).toBe('kokoro');
+      expect(res.body.data.source).toBe('edgetts');
       expect(res.body.data.speed).toBe(1.2);
     });
 
     it('5.3 should read saved TTS settings', async () => {
       const res = await request(app).get('/api/tts/settings').set(auth());
       expect(res.status).toBe(200);
-      expect(res.body.data.source).toBe('kokoro');
+      expect(res.body.data.source).toBe('edgetts');
       expect(res.body.data.speed).toBe(1.2);
     });
 
@@ -301,7 +301,7 @@ describe('E2E Full Flow Acceptance', () => {
         .send({ speed: 1.5 });
       expect(res.status).toBe(200);
       expect(res.body.data.speed).toBe(1.5);
-      expect(res.body.data.source).toBe('kokoro');
+      expect(res.body.data.source).toBe('edgetts');
     });
   });
 

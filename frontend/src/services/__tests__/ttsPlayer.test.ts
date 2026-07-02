@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('../ttsService', () => ({
   fetchTTSSettings: vi.fn().mockResolvedValue({
     source: 'kokoro',
-    voiceId: 'zf_xiaobei',
+    voiceId: 'zh-CN-XiaoxiaoNeural',
     speed: 1.0,
     enabled: true,
   }),

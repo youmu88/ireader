@@ -423,9 +423,9 @@ ENVEOF
 # 启动服务
 # ============================================================
 start_service() {
-  log "启动 iReader 服务 (端口: ${PORT})..."
+  log "启动 iReader 服务 (systemd, 部署目录: ${APP_DIR})..."
 
-  # 写入启动脚本
+  # 写入启动脚本（供 systemd 使用）
   cat > "${APP_DIR}/start.sh" <<'STARTEOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -447,19 +447,53 @@ exec node dist/index.js
 STARTEOF
   chmod +x "${APP_DIR}/start.sh"
 
-  # 启动服务（后台运行）
-  nohup "${APP_DIR}/start.sh" > "${LOGS_DIR}/app.log" 2>&1 &
-  local new_pid=$!
-  echo "${new_pid}" > "${PID_FILE}"
-  log "服务已启动 (PID: ${new_pid})"
+  # 更新 systemd 服务配置指向部署目录
+  local SERVICE_FILE="/etc/systemd/system/ireader.service"
+  local APP_ABS_DIR
+  APP_ABS_DIR="$(cd "${APP_DIR}" && pwd)"
 
-  # 等待服务就绪
+  sudo tee "${SERVICE_FILE}" > /dev/null <<'SERVICEEOF'
+[Unit]
+Description=iReader - 图书阅读与听书 Web 服务
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=WORKDIR_PLACEHOLDER
+Environment=NODE_ENV=production
+Environment=HOME=/home/ubuntu
+Environment=PATH=/usr/bin:/usr/local/bin:/home/ubuntu/.local/bin:/home/ubuntu/.nvm/versions/node/v20.11.1/bin
+ExecStart=/usr/bin/node WORKDIR_PLACEHOLDER/backend/dist/index.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ireader
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=65536
+
+[Install]
+WantedBy=multi-user.target
+SERVICEEOF
+
+  # 替换占位符为实际路径
+  sudo sed -i "s|WORKDIR_PLACEHOLDER|${APP_ABS_DIR}|g" "${SERVICE_FILE}"
+
+  # 重新加载 systemd 并重启服务
+  sudo systemctl daemon-reload
+  sudo systemctl restart ireader
+
+  # 等待 systemd 启动
   sleep 2
 
-  # 【修复】验证启动的进程是否存活
-  if ! kill -0 "${new_pid}" 2>/dev/null; then
-    log "❌ 新进程 (PID: ${new_pid}) 已退出，检查日志:"
-    tail -20 "${LOGS_DIR}/app.log"
+  # 通过 systemctl 检查服务状态
+  if ! sudo systemctl is-active --quiet ireader; then
+    log "❌ systemd 服务启动失败，检查状态:"
+    sudo systemctl status ireader --no-pager -l 2>&1 | head -20
     return 1
   fi
 
@@ -468,33 +502,23 @@ STARTEOF
   local retry=0
   while [ "${retry}" -lt "${max_retries}" ]; do
     if curl -s "http://127.0.0.1:${PORT}/api/health" | grep -q '"ok"\|"status":"ok"\|"success":true' 2>/dev/null; then
-      # 【修复】确认响应的进程就是我们的新进程
       local responding_pid
       responding_pid="$(lsof -ti ":${PORT}" 2>/dev/null | head -1 || true)"
-      if [ -n "${responding_pid}" ] && [ "${responding_pid}" = "${new_pid}" ]; then
-        log "健康检查通过 ✓ (PID: ${new_pid})"
-        return 0
-      elif [ -n "${responding_pid}" ]; then
-        log "⚠️  端口 ${PORT} 被其他进程 (PID: ${responding_pid}) 占用，清理后重试..."
-        kill -9 "${responding_pid}" 2>/dev/null || true
-      else
-        log "端口进程未找到，继续等待..."
-      fi
+      log "健康检查通过 ✓ (PID: ${responding_pid})"
+      return 0
     fi
     retry=$((retry + 1))
     sleep 2
 
-    # 检查新进程是否还在运行
-    if ! kill -0 "${new_pid}" 2>/dev/null; then
-      log "❌ 新进程 (PID: ${new_pid}) 已退出"
-      tail -10 "${LOGS_DIR}/app.log"
+    # 检查 systemd 服务是否还活着
+    if ! sudo systemctl is-active --quiet ireader; then
+      log "❌ systemd 服务已退出"
+      sudo journalctl -u ireader --no-pager -n 20 2>&1
       return 1
     fi
   done
 
-  # 健康检查失败
-  log "⚠️  健康检查未通过，请检查日志: ${LOGS_DIR}/app.log"
-  tail -20 "${LOGS_DIR}/app.log"
+  log "⚠️  健康检查未通过，请检查: sudo journalctl -u ireader -n 50"
   return 1
 }
 
@@ -623,7 +647,10 @@ main() {
         echo " PID 文件:  ${PID_FILE}"
         echo "------------------------------------------"
         echo " 管理命令:"
-        echo "  停止服务:  kill \$(cat ${PID_FILE})"
+        echo "  停止服务:  sudo systemctl stop ireader"
+        echo "  启动服务:  sudo systemctl start ireader"
+        echo "  重启服务:  sudo systemctl restart ireader"
+        echo "  查看日志:  sudo journalctl -u ireader -n 50 -f"
         echo "  重新部署:  cd ${SOURCE_DIR} && ./deploy.sh"
         echo "  清理部署:  cd ${SOURCE_DIR} && ./deploy.sh --clean"
         echo "=========================================="

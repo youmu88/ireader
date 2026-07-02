@@ -39,7 +39,7 @@ describe('Database Init', () => {
     expect(adminUser).toBeDefined();
     const result = db.select().from(ttsSettings).where(sql`user_id = ${adminUser.id}`).all();
     expect(result.length).toBe(1);
-    expect(result[0].source).toBe('kokoro');
+    expect(result[0].source).toBe('edgetts');
   });
 
   it('should insert default uncategorized category for admin user', () => {
