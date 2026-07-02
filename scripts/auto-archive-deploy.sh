@@ -136,7 +136,12 @@ run() {
     echo "  🔍 [DRY-RUN] $*"
     return 0
   fi
-  eval "$@"
+  # 使用 subshell 执行，避免 set -euo pipefail 与 eval 组合导致异常退出
+  # 这样调用方可以用 if ! run "..." 正常捕获错误
+  (
+    set +euo pipefail
+    eval "$@"
+  )
 }
 
 # ============================================================
