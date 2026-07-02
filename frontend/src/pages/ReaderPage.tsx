@@ -161,8 +161,7 @@ function ReaderPage() {
   const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
   const sleepTimerEndRef = useRef<number | null>(null);
   const sleepTimerIntervalRef = useRef<any>(null);
-  /** TTS 后台预生成下一章 — 防止重复追加 */
-  const nextChapterPreparedRef = useRef(false);
+  
   /** Preloaded next-chapter contents for smooth scroll transitions */
   /** Track chapter IDs accumulated during auto-scroll for continuous reading */
   const accumulatedIdsRef = useRef<Set<string>>(new Set());
@@ -283,121 +282,17 @@ function ReaderPage() {
     }
   }, [bookId]);
 
-  // Load book and chapters — also handles book-switch cleanup
+  // Load book and chapters — 进入书籍完全不碰 TTS 播放器（播放控制只在用户点击按钮时处理）
   useEffect(() => {
     if (!bookId) return;
 
-    // ⭐ 书籍切换守卫：更新 ref，使进行中的异步操作可通过对比检测到书籍已变更
+    // ⭐ 更新当前书籍 ref，供各异步操作校验
     currentBookIdRef.current = bookId;
-
-    // ⭐ 检测当前播放器是否正在播放同一本书（从书架返回阅读页时保持后台播放不中断）
-    const player = getDefaultPlayer();
-    const isSameBookPlaying = player.currentBookId === bookId &&
-      (player.getState() === 'playing' || player.getState() === 'paused' || player.getState() === 'loading');
-
-    if (isSameBookPlaying) {
-      // ✅ 同一本书正在播放 → 保持播放，仅同步 UI 状态并挂载新回调
-      ttsPlayerRef.current = player;
-      const idx = player.getCurrentIndex();
-      const total = player.getTotalChunks();
-      setTtsState(player.getState());
-      setTtsProgress(total > 0 ? (idx + 1) / total : 0);
-      setTtsSegmentText(player.getCurrentSegmentText());
-      setActiveSegmentIndex(idx);
-
-      // ⭐ 将当前播放状态同步到 localStorage（作为恢复备份）
-      if (idx >= 0 && total > 0 && player.currentBookId) {
-        savePlaybackToLocalStorage({
-          bookId: player.currentBookId,
-          chapterId: currentChapterRef.current?.id || '',
-          segmentIndex: idx,
-          bookTitle: (player as any).bookTitle,
-          chapterTitle: player.chapterTitle || '',
-          timestamp: Date.now(),
-        });
-      }
-
-      // ⭐ 重启进度保存定时器（卸载时被清除），确保后台播放时进度持续保存
-      if (!ttsProgressSaveTimer.current && currentChapterRef.current && bookId) {
-        startTtsProgressSaver(
-          bookId,
-          currentChapterRef.current.id,
-          currentChapterRef.current.title || '',
-          player
-        );
-      }
-
-              // 挂载新回调（旧的 setter 来自已卸载的组件）
-      player.setCallbacks({
-        onStateChange: (s) => { setTtsState(s); },
-        onSegmentPlay: (i, _t) => {
-          setTtsSegmentText(player.getCurrentSegmentText());
-          setActiveSegmentIndex(i);
-          // ⭐ 自动滚动到当前高亮分段
-          requestAnimationFrame(() => {
-            const container = epubTextScrollRef.current || txtScrollRef.current;
-            if (!container) return;
-            const highlighted = container.querySelector('[data-tts-segment="active"]');
-            if (highlighted) {
-              highlighted.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-          });
-        },
-        onProgress: (p) => setTtsProgress(p),
-        onError: (err) => {
-          setTtsError(err);
-          setTimeout(() => setTtsError(null), 8000);
-        },
-        onEnd: () => {
-          setTtsProgress(1);
-          if (ttsProgressSaveTimer.current) {
-            clearInterval(ttsProgressSaveTimer.current);
-            ttsProgressSaveTimer.current = null;
-          }
-          advanceToNextChapterTTSRef.current?.(player);
-        },
-      });
-      // 仍然加载书籍信息（章节列表、封面等），但不重置播放器
-      loadBook();
-    } else {
-      // ✅ 从书架进入书籍 → 不停止播放器，保留后台播放继续
-      // 仅重置本页面的 TTS UI 状态（尚未点击朗读，显示为 idle）
-      ttsPlayerRef.current = null;
-      setTtsState('idle');
-      setTtsProgress(0);
-      setTtsSegmentText('');
-      setActiveSegmentIndex(-1);
-      setTtsError(null);
-
-      // ⭐ 清除 TTS 进度保存定时器（旧书已卸载，不再需要）
-      if (ttsProgressSaveTimer.current) {
-        clearInterval(ttsProgressSaveTimer.current);
-        ttsProgressSaveTimer.current = null;
-      }
-
-      // ⭐ 重置书籍相关的 ref，防止旧书数据污染新书
-      nextChapterPreparedRef.current = false;
-      accumulatedIdsRef.current.clear();
-      preloadedChaptersRef.current.clear();
-      savedTtsProgressRef.current = null;
-      savedProgressRef.current = null;
-      loadingNextChapterRef.current = false;
-
-      // ⭐ 清除睡眠计时器
-      if (sleepTimerIntervalRef.current) {
-        clearInterval(sleepTimerIntervalRef.current);
-        sleepTimerIntervalRef.current = null;
-      }
-      setSleepTimerMinutes(null);
-      sleepTimerEndRef.current = null;
-
-      loadBook();
-    }
+    loadBook();
 
     // Cleanup on unmount or book switch
     return () => {
-      // ⭐ 不再调用 p.stop() 和 p.setCallbacks({})——卸载时保持 TTS 后台播放
-      // （用户可能在书架页继续听书）。书籍切换时，新的 effect 会调用 stop() 处理。
+      // 仅清除本地定时器，不碰 TTS 播放器（保持后台播放不中断）
       if (ttsProgressSaveTimer.current) {
         clearInterval(ttsProgressSaveTimer.current);
         ttsProgressSaveTimer.current = null;
