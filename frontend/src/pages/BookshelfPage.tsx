@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
 import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, type PlayerState } from '../services/ttsPlayer';
 import UploadQueue from '../components/UploadQueue';
@@ -554,8 +554,8 @@ useEffect(() => {
                   onTouchMove={() => { if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = undefined; } }}
                   onTouchEnd={() => { if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = undefined; } }}
                 >
-                  <a
-                    href={selectionMode ? '#' : `/reader/${book.id}`}
+                  <Link
+                    to={selectionMode ? '#' : `/reader/${book.id}`}
                     onClick={(e) => {
                       if (selectionMode) {
                         e.preventDefault();
@@ -628,7 +628,7 @@ useEffect(() => {
                         </div>
                       </div>
                     )}
-                  </a>
+                  </Link>
                   {/* Action buttons - desktop hover only, mobile via long-press */}
                   <div className="hidden sm:flex absolute top-2 right-2 gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {/* 正在播放指示器 */}
