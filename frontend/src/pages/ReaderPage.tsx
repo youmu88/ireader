@@ -131,6 +131,7 @@ function ReaderPage() {
   /** 当前书籍 ID 的 ref（用于异步操作的书籍切换守卫） */
   const currentBookIdRef = useRef<string | undefined>(bookId);
   /** 进度条容器 ref（用于拖拽 seek） */
+  const [pendingScrollRestorePct, setPendingScrollRestorePct] = useState<number | null>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
   /** 是否正在拖拽进度条（防止 mouseup 未触发导致的卡住） */
   const isDraggingRef = useRef(false);
@@ -444,14 +445,12 @@ function ReaderPage() {
       if (targetChapter) {
         await loadChapterContent(targetChapter, undefined, isEpub);
         // 恢复精确滚动位置（使用保存的 pageIndex）
+        // ⭐ 不再使用 requestAnimationFrame，改用 useEffect 在内容渲染完成后恢复
         if (savedProgress?.pageIndex != null && bookData.format !== 'epub') {
           const restorePct = savedProgress.pageIndex / 10000;
-          requestAnimationFrame(() => {
-            const container = epubTextScrollRef.current || txtScrollRef.current;
-            if (container && restorePct > 0) {
-              container.scrollTop = restorePct * (container.scrollHeight - container.clientHeight);
-            }
-          });
+          if (restorePct > 0) {
+            setPendingScrollRestorePct(restorePct);
+          }
         }
         // 首次加载后立即预加载后续章节
         preloadNextChapters(targetChapter.id);
@@ -910,10 +909,17 @@ function ReaderPage() {
     const bookPct = cIdx >= 0 && total > 0
       ? (cIdx + _chapterPct) / total
       : _chapterPct;
+    // ⭐ 同时保存当前的滚动位置 pageIndex，避免 TTS 进度覆盖后 scroll 恢复丢失
+    const container = epubTextScrollRef.current || txtScrollRef.current;
+    let pageIndex: number | undefined;
+    if (container && container.scrollHeight > container.clientHeight) {
+      pageIndex = Math.round((container.scrollTop / (container.scrollHeight - container.clientHeight)) * 10000);
+    }
     debounceSaveProgress({
       chapterId,
       textOffset: segmentIndex,
       percentage: bookPct,
+      ...(pageIndex !== undefined ? { pageIndex } : {}),
     });
   }, [debounceSaveProgress, chapters]);
 
@@ -1357,6 +1363,19 @@ function ReaderPage() {
 
   /** 根据 pageIndex 获取分页后的 TXT 内容 */
   const getPaginatedContent = useCallback((content: string, page: number, total: number): string => {
+  // ⭐ 在 TXT 内容渲染完成后恢复滚动位置（修复 requestAnimationFrame 时机不对的问题）
+  useEffect(() => {
+    if (pendingScrollRestorePct == null) return;
+    // 使用 requestAnimationFrame 确保一次重绘后再恢复
+    const raf = requestAnimationFrame(() => {
+      const container = epubTextScrollRef.current || txtScrollRef.current;
+      if (container && pendingScrollRestorePct > 0) {
+        container.scrollTop = pendingScrollRestorePct * (container.scrollHeight - container.clientHeight);
+      }
+      setPendingScrollRestorePct(null);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [txtContent, pendingScrollRestorePct]);
     if (readingMode !== 'paginated' || total <= 1) return content;
     const lines = content.split('\n');
     const linesPerPage = Math.max(1, Math.ceil(lines.length / total));

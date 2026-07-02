@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, type PlayerState } from '../services/ttsPlayer';
 import UploadQueue from '../components/UploadQueue';
@@ -141,6 +142,76 @@ useEffect(() => {
     }
   }, [fetchTTSJobs]);
 
+  // ── 队列批量选择模式 ──
+  const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
+
+  const toggleJobSelection = (id: string) => {
+    setSelectedJobIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllJobs = () => {
+    setSelectedJobIds(new Set(ttsJobs.map(j => j.id)));
+  };
+
+  const deselectAllJobs = () => {
+    setSelectedJobIds(new Set());
+  };
+
+  // ── 批量取消选中的排队/运行中任务 ──
+  const handleBatchCancelSelected = async () => {
+    if (selectedJobIds.size === 0) return;
+    const cancelIds = [...selectedJobIds].filter(id => {
+      const job = ttsJobs.find(j => j.id === id);
+      return job && (job.status === 'pending' || job.status === 'running');
+    });
+    if (cancelIds.length === 0) {
+      alert('选中的任务中没有可取消的（仅 pending/running 可取消）');
+      return;
+    }
+    if (!window.confirm(`确定取消 ${cancelIds.length} 个语音生成任务？`)) return;
+    try {
+      await axios.post('/api/tts/jobs/batch-cancel', { jobIds: cancelIds });
+      setSelectedJobIds(new Set());
+      await fetchTTSJobs();
+    } catch (err: any) {
+      alert(err.response?.data?.error || '批量取消失败');
+    }
+  };
+
+  // ── 批量删除选中的任务（不限状态） ──
+  const handleBatchDeleteSelected = async () => {
+    if (selectedJobIds.size === 0) return;
+    if (!window.confirm(`确定删除选中的 ${selectedJobIds.size} 个任务？此操作不可恢复。`)) return;
+    try {
+      await axios.post('/api/tts/jobs/delete', { jobIds: [...selectedJobIds] });
+      setSelectedJobIds(new Set());
+      await fetchTTSJobs();
+    } catch (err: any) {
+      alert(err.response?.data?.error || '批量删除失败');
+    }
+  };
+
+  // ── 清除所有已完成/失败任务 ──
+  const handleClearTerminated = async () => {
+    const terminatedCount = ttsJobs.filter(j => j.status === 'completed' || j.status === 'failed').length;
+    if (terminatedCount === 0) {
+      alert('没有已完成或失败的任务');
+      return;
+    }
+    if (!window.confirm(`确定清除 ${terminatedCount} 个已完成/失败的任务？`)) return;
+    try {
+      await axios.post('/api/tts/jobs/clear-terminated');
+      await fetchTTSJobs();
+    } catch (err: any) {
+      alert(err.response?.data?.error || '清除失败');
+    }
+  };
+
   // ── 清除全部排队任务 ──
   const handleClearAllJobs = useCallback(async () => {
     if (!window.confirm('确定取消所有排队中的语音生成任务？')) return;
@@ -211,6 +282,17 @@ useEffect(() => {
     onClick: () => void;
   }
   // ── 全局 TTS 播放状态（来自 TTSPlayer 单例，书架页后台听书控制） ──
+
+  // ── 从路由 state 自动打开队列（由 Layout 中的 TTS 队列图标触发） ──
+  const location = useLocation();
+  useEffect(() => {
+    const state = location.state as { openTtsQueue?: boolean } | null;
+    if (state?.openTtsQueue) {
+      setShowTtsQueue(true);
+      // 清除 state，防止刷新后重复触发
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
   const [globalTtsInfo, setGlobalTtsInfo] = useState<{
     state: PlayerState;
     bookId?: string;
@@ -616,9 +698,9 @@ useEffect(() => {
         </div>
       )}
 
-      {/* ── TTS 预生成队列可视化面板 ── */}
+      {/* ── TTS 预生成队列可视化面板（支持批量选择） ── */}
       {showTtsQueue && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowTtsQueue(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}>
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[70vh] overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}>
             {/* 标题栏 */}
@@ -634,9 +716,32 @@ useEffect(() => {
               </h3>
               <div className="flex items-center gap-2">
                 <button onClick={fetchTTSJobs} className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">🔄 刷新</button>
-                <button onClick={() => setShowTtsQueue(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
+                <button onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
               </div>
             </div>
+            {/* 批量选择工具栏 */}
+            {ttsJobs.length > 0 && (
+              <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                <div className="flex items-center gap-2">
+                  <button onClick={selectAllJobs} className="text-xs px-2 py-1 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/60 transition-colors">
+                    ☑ 全选
+                  </button>
+                  <button onClick={deselectAllJobs} className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    □ 取消全选
+                  </button>
+                </div>
+                {selectedJobIds.size > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={handleBatchCancelSelected} className="text-xs px-2 py-1 rounded bg-yellow-500 text-white hover:bg-yellow-600 transition-colors" title="取消选中的排队/运行中任务">
+                      ⏹ 取消选中
+                    </button>
+                    <button onClick={handleBatchDeleteSelected} className="text-xs px-2 py-1 rounded bg-red-500 text-white hover:bg-red-600 transition-colors" title="删除选中的任务（不限状态）">
+                      🗑 删除选中
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             {/* 列表 */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {ttsJobs.length === 0 ? (
@@ -651,16 +756,33 @@ useEffect(() => {
                     completed: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
                     failed: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
                   };
+                  const isSelected = selectedJobIds.has(job.id);
                   return (
-                    <div key={job.id} className="border border-gray-100 dark:border-gray-700 rounded-lg p-3">
+                    <div
+                      key={job.id}
+                      className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                        isSelected
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-600'
+                          : 'border-gray-100 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                      }`}
+                      onClick={() => toggleJobSelection(job.id)}
+                    >
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate max-w-[50%]">
-                          {job.bookTitle}
-                        </span>
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          {/* 多选框 */}
+                          <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${
+                            isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300 dark:border-gray-500'
+                          }`}>
+                            {isSelected && <span className="text-white text-[10px] font-bold">✓</span>}
+                          </div>
+                          <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                            {job.bookTitle}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
                           {(job.status === 'pending' || job.status === 'running') && (
                             <button
-                              onClick={() => handleCancelJob(job.id)}
+                              onClick={(e) => { e.stopPropagation(); handleCancelJob(job.id); }}
                               className="text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800/40 transition-colors"
                               title="取消此任务"
                             >
@@ -673,7 +795,7 @@ useEffect(() => {
                         </div>
                       </div>
                       {(job.status === 'running' || job.status === 'pending') && (
-                        <div className="mt-2">
+                        <div className="mt-2 ml-6">
                           <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
                             <span>{job.completedChunks || 0} / {job.totalChunks || '?'} 段</span>
                             <span>{Math.round(pct * 100)}%</span>
@@ -685,12 +807,12 @@ useEffect(() => {
                         </div>
                       )}
                       {job.status === 'completed' && (
-                        <div className="text-xs text-green-600 dark:text-green-400 mt-1">
+                        <div className="text-xs text-green-600 dark:text-green-400 mt-1 ml-6">
                           ✅ 已生成 {job.completedChunks || job.totalChunks || '全部'} 段语音
                         </div>
                       )}
                       {job.status === 'failed' && (
-                        <div className="text-xs text-red-500 mt-1">{job.error || '生成失败'}</div>
+                        <div className="text-xs text-red-500 mt-1 ml-6">{job.error || '生成失败'}</div>
                       )}
                     </div>
                   );
@@ -703,22 +825,31 @@ useEffect(() => {
                 <span className="text-xs text-gray-400">
                   共 {ttsJobs.length} 个任务 · {ttsJobs.filter(j => j.status === 'running').length} 个运行中 · {ttsJobs.filter(j => j.status === 'pending').length} 个排队中
                 </span>
-                <button onClick={() => setShowTtsQueue(false)}
+                <button onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}
                   className="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white px-3 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
                   关闭
                 </button>
               </div>
-              {/* 清除操作 */}
-              {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
-                <div className="flex items-center justify-end gap-2">
+              {/* 操作按钮组 */}
+              <div className="flex items-center justify-end gap-2 flex-wrap">
+                {/* 清除已完成/失败任务 */}
+                {ttsJobs.some(j => j.status === 'completed' || j.status === 'failed') && (
+                  <button
+                    onClick={handleClearTerminated}
+                    className="text-xs px-3 py-1.5 rounded bg-gray-500 text-white hover:bg-gray-600 transition-colors"
+                  >
+                    🧹 清除已完成/失败
+                  </button>
+                )}
+                {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
                   <button
                     onClick={handleClearAllJobs}
                     className="text-xs px-3 py-1.5 rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
                   >
                     🗑 清除全部排队任务
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>

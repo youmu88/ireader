@@ -10,7 +10,7 @@ import { getSources, getVoices, checkHealth, synthesize } from '../services/ttsP
 import { ttsSettings, ttsCache, ttsGenerationJobs, books } from '../db/schema.js';
 import { findCache, isCacheValid, saveToCache, clearAllCache, evictStaleCache } from '../services/ttsCacheService.js';
 import { requireAuth } from '../middleware/auth.js';
-import { regenerateAllForNewVoice, cancelJob, cancelJobs, cancelAllUserJobs } from '../services/ttsGenerationService.js';
+import { regenerateAllForNewVoice, cancelJob, cancelJobs, cancelAllUserJobs, deleteJobs, clearTerminatedJobs } from '../services/ttsGenerationService.js';
 
 export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').initDatabase>, dataDir?: string) {
   const router = Router();
@@ -262,6 +262,32 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       const userId = req.user!.userId;
       const count = cancelAllUserJobs(db, userId);
       res.json({ success: true, cleared: count, message: `已清除 ${count} 个排队任务` });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: '清除任务失败' });
+    }
+  });
+
+  // ── POST /api/tts/jobs/delete - 删除指定任务（不限状态，直接删除记录） ──
+  router.post('/jobs/delete', requireAuth, (req: Request, res: Response) => {
+    try {
+      const { jobIds } = req.body;
+      if (!Array.isArray(jobIds) || jobIds.length === 0) {
+        res.status(400).json({ success: false, error: '请提供 jobIds 数组' });
+        return;
+      }
+      const count = deleteJobs(db, jobIds);
+      res.json({ success: true, deleted: count, message: `已删除 ${count} 个任务` });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: '批量删除任务失败' });
+    }
+  });
+
+  // ── POST /api/tts/jobs/clear-terminated - 清除用户所有已完成/失败的任务 ──
+  router.post('/jobs/clear-terminated', requireAuth, (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.userId;
+      const count = clearTerminatedJobs(db, userId);
+      res.json({ success: true, cleared: count, message: `已清除 ${count} 个已完成/失败任务` });
     } catch (error: any) {
       res.status(500).json({ success: false, error: '清除任务失败' });
     }

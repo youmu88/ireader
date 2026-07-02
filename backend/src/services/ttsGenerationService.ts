@@ -446,6 +446,45 @@ export function getAllBooksTTSStats(
 
 /**
  * 取消单个生成任务
+
+/**
+ * 删除任务（不限状态，可直接删除 failed/completed 等任务）
+ */
+export function deleteJobs(db: any, jobIds: string[]): number {
+  let count = 0;
+  for (const id of jobIds) {
+    const job = db.select().from(ttsGenerationJobs)
+      .where(sql`id = ${id}`)
+      .get();
+    if (!job) continue;
+    // 如果任务正在运行，先从 activeJobs 移除
+    activeJobs.delete(id);
+    db.delete(ttsGenerationJobs)
+      .where(sql`id = ${id}`)
+      .run();
+    count++;
+  }
+  return count;
+}
+
+/**
+ * 删除用户所有已完成/失败的任务
+ */
+export function clearTerminatedJobs(db: any, userId: string): number {
+  const jobs = db.select().from(ttsGenerationJobs)
+    .where(sql`user_id = ${userId} AND status IN ('completed', 'failed')`)
+    .all();
+
+  for (const job of jobs) {
+    db.delete(ttsGenerationJobs)
+      .where(sql`id = ${job.id}`)
+      .run();
+  }
+  return jobs.length;
+}
+
+/**
+ * 取消单个生成任务
  * 从 activeJobs 移除以停止实际处理，更新状态为 'failed'
  */
 export function cancelJob(db: any, jobId: string): boolean {

@@ -1,16 +1,57 @@
-import { Outlet, Link, useLocation } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTheme } from '../services/themeService';
 import { useAuth } from '../contexts/AuthContext';
+import axios from 'axios';
+
+interface TTSJob {
+  id: string;
+  status: string;
+}
 
 function Layout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const isReader = location.pathname.startsWith('/reader');
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
+  const [activeJobCount, setActiveJobCount] = useState(0);
+  const pollRef = useRef<ReturnType<typeof setInterval>>();
+
+  const fetchActiveJobCount = useCallback(async () => {
+    try {
+      const res = await axios.get('/api/tts/jobs');
+      if (res.data.success) {
+        const active = res.data.data.filter((j: TTSJob) => j.status === 'pending' || j.status === 'running').length;
+        setActiveJobCount(active);
+      }
+    } catch { /* 静默，未登录时忽略 */ }
+  }, []);
+
+  // 页面加载和切换时启动/停止轮询
+  useEffect(() => {
+    if (!isReader && user) {
+      fetchActiveJobCount();
+      if (!pollRef.current) {
+        pollRef.current = setInterval(fetchActiveJobCount, 10000);
+      }
+    }
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = undefined;
+      }
+    };
+  }, [isReader, user, fetchActiveJobCount]);
 
   const handleLogout = () => {
     logout();
     window.location.href = '/login';
+  };
+
+  const openTtsQueue = () => {
+    // 跳转到书架页面并自动打开 TTS 队列
+    navigate('/', { state: { openTtsQueue: true } });
   };
 
   return (
@@ -30,6 +71,19 @@ function Layout() {
               >
                 <span className="sm:hidden">📚</span><span className="hidden sm:inline">书架</span>
               </Link>
+              {/* TTS 队列图标（带角标） */}
+              <button
+                onClick={openTtsQueue}
+                className="relative px-2 sm:px-3 py-1 rounded text-xs sm:text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title="语音生成队列"
+              >
+                🎙
+                {activeJobCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 text-[10px] sm:text-xs font-bold text-white bg-red-500 rounded-full">
+                    {activeJobCount > 99 ? '99+' : activeJobCount}
+                  </span>
+                )}
+              </button>
               <Link
                 to="/settings"
                 className={`px-2 sm:px-3 py-1 rounded text-xs sm:text-sm ${
