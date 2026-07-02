@@ -659,12 +659,8 @@ function ReaderPage() {
       return txtContent;
     }
 
-    // EPUB: 从后端获取章节内容（HTML 格式，需去标签）
-    try {
-      const res = await axios.get(`/api/books/${bookId}/chapters/${currentChapter.id}/content`);
-      const rawContent = res.data.data?.content;
-      if (rawContent) return rawContent;
-    } catch { /* fallback */ }
+    // EPUB: 直接返回已剥离好的纯文本（txtContent 已在 loadChapterContent 中完成 stripHtml + 实体解码）
+    if (txtContent) return txtContent;
 
     // 尝试从 epubjs 获取当前显示内容
     try {
@@ -824,8 +820,8 @@ function ReaderPage() {
       });
       player.setVolume(ttsVolume);
 
-      const isHtml = book?.format === 'epub';
-      await player.load(text, isHtml);
+      // 文本已是纯文本（EPUB 已由 getCurrentChapterText 返回 txtContent，非原始 HTML）
+      await player.load(text, false);
 
       // Start periodic TTS progress saving
       startTtsProgressSaver(currentChapter.id, player);
