@@ -33,6 +33,7 @@ interface Chapter {
 
 const PROGRESS_SAVE_DELAY = 800; // ms debounce for saving progress
 const TTS_PROGRESS_SAVE_INTERVAL = 3000; // ms interval for saving TTS playback position
+const TTS_PLAYBACK_KEY = 'ireader_tts_playback'; // localStorage key for TTS playback session (survives page refresh)
 
 function ReaderPage() {
   const { bookId } = useParams<{ bookId: string }>();
@@ -63,6 +64,31 @@ function ReaderPage() {
   };
   const initialPrefs = loadReaderPrefs() || {};
 
+  // ── TTS 播放持久化（localStorage，页面刷新后恢复） ──
+  interface PlaybackState {
+    bookId: string;
+    chapterId: string;
+    segmentIndex: number;
+    bookTitle?: string;
+    chapterTitle?: string;
+    timestamp: number;
+  }
+  const savePlaybackToLocalStorage = (state: PlaybackState) => {
+    try {
+      localStorage.setItem(TTS_PLAYBACK_KEY, JSON.stringify(state));
+    } catch { /* ignore */ }
+  };
+  const clearPlaybackFromLocalStorage = () => {
+    try { localStorage.removeItem(TTS_PLAYBACK_KEY); } catch { /* ignore */ }
+  };
+  const loadPlaybackFromLocalStorage = (): PlaybackState | null => {
+    try {
+      const raw = localStorage.getItem(TTS_PLAYBACK_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+    return null;
+  };
+
   const [fontSize, setFontSize] = useState(initialPrefs.fontSize ?? 18);
   const [fontFamily, setFontFamily] = useState<'sans' | 'serif' | 'mono'>(initialPrefs.fontFamily ?? 'sans');
   const [lineHeight, setLineHeight] = useState(initialPrefs.lineHeight ?? 1.8);
@@ -81,6 +107,7 @@ function ReaderPage() {
   const showEpubView = false; // 原版/文本切换按钮已移除，固定为文本视图
 
   const [showTtsResumeBanner, setShowTtsResumeBanner] = useState(false); // show resume prompt
+  const [ttsResuming, setTtsResuming] = useState(false); // loading state during jumpToSegment
   // ── 悬浮UI控制（全屏阅读：点击屏幕显示/隐藏所有控件） ──
   const [showUi, setShowUi] = useState(false);
   const uiHideTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -758,8 +785,8 @@ function ReaderPage() {
     });
   }, [debounceSaveProgress]);
 
-  /** 启动 TTS 进度定期保存 */
-  const startTtsProgressSaver = useCallback((chapterId: string, player: any) => {
+  /** 启动 TTS 进度定期保存（同时持久化到 localStorage，支持页面刷新恢复） */
+  const startTtsProgressSaver = useCallback((bookId: string, chapterId: string, chapterTitle: string, player: any) => {
     if (ttsProgressSaveTimer.current) clearInterval(ttsProgressSaveTimer.current);
     ttsProgressSaveTimer.current = setInterval(() => {
       const idx = player.getCurrentIndex();
@@ -767,9 +794,18 @@ function ReaderPage() {
       if (idx >= 0 && total > 0) {
         const pct = (idx + 1) / total;
         saveTtsProgress(chapterId, idx, pct);
+        // ⭐ 同步持久化到 localStorage，页面刷新后可自动检测并弹出恢复横幅
+        savePlaybackToLocalStorage({
+          bookId,
+          chapterId,
+          segmentIndex: idx,
+          bookTitle: book?.title,
+          chapterTitle,
+          timestamp: Date.now(),
+        });
       }
     }, TTS_PROGRESS_SAVE_INTERVAL);
-  }, [saveTtsProgress]);
+  }, [saveTtsProgress, book]);
 
   /** TTS 后台预生成下一章音频：获取下一章文本并追加到播放器 */
   const prepareNextChapterTTS = useCallback(async (player: any) => {
@@ -913,6 +949,8 @@ function ReaderPage() {
             clearInterval(sleepTimerIntervalRef.current);
             sleepTimerIntervalRef.current = null;
           }
+          // ⭐ TTS 自然播放结束，清除 localStorage 播放记录
+          clearPlaybackFromLocalStorage();
           // 播放结束时刷新服务端统计（TTS 缓存可能已增加）
           loadServerStats();
           // 检查是否还有已追加的下一章内容（TTS 已自动继续播放）
@@ -944,14 +982,21 @@ function ReaderPage() {
       // 文本已是纯文本（EPUB 已由 getCurrentChapterText 返回 txtContent，非原始 HTML）
       await player.load(text, false);
 
-      // ⭐ 恢复 TTS 位置：跳转到上次保存的分段
+      // ⭐ 恢复 TTS 位置：跳转到上次保存的分段（长章节 50+ 段可能耗时）
       const savedPos = savedTtsProgressRef.current;
       if (savedPos && savedPos.chapterId === currentChapter?.id && savedPos.segmentIndex > 0) {
-        await player.jumpToSegment(savedPos.segmentIndex);
+        setTtsResuming(true);
+        try {
+          await player.jumpToSegment(savedPos.segmentIndex);
+        } finally {
+          setTtsResuming(false);
+        }
       }
 
-      // Start periodic TTS progress saving
-      startTtsProgressSaver(currentChapter.id, player);
+      // Start periodic TTS progress saving (also persists to localStorage)
+      startTtsProgressSaver(bookId, currentChapter.id, currentChapter?.title || '', player);
+
+      await player.play();
 
       await player.play();
     } catch (err) {
@@ -981,6 +1026,8 @@ function ReaderPage() {
         saveTtsProgress(currentChapter.id, idx, (idx + 1) / total);
       }
     }
+    // ⭐ 清除 localStorage 播放持久化记录（用户主动停止，不再需要恢复）
+    clearPlaybackFromLocalStorage();
     if (ttsProgressSaveTimer.current) {
       clearInterval(ttsProgressSaveTimer.current);
       ttsProgressSaveTimer.current = null;
@@ -1076,13 +1123,30 @@ function ReaderPage() {
   }, []);
 
   // After book loads, check for saved TTS progress and offer resume
+  // ⭐ 同时检查 localStorage（页面刷新后恢复）和 后端 API 进度
   useEffect(() => {
     if (!currentChapter || !chapters.length) return;
+
+    // 1️⃣ 检查 localStorage 是否有播放持久化记录（页面刷新后的主要恢复源）
+    const localPlayback = loadPlaybackFromLocalStorage();
+    if (localPlayback && localPlayback.bookId === bookId && localPlayback.segmentIndex > 0) {
+      // 用 localStorage 数据补充/覆盖 savedTtsProgressRef
+      const chapter = chapters.find(c => c.id === localPlayback.chapterId);
+      if (chapter) {
+        savedTtsProgressRef.current = {
+          chapterId: localPlayback.chapterId,
+          segmentIndex: localPlayback.segmentIndex,
+          progress: 0.5, // localStorage 不保存精确 progress，给个中间值触发横幅
+        };
+      }
+    }
+
+    // 2️⃣ 有可恢复的进度则显示横幅
     const saved = savedTtsProgressRef.current;
     if (saved && saved.progress > 0 && saved.progress < 1) {
       setShowTtsResumeBanner(true);
     }
-  }, [currentChapter, chapters]);
+  }, [currentChapter, chapters, bookId]);
 
   // 阅读模式切换：EPUB 重新渲染
   useEffect(() => {
@@ -1390,36 +1454,51 @@ function ReaderPage() {
           <div className="absolute top-0 left-0 right-0 z-10 mx-auto max-w-xl mt-2">
             <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg px-4 py-2 flex items-center justify-between shadow-sm">
               <span className="text-sm text-green-800 dark:text-green-200">
-                🔊 上次播放到 {Math.round(savedTtsProgressRef.current.progress * 100)}%
-                {savedTtsProgressRef.current.chapterId !== currentChapter?.id ? '（不同章节）' : ''}
+                {ttsResuming ? (
+                  <>🔄 恢复播放中...</>
+                ) : (
+                  <>🔊 上次播放到 {Math.round(savedTtsProgressRef.current.progress * 100)}%
+                  {savedTtsProgressRef.current.chapterId !== currentChapter?.id ? '（不同章节）' : ''}</>
+                )}
               </span>
               <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setShowTtsResumeBanner(false);
-                    // Navigate to saved chapter if different
-                    const saved = savedTtsProgressRef.current;
-                    if (saved && saved.chapterId !== currentChapter?.id) {
-                      const target = chapters.find(c => c.id === saved.chapterId);
-                      if (target) {
-                        navigateToChapter(target).then(() => {
-                          setTimeout(() => handleStartTTS(), 300);
-                        });
-                        return;
+                {!ttsResuming && (
+                  <button
+                    onClick={() => {
+                      setShowTtsResumeBanner(false);
+                      // Navigate to saved chapter if different
+                      const saved = savedTtsProgressRef.current;
+                      if (saved && saved.chapterId !== currentChapter?.id) {
+                        const target = chapters.find(c => c.id === saved.chapterId);
+                        if (target) {
+                          navigateToChapter(target).then(() => {
+                            setTimeout(() => handleStartTTS(), 300);
+                          });
+                          return;
+                        }
                       }
-                    }
-                    handleStartTTS();
-                  }}
-                  className="text-xs px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700"
-                >
-                  继续播放
-                </button>
-                <button
-                  onClick={() => setShowTtsResumeBanner(false)}
-                  className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
-                >
-                  关闭
-                </button>
+                      handleStartTTS();
+                    }}
+                    className="text-xs px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                  >
+                    继续播放
+                  </button>
+                )}
+                {ttsResuming ? (
+                  <span className="text-xs px-2 py-1 rounded bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-300 animate-pulse">
+                    加载中...
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setShowTtsResumeBanner(false);
+                      clearPlaybackFromLocalStorage();
+                    }}
+                    className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
+                  >
+                    关闭
+                  </button>
+                )}
               </div>
             </div>
           </div>
