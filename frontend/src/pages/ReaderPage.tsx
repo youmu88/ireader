@@ -717,17 +717,13 @@ function ReaderPage() {
   const getCurrentChapterText = useCallback(async (): Promise<string> => {
     if (!currentChapter || !bookId || !book) return '';
 
-    if (book.format === 'txt') {
-      return txtContent;
-    }
-
-    // EPUB: 从 API 获取当前章节 HTML → 用 stripHtml 剥离为纯文本
-    // 注：不直接返回 txtContent（它可能与当前显示章节不同步——epubjs 翻页后 relocated 事件
-    // 更新了 currentChapter 但不会重新加载 txtContent），用 API 确保取到当前章节的正确内容
+    // ⭐ 调试模式：统一从 API 获取当前章节内容，不依赖 txtContent（可能累积多章内容）
     try {
       const res = await axios.get(`/api/books/${bookId}/chapters/${currentChapter.id}/content`);
       const rawContent = res.data.data?.content;
-      if (rawContent) return stripHtml(rawContent);
+      if (!rawContent) return '';
+      // EPUB 内容去 HTML 标签；TXT 内容已经是纯文本
+      return book.format === 'epub' ? stripHtml(rawContent) : rawContent;
     } catch { /* fallback */ }
 
     // 兜底：尝试从 epubjs 获取当前显示内容
@@ -741,7 +737,8 @@ function ReaderPage() {
       }
     } catch { /* fallback */ }
 
-    return '';
+    // 最终兜底：返回 txtContent（不理想但至少有点内容）
+    return txtContent;
   }, [currentChapter, bookId, book, txtContent]);
 
   /** 保存 TTS 播放进度 */
@@ -897,6 +894,8 @@ function ReaderPage() {
 
       await player.init({
         speed: ttsSpeed,
+        // ⭐ 调试模式：跳过后端 TTS 音频缓存，每次都实时合成（排查"打开书B朗读书A"问题）
+        noCache: true,
       });
       player.setVolume(ttsVolume);
 

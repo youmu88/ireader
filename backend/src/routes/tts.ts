@@ -50,7 +50,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
   // ── 语音合成代理（带缓存，按用户隔离；自动加载用户自定义 API 配置） ──
   router.post('/', requireAuth, async (req: Request, res: Response) => {
     const userId = req.user!.userId;
-    const { input, voice, speed, response_format, tts_source } = req.body;
+    const { input, voice, speed, response_format, tts_source, no_cache } = req.body;
 
     // 加载用户的 TTS 设置（获取自定义 API URL/Key）
     const userSettings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
@@ -58,8 +58,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     const apiKey = userSettings?.apiKey || undefined;
     const source = tts_source || userSettings?.source || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
 
-    // 尝试从缓存读取（按用户隔离）
-    if (dataDir) {
+    // ⭐ 调试模式：no_cache=true 时跳过后端音频缓存，每次都实时合成
+    if (!no_cache && dataDir) {
       try {
         const cached = findCache(db, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, userId);
         if (cached && isCacheValid(cached)) {
@@ -81,8 +81,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       return;
     }
 
-    // 保存到缓存（按用户隔离）
-    if (dataDir && result.audio) {
+    // 保存到缓存（按用户隔离，调试模式 no_cache 时不写入缓存）
+    if (!no_cache && dataDir && result.audio) {
       try {
         saveToCache(db, dataDir, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, result.audio, response_format || 'wav', userId);
       } catch { /* 缓存写入失败不影响主流程 */ }

@@ -35,6 +35,8 @@ export interface TTSPlayerOptions {
   voice?: string;
   speed?: number;
   preGenCount?: number;
+  /** 调试：跳过后端 TTS 音频缓存，每次都实时合成 */
+  noCache?: boolean;
 }
 
 export interface TTSPlayerCallbacks {
@@ -163,6 +165,7 @@ export class TTSPlayer {
   private source = 'kokoro';
   private voice = 'zh-CN-XiaoxiaoNeural';
   private preGenCount = 3;
+  private noCache = false;
   private isDestroyed = false;
   private currentSegmentText = '';
   private volume = 1.0;
@@ -185,6 +188,7 @@ export class TTSPlayer {
     if (options?.source) this.source = options.source;
     if (options?.voice) this.voice = options.voice;
     if (options?.preGenCount) this.preGenCount = options.preGenCount;
+    if (options?.noCache !== undefined) this.noCache = options.noCache;
 
     // 尝试加载后端设置
     try {
@@ -664,6 +668,7 @@ export class TTSPlayer {
         speed: this.speed,
         response_format: 'wav',
         tts_source: this.source,
+        no_cache: this.noCache,
       }),
     });
 
