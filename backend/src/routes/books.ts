@@ -148,8 +148,44 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     return db.select().from(books).where(sql`id = ${bookId}`).get();
   };
 
-  // ── POST /api/books/upload - 上传图书（支持多文件）──
-  router.post('/upload', requireAuth, upload.array('files', 10), async (req: Request, res: Response, next: NextFunction) => {
+  // ── POST /api/books/upload - 上传单本图书（前端队列逐本上传）──
+  router.post('/upload', requireAuth, upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const file = req.file;
+      if (!file) {
+        throw new AppError(400, '请选择要上传的文件');
+      }
+
+      const now = new Date().toISOString();
+      const userId = req.user!.userId;
+      const ext = path.extname(file.originalname).toLowerCase();
+
+      // Validate file extension
+      if (!SUPPORTED_EXTS.includes(ext)) {
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        return res.status(400).json({
+          success: false,
+          error: `不支持 ${ext} 格式，仅支持 EPUB 和 TXT`,
+        });
+      }
+
+      try {
+        const finalBook = await processUpload(file, now, userId);
+        res.status(201).json({ success: true, data: finalBook });
+      } catch (err: any) {
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        res.status(500).json({
+          success: false,
+          error: err.message || '上传处理失败',
+        });
+      }
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ── POST /api/books/upload-batch - 批量上传（兼容旧版，最多 20 本/次）──
+  router.post('/upload-batch', requireAuth, upload.array('files', 20), async (req: Request, res: Response, next: NextFunction) => {
     try {
       const files = req.files as Express.Multer.File[] | undefined;
       if (!files || files.length === 0) {
@@ -159,10 +195,9 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       const now = new Date().toISOString();
       const results: any[] = [];
       const skipped: Array<{ fileName: string; reason: string }> = [];
+      const supportedFiles: Express.Multer.File[] = [];
       const userId = req.user!.userId;
 
-      // Separate supported and unsupported files
-      const supportedFiles: Express.Multer.File[] = [];
       for (const file of files) {
         const ext = path.extname(file.originalname).toLowerCase();
         if (!SUPPORTED_EXTS.includes(ext)) {
@@ -181,13 +216,11 @@ export function createBooksRouter(db: any, dataDir: string): Router {
         });
       }
 
-      // Process each supported file; individual failures don't block others
       for (const file of supportedFiles) {
         try {
           const finalBook = await processUpload(file, now, userId);
           results.push(finalBook);
         } catch (err: any) {
-          // processUpload itself handles internal errors, but wrap any unexpected ones
           skipped.push({ fileName: file.originalname, reason: err.message || '未知错误' });
         }
       }

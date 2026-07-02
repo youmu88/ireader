@@ -135,16 +135,15 @@ describe('E2E Full Flow Acceptance', () => {
       const res = await request(app)
         .post('/api/books/upload')
         .set(auth())
-        .attach('files', epubPath)
+        .attach('file', epubPath)
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
-      expect(Array.isArray(res.body.data)).toBe(true);
-      expect(res.body.data[0].title).toBe('三体：科学边界');
-      expect(res.body.data[0].author).toBe('刘慈欣');
-      expect(res.body.data[0].format).toBe('epub');
-      expect(res.body.data[0].status).toBe('ready');
-      epubId = res.body.data[0].id;
+      expect(res.body.data.title).toBe('三体：科学边界');
+      expect(res.body.data.author).toBe('刘慈欣');
+      expect(res.body.data.format).toBe('epub');
+      expect(res.body.data.status).toBe('ready');
+      epubId = res.body.data.id;
     });
 
     it('3.2 should get chapters list', async () => {
@@ -213,15 +212,14 @@ describe('E2E Full Flow Acceptance', () => {
       const res = await request(app)
         .post('/api/books/upload')
         .set(auth())
-        .attach('files', txtPath)
+        .attach('file', txtPath)
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
-      expect(Array.isArray(res.body.data)).toBe(true);
-      expect(res.body.data[0].title).toBe('三体：科学边界');
-      expect(res.body.data[0].format).toBe('txt');
-      expect(res.body.data[0].status).toBe('ready');
-      txtId = res.body.data[0].id;
+      expect(res.body.data.title).toBe('三体：科学边界');
+      expect(res.body.data.format).toBe('txt');
+      expect(res.body.data.status).toBe('ready');
+      txtId = res.body.data.id;
     });
 
     it('4.2 should get TXT chapters', async () => {
@@ -350,14 +348,10 @@ describe('E2E Full Flow Acceptance', () => {
         const res = await request(app)
           .post('/api/books/upload')
           .set(auth())
-          .attach('files', invalidPath);
-        expect(res.status).toBe(200);
-        expect(res.body.success).toBe(true);
-        expect(res.body.data).toEqual([]);
-        expect(res.body.skipped).toBeDefined();
-        expect(res.body.skipped.length).toBe(1);
-        expect(res.body.skipped[0].fileName).toMatch(/\.pdf$/);
-        expect(res.body.message).toContain('不支持');
+          .attach('file', invalidPath);
+        expect(res.status).toBe(400);
+        expect(res.body.success).toBe(false);
+        expect(res.body.error).toContain('不支持');
       } finally {
         fs.unlinkSync(invalidPath);
       }

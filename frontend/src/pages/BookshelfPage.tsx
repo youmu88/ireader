@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, type PlayerState } from '../services/ttsPlayer';
+import UploadQueue from '../components/UploadQueue';
 
 interface Book {
   id: string;
@@ -37,8 +38,6 @@ function BookshelfPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
 const [bookStats, setBookStats] = useState<Record<string, BookStats>>({});
 // 加载书籍统计信息
 const loadBookStats = useCallback(async (bookId: string) => {
@@ -64,7 +63,6 @@ useEffect(() => {
   const [editingBook, setEditingBook] = useState<Book | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editAuthor, setEditAuthor] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
   // ── 全局 TTS 播放状态（来自 TTSPlayer 单例，书架页后台听书控制） ──
   const [globalTtsInfo, setGlobalTtsInfo] = useState<{
     state: PlayerState;
@@ -96,74 +94,6 @@ useEffect(() => {
       setError(err.response?.data?.error || '加载数据失败');
     } finally {
       setLoading(false);
-    }
-  };
-
-  // ── Upload (支持多文件) ──
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = e.target.files;
-    if (!fileList || fileList.length === 0) return;
-
-    const files = Array.from(fileList);
-
-    // Separate supported and unsupported files
-    const supported: File[] = [];
-    const skipped: string[] = [];
-    for (const file of files) {
-      const ext = file.name.split('.').pop()?.toLowerCase();
-      if (ext === 'epub' || ext === 'txt') {
-        supported.push(file);
-      } else {
-        skipped.push(file.name);
-      }
-    }
-
-    // If nothing supported, show message and stop
-    if (supported.length === 0) {
-      setUploadProgress(
-        skipped.length === 1
-          ? `「${skipped[0]}」格式不支持，仅支持 EPUB 和 TXT`
-          : `所选文件均不支持（仅支持 EPUB 和 TXT）`
-      );
-      return;
-    }
-
-    setUploading(true);
-    const skipMsg = skipped.length > 0 ? `（已跳过 ${skipped.length} 个不支持的文件）` : '';
-    setUploadProgress(`上传中 ${supported.length} 个文件${skipMsg}...`);
-
-    try {
-      const formData = new FormData();
-      for (const file of supported) {
-        formData.append('files', file);
-      }
-
-      const res = await axios.post('/api/books/upload', formData);
-
-      const uploaded = res.data.data || [];
-      const serverSkipped: Array<{ fileName: string; reason: string }> = res.data.skipped || [];
-      const success = uploaded.filter((b: any) => b?.status === 'ready').length;
-      const failed = uploaded.filter((b: any) => b?.status === 'failed').length;
-      const processing = uploaded.filter((b: any) => b?.status === 'processing').length;
-
-      const parts: string[] = [`上传完成 ✅ 成功 ${success}`];
-      if (failed) parts.push(`失败 ${failed}`);
-      if (processing) parts.push(`处理中 ${processing}`);
-      if (serverSkipped.length > 0) parts.push(`跳过 ${serverSkipped.length} 个`);
-      else if (skipped.length > 0) parts.push(`跳过 ${skipped.length} 个`);
-
-      setUploadProgress(parts.join('，'));
-      await loadData();
-
-      // Reset after short delay
-      setTimeout(() => {
-        setShowUpload(false);
-        setUploadProgress(null);
-        setUploading(false);
-      }, 2000);
-    } catch (err: any) {
-      setUploadProgress(err.response?.data?.error || '上传失败');
-      setUploading(false);
     }
   };
 
@@ -277,50 +207,12 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* Upload Modal */}
+      {/* Upload Queue Modal */}
       {showUpload && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => !uploading && setShowUpload(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-semibold mb-4">上传图书</h2>
-
-            <div
-              className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 transition-colors"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".epub,.txt"
-                multiple
-                className="hidden"
-                onChange={handleFileSelect}
-                disabled={uploading}
-              />
-              {uploadProgress ? (
-                <div>
-                  <p className="text-lg mb-2">{uploading ? '⏳' : '✅'}</p>
-                  <p className="text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{uploadProgress}</p>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-4xl mb-2">📁</p>
-                  <p className="text-gray-600 dark:text-gray-300">点击选择 EPUB 或 TXT 文件</p>
-                  <p className="text-sm text-gray-400 mt-1">可多选，最大 500MB/个</p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end mt-4">
-              <button
-                onClick={() => setShowUpload(false)}
-                disabled={uploading}
-                className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
+        <UploadQueue
+          onComplete={() => { loadData(); }}
+          onClose={() => setShowUpload(false)}
+        />
       )}
 
       {/* Sidebar + Content */}
