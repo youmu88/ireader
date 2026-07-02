@@ -488,6 +488,8 @@ function ReaderPage() {
   // Load chapter content
   const loadChapterContent = async (chapter: Chapter, _offset?: number, _isEpub?: boolean, _append?: boolean) => {
     try {
+      // 在异步获取内容前清空 txtContent，防止 getCurrentChapterText() 读到旧数据
+      setTxtContent('');
       setCurrentChapter(chapter);
       // append 模式下不更新显示标题（保持显示原始章节名，避免标题跳跃）
       if (!_append) {
@@ -1137,7 +1139,7 @@ function ReaderPage() {
         ttsPlayerRef.current = null;
       }
     };
-  }, [currentChapter]);
+  }, []); // ⚠️ 仅组件卸载时执行清理，不要依赖 currentChapter（否则每次翻页/切换章节都会销毁 viewer）
 
   if (loading) {
     return (
