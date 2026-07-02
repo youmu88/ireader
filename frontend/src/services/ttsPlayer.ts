@@ -73,6 +73,8 @@ export interface TTSPlayerOptions {
   preGenCount?: number;
   /** 调试：跳过后端 TTS 音频缓存，每次都实时合成 */
   noCache?: boolean;
+  /** 书籍 ID（用于全局播放状态跟踪） */
+  bookId?: string;
   /** 书籍标题（用于 Media Session 锁屏显示） */
   bookTitle?: string;
   /** 书籍封面 URL（用于 Media Session 锁屏封面） */
@@ -249,6 +251,7 @@ export class TTSPlayer {
     if (options?.voice) this.voice = options.voice;
     if (options?.preGenCount) this.preGenCount = options.preGenCount;
     if (options?.noCache !== undefined) this.noCache = options.noCache;
+    if (options?.bookId) this.currentBookId = options.bookId;
     if (options?.bookTitle) this.bookTitle = options.bookTitle;
     if (options?.bookCoverUrl) this.bookCoverUrl = options.bookCoverUrl;
 
@@ -496,7 +499,10 @@ export class TTSPlayer {
     }
 
     if (this.state === 'loading' || this.state === 'idle') {
-      this.currentIndex = -1;
+      // ⭐ 方案2b: 如果已有跳转位置（jumpToSegment 设置），保留不重置
+      if (this.currentIndex < 0) {
+        this.currentIndex = -1;
+      }
       // 等待预取的 chunk 就绪后尝试 WAV 拼接模式
       await this.initConcatPlay();
       return;
@@ -949,6 +955,12 @@ export class TTSPlayer {
     // 条件：至少 5 个 chunk 就绪，或者就绪占比 > 20%（短章节）
     const readyPct = this.chunks.length > 0 ? readyCount / this.chunks.length : 0;
     const canConcat = readyCount >= 5 || readyPct > 0.2;
+
+    // ⭐ 方案2b: 已有跳转位置时跳过 WAV 拼接，直接 playNext 从指定位置播放
+    if (this.currentIndex >= 0) {
+      this.playNext();
+      return;
+    }
 
     if (canConcat) {
       // 尝试拼接后以单源播放

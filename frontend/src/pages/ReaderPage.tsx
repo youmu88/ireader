@@ -360,9 +360,8 @@ function ReaderPage() {
       // 仍然加载书籍信息（章节列表、封面等），但不重置播放器
       loadBook();
     } else {
-      // ❌ 不同书籍或未播放 → 彻底重置 TTS 播放器
-      player.stop();
-      player.setCallbacks({});
+      // ✅ 从书架进入书籍 → 不停止播放器，保留后台播放继续
+      // 仅重置本页面的 TTS UI 状态（尚未点击朗读，显示为 idle）
       ttsPlayerRef.current = null;
       setTtsState('idle');
       setTtsProgress(0);
@@ -370,7 +369,7 @@ function ReaderPage() {
       setActiveSegmentIndex(-1);
       setTtsError(null);
 
-      // ⭐ 清除 TTS 进度保存定时器
+      // ⭐ 清除 TTS 进度保存定时器（旧书已卸载，不再需要）
       if (ttsProgressSaveTimer.current) {
         clearInterval(ttsProgressSaveTimer.current);
         ttsProgressSaveTimer.current = null;
@@ -983,8 +982,34 @@ function ReaderPage() {
     try {
       const player = getDefaultPlayer();
       ttsPlayerRef.current = player;
+
+      // ⭐ 问题1：检测当前播放器状态，处理暂停/切换
+      const currentState = player.getState();
+      const isPlaying = currentState === 'playing' || currentState === 'paused' || currentState === 'loading';
+      if (isPlaying && player.currentBookId === bookId) {
+        // ✅ 同一本书正在播放 → 暂停（toggle）
+        player.pause();
+        return;
+      }
+      if (isPlaying && player.currentBookId && player.currentBookId !== bookId) {
+        // ✅ 不同书在播放 → 保存旧书位置，切换到新书
+        // 保存旧书最后播放位置到 localStorage（供后续恢复横幅使用）
+        const oldIdx = player.getCurrentIndex();
+        const oldTotal = player.getTotalChunks();
+        if (oldIdx >= 0 && oldTotal > 0) {
+          savePlaybackToLocalStorage({
+            bookId: player.currentBookId,
+            chapterId: (player as any).chapterId || '',
+            segmentIndex: oldIdx,
+            bookTitle: (player as any).bookTitle,
+            chapterTitle: player.chapterTitle || '',
+            timestamp: Date.now(),
+          });
+        }
+        player.stop();
+      }
+
       // 设置当前播放的书籍信息（供全局状态订阅使用）
-      player.currentBookId = bookId;
       player.chapterTitle = currentChapter?.title || '';
       (player as any).bookTitle = book?.title || '';
 
@@ -1056,7 +1081,8 @@ function ReaderPage() {
       await player.init({
         speed: ttsSpeed,
         noCache: noCachePref,
-        // ⭐ 传入书籍信息用于 Media Session 锁屏封面
+        // ⭐ 传入书籍信息用于 Media Session 锁屏封面 + 全局播放状态
+        bookId,
         bookTitle: book?.title || '',
         bookCoverUrl: book ? `/api/books/${bookId}/cover` : '',
       });
@@ -1065,7 +1091,13 @@ function ReaderPage() {
       // 文本已是纯文本（EPUB 已由 getCurrentChapterText 返回 txtContent，非原始 HTML）
       await player.load(text, false);
 
-      // ⭐ 恢复 TTS 位置：跳转到上次保存的分段（长章节 50+ 段可能耗时）
+      // Start periodic TTS progress saving (also persists to localStorage)
+      startTtsProgressSaver(bookId, currentChapter.id, currentChapter?.title || '', player);
+
+      // ⭐ 方案2b：先 play() 再 jumpToSegment — 避免 play() 重置 currentIndex
+      await player.play();
+
+      // ⭐ 恢复 TTS 位置：play() 完成后跳转到上次保存的分段
       const savedPos = savedTtsProgressRef.current;
       if (savedPos && savedPos.chapterId === currentChapter?.id && savedPos.segmentIndex > 0) {
         setTtsResuming(true);
@@ -1075,11 +1107,6 @@ function ReaderPage() {
           setTtsResuming(false);
         }
       }
-
-      // Start periodic TTS progress saving (also persists to localStorage)
-      startTtsProgressSaver(bookId, currentChapter.id, currentChapter?.title || '', player);
-
-      await player.play();
     } catch (err) {
       console.error('TTS 启动失败:', err);
       setTtsError('语音播放启动失败：TTS 后端服务不可用（默认 Kokoro :8880 未运行），请在设置中切换到 Edge-TTS 或启动 Kokoro 服务');
