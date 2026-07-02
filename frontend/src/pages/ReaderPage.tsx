@@ -417,13 +417,32 @@ function ReaderPage() {
     s = s.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
     // Remove all remaining HTML tags
     s = s.replace(/<[^>]+>/g, '');
-    // Decode HTML entities
-    s = s.replace(/&nbsp;/g, ' ')
+    // Decode HTML entities (comprehensive, matching ttsPlayer.ts)
+    s = s.replace(/&nbsp;/g, '\u00A0')
          .replace(/&amp;/g, '&')
          .replace(/&lt;/g, '<')
          .replace(/&gt;/g, '>')
          .replace(/&quot;/g, '"')
-         .replace(/&#(\d+);/g, (_m: any, n: string) => String.fromCharCode(parseInt(n, 10)));
+         .replace(/&apos;/g, "'")
+         .replace(/&mdash;/g, '\u2014')
+         .replace(/&ndash;/g, '\u2013')
+         .replace(/&hellip;/g, '\u2026')
+         .replace(/&lsquo;/g, '\u2018')
+         .replace(/&rsquo;/g, '\u2019')
+         .replace(/&ldquo;/g, '\u201C')
+         .replace(/&rdquo;/g, '\u201D')
+         .replace(/&laquo;/g, '\u00AB')
+         .replace(/&raquo;/g, '\u00BB')
+         .replace(/&copy;/g, '\u00A9')
+         .replace(/&reg;/g, '\u00AE')
+         .replace(/&trade;/g, '\u2122')
+         .replace(/&bull;/g, '\u2022')
+         .replace(/&middot;/g, '\u00B7')
+         .replace(/&euro;/g, '\u20AC')
+         .replace(/&pound;/g, '\u00A3')
+         .replace(/&yen;/g, '\u00A5')
+         .replace(/&#(\d+);/g, (_m: any, n: string) => String.fromCharCode(parseInt(n, 10)))
+         .replace(/&#x([0-9a-fA-F]+);/g, (_m: any, n: string) => String.fromCharCode(parseInt(n, 16)));
     // Normalize: collapse multiple spaces but preserve single newlines
     s = s.replace(/[ \t]+/g, ' ');
     // Remove leading whitespace from each line (artifact of HTML indentation)
@@ -1206,12 +1225,12 @@ function ReaderPage() {
                 <div className="flex items-center justify-center py-12">
                   <span className="text-gray-400 animate-pulse">加载中...</span>
                 </div>
-              ) : epubDisplayHtml && ttsState === 'idle' ? (
-                  <div
-                    className="epub-content"
-                    dangerouslySetInnerHTML={{ __html: epubDisplayHtml }}
-                  />
-                ) : txtContent ? (
+              ) : epubDisplayHtml ? (
+                <div
+                  className="epub-content"
+                  dangerouslySetInnerHTML={{ __html: epubDisplayHtml }}
+                />
+              ) : txtContent ? (
                 ttsState !== 'idle' && activeSegmentIndex >= 0 ? (
                   <div className="whitespace-pre-line">
                     {renderHighlightedContent(txtContent)}

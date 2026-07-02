@@ -82,6 +82,44 @@ export function splitText(text: string): string[] {
 }
 
 /**
+ * 完整的 HTML 实体映射表（覆盖 EPUB 中常用实体）
+ */
+const HTML_ENTITY_MAP: Record<string, string> = {
+  '&nbsp;': '\u00A0',
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&apos;': "'",
+  '&mdash;': '\u2014',
+  '&ndash;': '\u2013',
+  '&hellip;': '\u2026',
+  '&lsquo;': '\u2018',
+  '&rsquo;': '\u2019',
+  '&sbquo;': '\u201A',
+  '&ldquo;': '\u201C',
+  '&rdquo;': '\u201D',
+  '&bdquo;': '\u201E',
+  '&laquo;': '\u00AB',
+  '&raquo;': '\u00BB',
+  '&copy;': '\u00A9',
+  '&reg;': '\u00AE',
+  '&trade;': '\u2122',
+  '&bull;': '\u2022',
+  '&middot;': '\u00B7',
+  '&sect;': '\u00A7',
+  '&para;': '\u00B6',
+  '&deg;': '\u00B0',
+  '&plusmn;': '\u00B1',
+  '&times;': '\u00D7',
+  '&divide;': '\u00F7',
+  '&prime;': '\u2032',
+  '&Prime;': '\u2033',
+  '&euro;': '\u20AC',
+  '&pound;': '\u00A3',
+  '&yen;': '\u00A5',
+  '&cent;': '\u00A2',
+};/**
  * 简易 HTML 去标签，提取纯文本
  */
 function stripHtml(html: string): string {
@@ -90,17 +128,18 @@ function stripHtml(html: string): string {
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
+    // 解码所有 HTML 实体（命名 + 数字）
+    .replace(/&[a-zA-Z]+;/g, (match) => HTML_ENTITY_MAP[match] || match)
     .replace(/&#(\d+);/g, (_m: string, n: string) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m: string, n: string) => String.fromCharCode(parseInt(n, 16)))
     // Remove leading whitespace from each line (artifact of HTML indentation)
     .replace(/^[ \t]+/gm, '')
     // Remove whitespace-only lines
     .replace(/^[ \t]+$/gm, '')
-    .replace(/\s+/g, ' ')
+    // Collapse multiple whitespace chars to single space
+    .replace(/[\r\n]+/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
