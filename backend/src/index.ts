@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { initDatabase } from './db/init.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import healthRouter from './routes/health.js';
+import { tryProcessQueue } from './services/ttsGenerationService.js';
 
 // ESM-compatible current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -51,9 +52,14 @@ app.get('*', (_req, res) => {
 // Error handler
 app.use(errorHandler);
 
+// 启动时扫描并处理未完成的 TTS 生成任务
+tryProcessQueue(db, DATA_DIR);
+setInterval(() => tryProcessQueue(db, DATA_DIR), 30000);
+
 app.listen(PORT, () => {
   console.log(`📚 iReader server running at http://localhost:${PORT}`);
   console.log(`📁 Data directory: ${DATA_DIR}`);
+  console.log('🤖 TTS generation queue started (polling every 30s)');
 });
 
 export { app, db };

@@ -10,6 +10,7 @@ import { getSources, getVoices, checkHealth, synthesize } from '../services/ttsP
 import { ttsSettings, ttsCache } from '../db/schema.js';
 import { findCache, isCacheValid, saveToCache, clearAllCache, evictStaleCache } from '../services/ttsCacheService.js';
 import { requireAuth } from '../middleware/auth.js';
+import { regenerateAllForNewVoice } from '../services/ttsGenerationService.js';
 
 export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').initDatabase>, dataDir?: string) {
   const router = Router();
@@ -171,6 +172,13 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           normalChunkMaxSize: normalChunkMaxSize ?? 128,
           updatedAt: now,
         }).run();
+      }
+
+      // 检测音色是否变更，若变更则异步触发全量预生成
+      if (voiceId !== undefined && existing && existing.voiceId !== voiceId && dataDir) {
+        try {
+          regenerateAllForNewVoice(db, userId, voiceId, speed ?? existing.speed ?? 1.0, dataDir);
+        } catch { /* 触发预生成失败不影响主流程 */ }
       }
 
       const updated = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();

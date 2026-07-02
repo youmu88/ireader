@@ -431,6 +431,13 @@ export function createBooksRouter(db: any, dataDir: string): Router {
 
       // 获取当前 TTS 设置（ttsSettings 已通过顶部静态导入）
       const settings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
+
+      // 如果 TTS 功能被关闭，则返回
+      if (settings && !settings.enabled) {
+        res.json({ success: false, error: 'TTS 语音功能已关闭，请在设置中开启' });
+        return;
+      }
+
       const ttsVoice = voice || settings?.voiceId || 'zh-CN-XiaoxiaoNeural';
       const ttsSpeed = speed ?? settings?.speed ?? 1.0;
 
@@ -488,12 +495,20 @@ export function createBooksRouter(db: any, dataDir: string): Router {
         .where(sql`book_id = ${bookId} AND user_id = ${userId} AND status = 'completed'`)
         .get()?.count ?? 0;
 
-      const voiceGenerationRate = totalChapters > 0 ? Math.min(1, completedJobs / totalChapters) : 0;
+      const pendingJobs = db.select({ count: sql<number>`count(*)` }).from(ttsGenerationJobs)
+        .where(sql`book_id = ${bookId} AND user_id = ${userId} AND status IN ('pending', 'processing')`)
+        .get()?.count ?? 0;
 
-      // TTS 音频缓存总数（用户级别的全局缓存条目数）
-      const ttsCacheCount = db.select({ count: sql<number>`count(*)` }).from(ttsCache)
+      const failedJobs = db.select({ count: sql<number>`count(*)` }).from(ttsGenerationJobs)
+        .where(sql`book_id = ${bookId} AND user_id = ${userId} AND status = 'failed'`)
+        .get()?.count ?? 0;
+
+      // 按需播放产生的缓存（通过 tts_cache 按 text_hash 去重近似估算已播章节数）
+      const cachedChunks = db.select({ count: sql<number>`count(*)` }).from(ttsCache)
         .where(sql`user_id = ${userId}`)
         .get()?.count ?? 0;
+
+      const voiceGenerationRate = totalChapters > 0 ? Math.min(1, completedJobs / totalChapters) : 0;
 
       // 内容缓存统计（已通过顶部静态导入 getBookCacheStats）
       const cacheStats = getBookCacheStats(db, bookId, userId);
@@ -505,7 +520,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
           voiceGenerationRate,
           totalChapters,
           completedVoiceChapters: completedJobs,
-          ttsCacheCount,
+          pendingVoiceChapters: pendingJobs,
+          failedVoiceChapters: failedJobs,
+          totalVoiceJobs: completedJobs + pendingJobs + failedJobs,
+          ttsCacheCount: cachedChunks,
           cachedChapters: cacheStats.cachedChapters,
           cacheType: cacheStats.cacheType,
         },

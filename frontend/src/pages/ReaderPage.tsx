@@ -410,6 +410,8 @@ function ReaderPage() {
          .replace(/&#(\d+);/g, (_m: any, n: string) => String.fromCharCode(parseInt(n, 10)));
     // Normalize: collapse multiple spaces but preserve single newlines
     s = s.replace(/[ \t]+/g, ' ');
+    // Remove leading whitespace from each line (artifact of HTML indentation)
+    s = s.replace(/^[ \t]+/gm, '');
     // Remove whitespace-only lines (reduces excessive blank lines from nested tags)
     s = s.replace(/^[ \t]+$/gm, '');
 

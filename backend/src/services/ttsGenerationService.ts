@@ -39,7 +39,7 @@ const activeJobs = new Set<string>();
 /**
  * 尝试启动队列中的下一个待处理任务
  */
-function tryProcessQueue(db: any, dataDir: string): void {
+export function tryProcessQueue(db: any, dataDir: string): void {
   if (activeJobs.size >= MAX_CONCURRENT_JOBS) return;
 
   const nextJob = db.select().from(ttsGenerationJobs)
@@ -225,6 +225,12 @@ async function processJob(
 
       // 加载用户自定义 TTS API 配置
       const userSettings = db.select().from(ttsSettings).where(sql`user_id = ${job.userId}`).get();
+
+      // 如果用户关闭了 TTS 功能，则跳过此任务
+      if (userSettings && !userSettings.enabled) {
+        throw new Error('TTS 语音功能已关闭');
+      }
+
       const apiUrl = userSettings?.apiUrl || undefined;
       const apiKey = userSettings?.apiKey || undefined;
       const source = userSettings?.source || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
@@ -275,6 +281,12 @@ async function processJob(
       })
       .where(sql`id = ${job.id}`)
       .run();
+
+    // 记录音色使用（激活 LRU 缓存管理）
+    try {
+      const { recordVoiceUsage } = await import('./voiceCacheService.js');
+      recordVoiceUsage(db, job.bookId, job.userId, job.voice, job.speed);
+    } catch { /* 不影响主流程 */ }
   } catch (err: any) {
     db.update(ttsGenerationJobs)
       .set({
