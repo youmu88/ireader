@@ -10,7 +10,6 @@ import {
 import axios from 'axios';
 import {
   getDefaultPlayer,
-  destroyDefaultPlayer,
   splitText,
   type PlayerState,
 } from '../services/ttsPlayer';
@@ -340,14 +339,15 @@ function ReaderPage() {
       // ── 恢复阅读进度：尝试跳转到上次阅读的章节 ──
       let targetChapter = chaptersData[0];
       const isEpub = bookData.format === 'epub';
+      let savedProgress: any = null;
       try {
         const progRes = await axios.get(`/api/books/${bookId}/progress`);
-        const progress = progRes.data.data;
-        if (progress?.chapterId) {
-          const saved = chaptersData.find((c: Chapter) => c.id === progress.chapterId);
+        savedProgress = progRes.data.data;
+        if (savedProgress?.chapterId) {
+          const saved = chaptersData.find((c: Chapter) => c.id === savedProgress.chapterId);
           if (saved) {
             targetChapter = saved;
-            savedProgressRef.current = progress; // 供 loadEpub 恢复精确位置
+            savedProgressRef.current = savedProgress; // 供 loadEpub 恢复精确位置
           }
         }
       } catch { /* 无保存的进度 */ }
@@ -357,6 +357,16 @@ function ReaderPage() {
 
       if (targetChapter) {
         await loadChapterContent(targetChapter, undefined, isEpub);
+        // 恢复精确滚动位置（使用保存的 pageIndex）
+        if (savedProgress?.pageIndex != null && bookData.format !== 'epub') {
+          const restorePct = savedProgress.pageIndex / 10000;
+          requestAnimationFrame(() => {
+            const container = epubTextScrollRef.current || txtScrollRef.current;
+            if (container && restorePct > 0) {
+              container.scrollTop = restorePct * (container.scrollHeight - container.clientHeight);
+            }
+          });
+        }
         // 首次加载后立即预加载后续章节
         preloadNextChapters(targetChapter.id);
       }
@@ -813,6 +823,10 @@ function ReaderPage() {
     try {
       const player = getDefaultPlayer();
       ttsPlayerRef.current = player;
+      // 设置当前播放的书籍信息（供全局状态订阅使用）
+      player.currentBookId = bookId;
+      player.chapterTitle = currentChapter?.title || '';
+      (player as any).bookTitle = book?.title || '';
 
       // 重置章节预生成标记
       nextChapterPreparedRef.current = false;
@@ -1120,10 +1134,15 @@ function ReaderPage() {
     if (!currentChapter || !chapters.length) return;
     if (scrollProgressSaveTimer.current) clearTimeout(scrollProgressSaveTimer.current);
     scrollProgressSaveTimer.current = setTimeout(() => {
+      const container = epubTextScrollRef.current || txtScrollRef.current;
+      const scrollPct = container && container.scrollHeight > container.clientHeight
+        ? container.scrollTop / (container.scrollHeight - container.clientHeight)
+        : 0;
       const idx = chapters.findIndex(c => c.id === currentChapter.id);
       debounceSaveProgress({
         chapterId: currentChapter.id,
         percentage: (idx + 1) / chapters.length,
+        pageIndex: Math.round(scrollPct * 10000),
       });
     }, 2000);
   }, [currentChapter, chapters, debounceSaveProgress]);
@@ -1186,9 +1205,8 @@ function ReaderPage() {
       if (ttsProgressSaveTimer.current) {
         clearInterval(ttsProgressSaveTimer.current);
       }
-      // 停止 TTS
+      // 不销毁 TTS 播放器——保持后台播放（用户可能在书架页继续听）
       if (ttsPlayerRef.current) {
-        destroyDefaultPlayer();
         ttsPlayerRef.current = null;
       }
     };
@@ -1458,36 +1476,37 @@ function ReaderPage() {
             {/* 半透明背景点击关闭 */}
             <div className="absolute inset-0 bg-black/30" onClick={() => setShowUi(false)} />
 
-            {/* 顶部覆盖：返回 + 书名 + 目录 */}
-            <div className="relative z-10 pointer-events-none">
-              <div className="pointer-events-auto bg-gradient-to-b from-black/60 to-transparent pb-6">
-                <div className="flex items-center justify-between px-4 py-3">
-                  <button
-                    onClick={() => { handleStopTTS(); navigate('/'); }}
-                    className="flex items-center gap-1 text-white text-sm bg-black/30 rounded-full px-3 py-1.5 hover:bg-black/40 transition-colors"
-                  >
-                    ← 返回
-                  </button>
-                  <h1 className="text-sm font-medium text-white truncate max-w-[40%] drop-shadow">
-                    {book?.title || ''}
-                  </h1>
-                  <button
-                    onClick={() => setShowToc(v => !v)}
-                    className="text-xs bg-black/30 text-white rounded-full px-3 py-1.5 hover:bg-black/40 transition-colors"
-                  >
-                    📑 目录
-                  </button>
-                </div>
-              </div>
-            </div>
-
             <div className="flex-1 relative z-10" onClick={() => setShowUi(false)} />
 
             {/* 底部控制面板 */}
             <div className="relative z-10 pointer-events-none">
               <div className="pointer-events-auto bg-white dark:bg-gray-800 rounded-t-2xl shadow-2xl max-h-[55vh] overflow-y-auto mx-auto max-w-3xl">
                   <div className="p-4 space-y-3">
-                    {/* ── 朗读/缓存（排在第一排） ── */}
+                    {/* ── 第一行：返回 + 书名 + 目录 ── */}
+                    <div className="flex items-center justify-between">
+                      <button
+                        onClick={() => navigate('/')}
+                        className="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-full px-3 py-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        ← 返回
+                      </button>
+                      <h2 className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate max-w-[50%] text-center">
+                        {book?.title || ''}
+                      </h2>
+                      <button
+                        onClick={() => setShowToc(v => !v)}
+                        className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
+                          showToc
+                            ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        }`}
+                      >
+                        📑 目录
+                      </button>
+                    </div>
+                    <div className="border-t border-gray-100 dark:border-gray-700" />
+                    
+                    {/* ── 朗读/缓存 ── */}
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
                         onClick={ttsState !== 'idle' ? handleStopTTS : handleStartTTS}

@@ -21,6 +21,42 @@ import { getToken } from './authService';
 
 export type PlayerState = 'idle' | 'loading' | 'playing' | 'paused';
 
+// ===== 全局状态订阅（供 BookshelfPage 等外部组件使用） =====
+
+export interface GlobalPlayerInfo {
+  state: PlayerState;
+  bookId?: string;
+  bookTitle?: string;
+  chapterTitle?: string;
+  progress: number;
+  currentIndex: number;
+  totalChunks: number;
+}
+
+type GlobalStateListener = (info: GlobalPlayerInfo) => void;
+const globalListeners: Set<GlobalStateListener> = new Set();
+
+export function subscribeGlobalPlayer(listener: GlobalStateListener): () => void {
+  globalListeners.add(listener);
+  return () => { globalListeners.delete(listener); };
+}
+
+/** 获取当前全局播放器状态快照（用于非响应式场景） */
+export function getGlobalPlayerSnapshot(): GlobalPlayerInfo | null {
+  // lazy import to avoid circular dependency
+  const player = defaultPlayer;
+  if (!player || !player.currentBookId) return null;
+  return {
+    state: player.getState(),
+    bookId: player.currentBookId,
+    bookTitle: (player as any).bookTitle || '',
+    chapterTitle: (player as any).chapterTitle || '',
+    progress: player.getTotalChunks() > 0 ? (player.getCurrentIndex() + 1) / player.getTotalChunks() : 0,
+    currentIndex: player.getCurrentIndex(),
+    totalChunks: player.getTotalChunks(),
+  };
+}
+
 interface TTSChunk {
   index: number;
   text: string;
@@ -186,6 +222,9 @@ export class TTSPlayer {
   /** 当前书籍信息（用于 Media Session 锁屏封面） */
   private bookTitle = '';
   private bookCoverUrl = '';
+  /** 当前书籍信息（用于全局状态订阅） */
+  public currentBookId: string = '';
+  public chapterTitle: string = '';
 
 
   // ── 初始化 ──
@@ -704,6 +743,23 @@ export class TTSPlayer {
     if (this.state === s) return;
     this.state = s;
     this.callbacks.onStateChange?.(s);
+    this.notifyGlobalListeners();
+  }
+
+  /** 通知全局状态监听器（供 BookshelfPage 等使用） */
+  private notifyGlobalListeners(): void {
+    const info: GlobalPlayerInfo = {
+      state: this.state,
+      bookId: this.currentBookId,
+      bookTitle: this.bookTitle,
+      chapterTitle: this.chapterTitle,
+      progress: this.chunks.length > 0 ? (this.currentIndex + 1) / this.chunks.length : 0,
+      currentIndex: this.currentIndex,
+      totalChunks: this.chunks.length,
+    };
+    for (const listener of globalListeners) {
+      try { listener(info); } catch { /* ignore */ }
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
+import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, type PlayerState } from '../services/ttsPlayer';
 
 interface Book {
   id: string;
@@ -64,6 +65,18 @@ useEffect(() => {
   const [editTitle, setEditTitle] = useState('');
   const [editAuthor, setEditAuthor] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // ── 全局 TTS 播放状态（来自 TTSPlayer 单例，书架页后台听书控制） ──
+  const [globalTtsInfo, setGlobalTtsInfo] = useState<{
+    state: PlayerState;
+    bookId?: string;
+    bookTitle?: string;
+    progress: number;
+  } | null>(() => getGlobalPlayerSnapshot());
+
+  useEffect(() => {
+    const unsub = subscribeGlobalPlayer((info) => setGlobalTtsInfo(info));
+    return unsub;
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -238,7 +251,8 @@ useEffect(() => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
+    <>
+    <div className={`max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8 ${globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId ? 'pb-24' : ''}`}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold">我的书架</h1>
@@ -469,6 +483,14 @@ useEffect(() => {
                   </a>
                   {/* Action buttons */}
                   <div className="absolute top-2 right-2 flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    {/* 正在播放指示器 */}
+                    {globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId === book.id && (
+                      <div className="absolute top-2 left-2 z-10">
+                        <span className="bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">
+                          🔊
+                        </span>
+                      </div>
+                    )}
                     <button
                       onClick={(e) => handleEditBook(book, e)}
                       className="w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-blue-600"
@@ -491,6 +513,48 @@ useEffect(() => {
         </div>
       </div>
     </div>
+      {/* 迷你播放器 - TTS 后台听书控制 */}
+      {globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-2xl">
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gray-200 dark:bg-gray-700">
+            <div
+              className="h-full bg-blue-500 transition-all duration-300"
+              style={{ width: `${Math.round(globalTtsInfo.progress * 100)}%` }}
+            />
+          </div>
+          <a
+            href={`/reader/${globalTtsInfo.bookId}`}
+            className="flex items-center gap-3 px-4 py-3 max-w-7xl mx-auto"
+          >
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                🔊 {globalTtsInfo.bookTitle || '正在播放'}
+              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {globalTtsInfo.state === 'playing' ? '播放中' : '已暂停'}
+                </span>
+                <span className="text-xs text-blue-500 font-medium">
+                  {Math.round(globalTtsInfo.progress * 100)}%
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const player = getDefaultPlayer();
+                if (globalTtsInfo.state === 'playing') player.pause();
+                else if (globalTtsInfo.state === 'paused') player.resume();
+              }}
+              className="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 transition-colors shrink-0 shadow-lg"
+            >
+              {globalTtsInfo.state === 'playing' ? '⏸' : '▶'}
+            </button>
+          </a>
+        </div>
+      )}
+    </>
   );
 }
 
