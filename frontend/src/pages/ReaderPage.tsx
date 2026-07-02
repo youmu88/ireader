@@ -123,6 +123,8 @@ function ReaderPage() {
   const loadingNextChapterRef = useRef(false);
   const bottomSentinelRef = useRef<HTMLDivElement>(null);
   const goToNextChapterRef = useRef<((_fromAutoScroll?: boolean) => Promise<void>) | null>(null);
+  /** TTS 自动进入下一章 — ref 包装避免闭包过期 */
+  const advanceToNextChapterTTSRef = useRef<((player: any) => Promise<void>) | null>(null);
   const epubTextScrollRef = useRef<HTMLDivElement>(null);
   const txtScrollRef = useRef<HTMLDivElement>(null);
   const savedTtsProgressRef = useRef<{chapterId: string; segmentIndex: number; progress: number} | null>(null);
@@ -301,12 +303,21 @@ function ReaderPage() {
       setTtsProgress(total > 0 ? (idx + 1) / total : 0);
       setTtsSegmentText(player.getCurrentSegmentText());
       setActiveSegmentIndex(idx);
-      // 挂载新回调（旧的 setter 来自已卸载的组件）
+              // 挂载新回调（旧的 setter 来自已卸载的组件）
       player.setCallbacks({
         onStateChange: (s) => { setTtsState(s); },
         onSegmentPlay: (i, _t) => {
           setTtsSegmentText(player.getCurrentSegmentText());
           setActiveSegmentIndex(i);
+          // ⭐ 自动滚动到当前高亮分段
+          requestAnimationFrame(() => {
+            const container = epubTextScrollRef.current || txtScrollRef.current;
+            if (!container) return;
+            const highlighted = container.querySelector('[data-tts-segment="active"]');
+            if (highlighted) {
+              highlighted.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          });
         },
         onProgress: (p) => setTtsProgress(p),
         onError: (err) => {
@@ -319,6 +330,7 @@ function ReaderPage() {
             clearInterval(ttsProgressSaveTimer.current);
             ttsProgressSaveTimer.current = null;
           }
+          advanceToNextChapterTTSRef.current?.(player);
         },
       });
       // 仍然加载书籍信息（章节列表、封面等），但不重置播放器
@@ -793,6 +805,67 @@ function ReaderPage() {
     }
   };
 
+  /**
+   * TTS 自动进入下一章：严格单章播放模式
+   * 当一章播放完毕(onEnd)时自动加载下一章文本并播放，确保内容与语音同步
+   */
+  const advanceToNextChapterTTS = async (player: any) => {
+    if (!currentChapterRef.current || !chaptersRef.current.length) return;
+    const triggerBookId = currentBookIdRef.current;
+    const ci = chaptersRef.current.findIndex((c) => c.id === currentChapterRef.current!.id);
+    if (ci < 0 || ci >= chaptersRef.current.length - 1) {
+      // 最后一章播完，停止播放
+      player.stop();
+      setTtsState('idle');
+      setTtsProgress(0);
+      setActiveSegmentIndex(-1);
+      setTtsSegmentText('');
+      clearPlaybackFromLocalStorage();
+      if (ttsProgressSaveTimer.current) {
+        clearInterval(ttsProgressSaveTimer.current);
+        ttsProgressSaveTimer.current = null;
+      }
+      return;
+    }
+    const nextCh = chaptersRef.current[ci + 1];
+    // 保存上一章完成进度
+    saveTtsProgress(currentChapterRef.current.id, -1, 1);
+    try {
+      const res = await axios.get(`/api/books/${triggerBookId}/chapters/${nextCh.id}/content`);
+      if (currentBookIdRef.current !== triggerBookId) return; // 书籍已切换
+      let rawContent = res.data.data?.content || '';
+      const content = book?.format === 'epub' ? stripHtml(rawContent) : rawContent;
+      if (!content) return;
+      // 更新章节 + 显示内容（严格同步）
+      setCurrentChapter(nextCh);
+      setDisplayChapter(nextCh);
+      currentChapterRef.current = nextCh;
+      accumulatedIdsRef.current.clear();
+      accumulatedIdsRef.current.add(nextCh.id);
+      setTxtContent(content);
+      if (book?.format === 'epub') {
+        setEpubDisplayHtml(sanitizeEpubHtml(rawContent, triggerBookId!));
+      }
+      // 重置滚动位置
+      if (txtScrollRef.current) txtScrollRef.current.scrollTop = 0;
+      if (epubTextScrollRef.current) epubTextScrollRef.current.scrollTop = 0;
+      // 加载下一章文本到播放器
+      await player.load(content, false);
+      setActiveSegmentIndex(0);
+      setTtsProgress(0);
+      // 重置进度保存定时器（新的 chapterId）
+      startTtsProgressSaver(triggerBookId!, nextCh.id, nextCh.title || '', player);
+      await player.play();
+      // 预加载再下一章
+      preloadNextChapters(nextCh.id);
+    } catch {
+      // 加载失败，停止播放
+      player.stop();
+      setTtsState('idle');
+    }
+  };
+  advanceToNextChapterTTSRef.current = advanceToNextChapterTTS;
+
   // ════════════════════════════════════════════
   // TTS 朗读控制
   // ════════════════════════════════════════════
@@ -856,42 +929,6 @@ function ReaderPage() {
     }, TTS_PROGRESS_SAVE_INTERVAL);
   }, [saveTtsProgress, book]);
 
-  /** TTS 后台预生成下一章音频：获取下一章文本并追加到播放器 */
-  const prepareNextChapterTTS = useCallback(async (player: any) => {
-    if (!bookId || !currentChapter || !chapters.length || nextChapterPreparedRef.current) return;
-    const ci = chapters.findIndex((c) => c.id === currentChapter.id);
-    if (ci < 0 || ci >= chapters.length - 1) return; // 没有下一章
-    nextChapterPreparedRef.current = true;
-
-    // ⭐ 记录触发时的书籍 ID，异步完成后校验是否仍为同一本书
-    const triggerBookId = bookId;
-
-    const nextCh = chapters[ci + 1];
-    try {
-      const res = await axios.get(`/api/books/${bookId}/chapters/${nextCh.id}/content`);
-      let rawContent = res.data.data?.content || '';
-      if (!rawContent) return;
-
-      // ⭐ 书籍切换守卫：异步 fetch 期间用户可能已切换到另一本书
-      // 若已切换，绝不将旧书内容追加到当前播放器，否则会导致"打开书B朗读书A"
-      if (currentBookIdRef.current !== triggerBookId) return;
-
-      // EPUB 内容去 HTML 标签
-      if (book?.format === 'epub') {
-        const div = document.createElement('div');
-        div.innerHTML = rawContent;
-        rawContent = div.textContent || div.innerText || '';
-      }
-
-      const segments = splitText(rawContent);
-      if (segments.length > 0) {
-        player.appendSegments(segments);
-      }
-    } catch {
-      // 预加载失败不影响当前播放
-    }
-  }, [bookId, currentChapter, chapters, book]);
-
   const handleStartTTS = useCallback(async () => {
     if (!bookId || !currentChapter) return;
 
@@ -911,9 +948,6 @@ function ReaderPage() {
       player.chapterTitle = currentChapter?.title || '';
       (player as any).bookTitle = book?.title || '';
 
-      // 重置章节预生成标记
-      nextChapterPreparedRef.current = false;
-
       player.setCallbacks({
         onStateChange: (s) => {
           setTtsState(s);
@@ -927,91 +961,51 @@ function ReaderPage() {
         },
         onSegmentPlay: (idx, _total) => {
           setTtsSegmentText(player.getCurrentSegmentText());
+          // ⭐ 严格单章模式：idx 直接对应当前章节的分段索引
+          setActiveSegmentIndex(idx);
 
-          // ── TTS 后台预生成 & 文字同步：当前章节播放到 75% 时预加载下一章 ──
-          const oc = player.getOriginalChunkCount();
-          if (oc > 0 && idx >= oc) {
-            // 已过渡到下一章节追加的分段 → 更新 currentChapter 并同步显示文本
-            if (currentChapter && !nextChapterPreparedRef.current) {
-              const ci = chapters.findIndex((c) => c.id === currentChapter.id);
-              if (ci >= 0 && ci < chapters.length - 1) {
-                const nextCh = chapters[ci + 1];
-                setCurrentChapter(nextCh);
-                setDisplayChapter(nextCh);
-                // ⭐ 将 activeSegmentIndex 设为下一章内的本地偏移
-                setActiveSegmentIndex(idx - oc);
-                // 保存上一章播放完成进度
-                saveTtsProgress(currentChapter.id, -1, 1);
-                // ⭐ 异步加载下一章文本内容替换显示（使文字与朗读同步）
-                (async () => {
-                  try {
-                    const triggerId = bookId;
-                    const res = await axios.get(`/api/books/${bookId}/chapters/${nextCh.id}/content`);
-                    if (currentBookIdRef.current !== triggerId) return;
-                    const rawContent = res.data.data?.content || '';
-                    const content = book?.format === 'epub'
-                      ? stripHtml(rawContent)
-                      : rawContent;
-                    if (content) {
-                      accumulatedIdsRef.current.clear();
-                      accumulatedIdsRef.current.add(nextCh.id);
-                      setTxtContent(content);
-                      if (book?.format === 'epub') {
-                        setEpubDisplayHtml(sanitizeEpubHtml(rawContent, bookId!));
-                      }
-                    }
-                  } catch { /* 静默失败 */ }
-                })();
-                // 预加载再下一章
-                setTimeout(() => prepareNextChapterTTS(player), 100);
-              }
-              nextChapterPreparedRef.current = true;
+          // ⭐ 自动滚动到当前高亮分段
+          requestAnimationFrame(() => {
+            const container = epubTextScrollRef.current || txtScrollRef.current;
+            if (!container) return;
+            const highlighted = container.querySelector('[data-tts-segment="active"]');
+            if (highlighted) {
+              highlighted.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
-          } else {
-            // 当前章节内：正常更新 activeSegmentIndex
-            setActiveSegmentIndex(idx);
-            if (!nextChapterPreparedRef.current && _total > 0 && idx >= _total * 0.75) {
-              // 播放到当前章节 75% 位置 → 预生成下一章音频
-              prepareNextChapterTTS(player);
+          });
+
+          // ⭐ 播放到 75% 时预加载下一章内容（仅内容预加载，不追加到播放器）
+          if (_total > 0 && idx >= _total * 0.75) {
+            const ci = chapters.findIndex((c) => c.id === currentChapter?.id);
+            if (ci >= 0 && ci < chapters.length - 1) {
+              preloadNextChapters(currentChapter!.id);
             }
           }
         },
         onProgress: (p) => setTtsProgress(p),
         onError: (err) => {
           console.warn('TTS 朗读错误:', err);
-          // 提取友好错误信息（去除技术堆栈细节）
           let userMsg = err;
-          // 超时 / 服务不可达
           if (err.includes('Failed to fetch') || err.includes('NetworkError') || err.includes('TTS service unavailable')) {
             userMsg = '语音服务连接失败，请检查设置面板中的 TTS 服务地址是否正确，或切换 TTS 后端';
           } else if (err.includes('502') || err.includes('TTS 合成失败')) {
             userMsg = '语音合成失败，TTS 后端可能未启动（默认需 Kokoro :8880），当前仅 Edge-TTS(:8883) 在运行';
           }
           setTtsError(userMsg);
-          // 8 秒后自动清除
           setTimeout(() => setTtsError(null), 8000);
         },
         onEnd: () => {
           setTtsProgress(1);
-          if (ttsProgressSaveTimer.current) clearInterval(ttsProgressSaveTimer.current);
+          if (ttsProgressSaveTimer.current) {
+            clearInterval(ttsProgressSaveTimer.current);
+            ttsProgressSaveTimer.current = null;
+          }
           if (sleepTimerIntervalRef.current) {
             clearInterval(sleepTimerIntervalRef.current);
             sleepTimerIntervalRef.current = null;
           }
-          // ⭐ TTS 自然播放结束，清除 localStorage 播放记录
-          clearPlaybackFromLocalStorage();
-          // 播放结束时刷新服务端统计（TTS 缓存可能已增加）
-          loadServerStats();
-          // 检查是否还有已追加的下一章内容（TTS 已自动继续播放）
-          // 如果没有追加内容（最后一章），走正常章节跳转
-          if (player.getOriginalChunkCount() === 0) {
-            if (currentChapter) saveTtsProgress(currentChapter.id, -1, 1);
-            if (accumulatedIdsRef.current.size > 0) {
-              goToNextChapter(true);
-            } else {
-              goToNextChapter();
-            }
-          }
+          // ⭐ 单章播放完毕 → 自动加载下一章并继续播放（严格同步）
+          advanceToNextChapterTTSRef.current?.(player);
         },
       });
 
@@ -1046,14 +1040,12 @@ function ReaderPage() {
       startTtsProgressSaver(bookId, currentChapter.id, currentChapter?.title || '', player);
 
       await player.play();
-
-      await player.play();
     } catch (err) {
       console.error('TTS 启动失败:', err);
       setTtsError('语音播放启动失败：TTS 后端服务不可用（默认 Kokoro :8880 未运行），请在设置中切换到 Edge-TTS 或启动 Kokoro 服务');
       setTimeout(() => setTtsError(null), 10000);
     }
-  }, [bookId, currentChapter, book, ttsSpeed, getCurrentChapterText, goToNextChapter, saveTtsProgress, startTtsProgressSaver, prepareNextChapterTTS]);
+  }, [bookId, currentChapter, book, ttsSpeed, getCurrentChapterText, saveTtsProgress, startTtsProgressSaver, preloadNextChapters]);
 
   /** 暂停 TTS */
   const handlePauseTTS = useCallback(() => {
@@ -1166,6 +1158,7 @@ function ReaderPage() {
       <>
         {content.slice(0, foundPos)}
         <span
+          data-tts-segment="active"
           className="bg-yellow-200 dark:bg-yellow-700/70 rounded px-0.5 transition-colors duration-300"
           aria-live="polite"
         >
@@ -1437,6 +1430,23 @@ function ReaderPage() {
   return (
     <div className="h-screen bg-white dark:bg-gray-900 select-none">
       <div className="h-full relative">
+        {/* ── 浮动章节导航按钮（半透明大按钮，屏幕左右中部） ── */}
+        <button
+          onClick={(e) => { e.stopPropagation(); goToPrevChapter(); }}
+          disabled={!currentChapter || chapters.findIndex(c => c.id === currentChapter.id) === 0}
+          className="absolute left-2 top-1/2 -translate-y-1/2 z-30 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/20 dark:hover:bg-white/30 backdrop-blur-sm text-white text-xl flex items-center justify-center disabled:opacity-0 disabled:pointer-events-none transition-all"
+          title="上一章"
+        >
+          ‹
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); goToNextChapter(); }}
+          disabled={!currentChapter || chapters.findIndex(c => c.id === currentChapter.id) === chapters.length - 1}
+          className="absolute right-2 top-1/2 -translate-y-1/2 z-30 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/20 dark:hover:bg-white/30 backdrop-blur-sm text-white text-xl flex items-center justify-center disabled:opacity-0 disabled:pointer-events-none transition-all"
+          title="下一章"
+        >
+          ›
+        </button>
         {/* Reader Content - full screen, no fixed toolbar */}
         <div className="h-full flex flex-col">
           <div className="flex-1 flex overflow-hidden relative" onClick={handleTapReader}>
@@ -1886,27 +1896,15 @@ function ReaderPage() {
                     </div>
                   )}
 
-                  {/* ── 底部导航 ── */}
+                  {/* ── 底部导航（仅保留章节进度信息，导航按钮移至浮动） ── */}
                   <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
-                    {book?.format === 'txt' && readingMode === 'scroll' && (
-                      <div className="flex items-center justify-between">
-                        <button
-                          onClick={goToPrevChapter}
-                          disabled={!currentChapter || chapters.findIndex(c => c.id === currentChapter.id) === 0}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                        >← 上一章</button>
-                        <span className="text-xs text-gray-500">
-                          {currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1} / ${chapters.length}` : ''}
-                        </span>
-                        <button
-                          onClick={() => goToNextChapter()}
-                          disabled={!currentChapter || chapters.findIndex(c => c.id === currentChapter.id) === chapters.length - 1}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                        >下一章 →</button>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-center">
+                      <span className="text-xs text-gray-500">
+                        {currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1} / ${chapters.length}` : ''}
+                      </span>
+                    </div>
                     {book?.format === 'txt' && readingMode === 'paginated' && (
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between mt-1">
                         <button
                           onClick={() => { if (pageIndex > 0) setPageIndex(i => i - 1); else goToPrevChapter(); }}
                           disabled={pageIndex === 0 && chapters.findIndex(c => c.id === currentChapter?.id) === 0}
