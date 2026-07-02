@@ -39,6 +39,8 @@ export interface TTSPlayerCallbacks {
   onProgress?: (progress: number) => void;
   onError?: (error: string) => void;
   onEnd?: () => void;
+  /** 后台播放被中断时回调（如浏览器阻止继续播放） */
+  onBackgroundInterrupted?: () => void;
 }
 
 // ===== 文本分段 =====
@@ -123,6 +125,8 @@ export class TTSPlayer {
   private originalChunkCount = 0;
   /** Whether next chapter segments have already been appended */
   private nextChapterAppended = false;
+  /** Bound visibilitychange handler for cleanup */
+  private boundVisibilityHandler: (() => void) | null = null;
 
 
   // ── 初始化 ──
@@ -150,6 +154,9 @@ export class TTSPlayer {
       this.gainNode = this.audioContext.createGain();
       this.gainNode.connect(this.audioContext.destination);
     }
+
+    // ⭐ 初始化后台播放支持（Media Session API + AudioContext 自动恢复）
+    this.setupBackgroundPlayback();
   }
 
   // ── 设置回调 ──
@@ -274,13 +281,27 @@ export class TTSPlayer {
     if (this.isDestroyed) return;
 
     if (this.state === 'paused' && this.sourceNode && this.audioContext) {
-      // 恢复播放
-      await this.audioContext.resume();
+      // 恢复播放：如果 AudioContext 被浏览器挂起（切后台等），先恢复
+      if (this.audioContext.state === 'suspended') {
+        try {
+          await this.audioContext.resume();
+        } catch {
+          // 恢复失败，通知上层
+          this.callbacks.onBackgroundInterrupted?.();
+          return;
+        }
+      } else {
+        await this.audioContext.resume();
+      }
       this.setState('playing');
       return;
     }
 
     if (this.state === 'loading' || this.state === 'idle') {
+      // 确保 AudioContext 未被挂起
+      if (this.audioContext?.state === 'suspended') {
+        try { await this.audioContext.resume(); } catch { /* silent */ }
+      }
       // 开始播放
       this.currentIndex = -1;
       this.playNext();
@@ -320,11 +341,84 @@ export class TTSPlayer {
     this.isDestroyed = true;
     this.stopInternal();
     this.callbacks = {};
+
+    // 清理后台播放相关
+    if (this.boundVisibilityHandler) {
+      document.removeEventListener('visibilitychange', this.boundVisibilityHandler);
+      this.boundVisibilityHandler = null;
+    }
+    // 清除 Media Session 元数据
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = 'none';
+    }
+
     if (this.audioContext) {
+      this.audioContext.onstatechange = null;
       this.audioContext.close().catch(() => {});
       this.audioContext = null;
     }
     this.gainNode = null;
+  }
+
+  // ── 核心播放循环 ──
+
+  // ════════════════════════════════════════════
+  // 后台播放支持
+  // ════════════════════════════════════════════
+
+  /**
+   * 初始化后台播放支持：
+   * 1. Media Session API — 告诉浏览器正在播放音频，部分浏览器（Android Chrome）会保持播放
+   * 2. AudioContext state change — 被挂起时自动尝试恢复
+   * 3. visibilitychange — 从后台切回前台时恢复 AudioContext
+   */
+  private setupBackgroundPlayback(): void {
+    if (this.isDestroyed) return;
+
+    // ── 1. Media Session API ──
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: 'iReader 语音朗读',
+          artist: 'iReader',
+          album: '有声书',
+        });
+        navigator.mediaSession.playbackState = 'playing';
+
+        // 注册媒体控制按钮（锁屏/通知栏控制）
+        navigator.mediaSession.setActionHandler('play', () => this.play());
+        navigator.mediaSession.setActionHandler('pause', () => this.pause());
+        navigator.mediaSession.setActionHandler('stop', () => this.stop());
+      } catch { /* Media Session 不可用则静默跳过 */ }
+    }
+
+    // ── 2. AudioContext 状态变化监听 ──
+    if (this.audioContext) {
+      this.audioContext.onstatechange = () => {
+        if (this.isDestroyed || !this.audioContext) return;
+        if (this.audioContext.state === 'suspended' && this.state === 'playing') {
+          // 浏览器挂起了 AudioContext → 尝试自动恢复
+          this.audioContext.resume().catch(() => {
+            // 恢复失败，通知上层（如浏览器阻止了自动播放）
+            this.callbacks.onBackgroundInterrupted?.();
+          });
+        }
+      };
+    }
+
+    // ── 3. visibilitychange：从后台切回前台时恢复 AudioContext ──
+    this.boundVisibilityHandler = () => {
+      if (this.isDestroyed) return;
+      if (document.visibilityState === 'visible' && this.audioContext?.state === 'suspended') {
+        this.audioContext.resume().catch(() => {});
+        // 更新 Media Session 状态
+        if ('mediaSession' in navigator) {
+          try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', this.boundVisibilityHandler);
   }
 
   // ── 核心播放循环 ──

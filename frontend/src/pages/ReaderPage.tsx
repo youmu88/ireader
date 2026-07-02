@@ -359,14 +359,30 @@ function ReaderPage() {
         };
       }
 
-      // Track location changes for progress saving + auto-advance to next chapter
+      // Track location changes for progress saving, chapter sync & auto-advance
       rendition.on('relocated', (location: any) => {
         const cfi = location?.start?.cfi;
         if (cfi) {
           debounceSaveProgress({ cfi, percentage: location?.start?.percentage || 0 });
         }
-        // 自动跳转下一章：检测到当前 spine item 接近末尾（比例 > 95%）时自动跳转
+
+        // ⭐ 同步 currentChapter：检测用户当前查看的 spine item，更新 currentChapter
+        // 解决语音朗读与阅读页面不对齐的问题（朗读始终按 currentChapter 获取内容）
         const start = location?.start;
+        if (start?.href) {
+          const chs = chaptersRef.current;
+          const matchedIdx = chs.findIndex((c: Chapter) => c.href && start.href.startsWith(c.href));
+          if (matchedIdx >= 0) {
+            const matchedChapter = chs[matchedIdx];
+            // 只在章节真正变化时更新 state（避免每次翻页都 setState）
+            if (currentChapterRef.current?.id !== matchedChapter.id) {
+              setCurrentChapter(matchedChapter);
+              setDisplayChapter(matchedChapter);
+            }
+          }
+        }
+
+        // 自动跳转下一章：检测到当前 spine item 接近末尾（比例 > 95%）时自动跳转
         if (start?.percentage != null && start.percentage > 0.95 && !loadingNextChapterRef.current && start.href) {
           const chs = chaptersRef.current;
           const idx = chs.findIndex((c: Chapter) => c.href && start.href.startsWith(c.href));
