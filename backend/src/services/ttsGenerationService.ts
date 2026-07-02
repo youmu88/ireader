@@ -34,13 +34,56 @@ export interface GenerationJob {
 // ===== 并发控制 =====
 
 const MAX_CONCURRENT_JOBS = 2; // 最多同时运行 2 个生成任务
+const STUCK_JOB_TIMEOUT_MS = 30 * 60 * 1000; // 30 分钟无更新视为卡住
 const activeJobs = new Set<string>();
+
+/**
+ * 恢复卡住的任务：检查长时间 running 无进展的任务，重置为 pending
+ */
+function recoverStuckJobs(db: any): number {
+  const cutoff = new Date(Date.now() - STUCK_JOB_TIMEOUT_MS).toISOString();
+  const stuckJobs = db.select().from(ttsGenerationJobs)
+    .where(sql`status = 'running' AND updated_at < ${cutoff}`)
+    .all() as GenerationJob[];
+
+  for (const job of stuckJobs) {
+    console.log(`[TTS] 恢复卡住的任务 ${job.id} (book: ${job.bookId}, 上次更新: ${job.updatedAt})`);
+    db.update(ttsGenerationJobs)
+      .set({
+        status: 'pending',
+        progress: 0,
+        completedChunks: 0,
+        error: '任务超时自动恢复',
+        updatedAt: new Date().toISOString(),
+      })
+      .where(sql`id = ${job.id}`)
+      .run();
+  }
+  return stuckJobs.length;
+}
+
+/**
+ * 带超时的 synthesize 调用
+ */
+async function synthesizeWithTimeout(
+  params: any,
+  timeoutMs: number = 120000,
+): Promise<any> {
+  const { synthesize } = await import('./ttsProxyService.js');
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('TTS 合成超时')), timeoutMs),
+  );
+  return Promise.race([synthesize(params), timeout]);
+}
 
 /**
  * 尝试启动队列中的下一个待处理任务
  */
 export function tryProcessQueue(db: any, dataDir: string): void {
   if (activeJobs.size >= MAX_CONCURRENT_JOBS) return;
+
+  // 先恢复卡住的任务
+  recoverStuckJobs(db);
 
   const nextJob = db.select().from(ttsGenerationJobs)
     .where(sql`status = 'pending'`)
@@ -241,7 +284,7 @@ async function processJob(
       for (const chunk of chunks) {
         if (!chunk.trim()) continue;
         try {
-          const result = await synthesize({
+          const result = await synthesizeWithTimeout({
             input: chunk,
             voice: job.voice,
             speed: job.speed,
