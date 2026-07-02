@@ -432,6 +432,8 @@ function ReaderPage() {
     s = s.replace(/<embed[^>]*>[\s\S]*?<\/embed>/gi, '');
     // Remove event handler attributes (onclick, onerror, etc.)
     s = s.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+    // Strip <link> CSS tags (prevents MIME errors when relative CSS paths hit SPA fallback)
+    s = s.replace(/<link\b[^>]*>/gi, '');
     // Rewrite relative image src paths to absolute backend URLs
     s = s.replace(/<img\s+([^>]*?)src\s*=\s*"(?!http|\/\/)([^"]+)"/gi, (_, before, src) => {
       return `<img ${before}src="/api/books/${bookId}/files/${src}"`;
@@ -1195,11 +1197,11 @@ function ReaderPage() {
                   />
                 ) : txtContent ? (
                 ttsState !== 'idle' && activeSegmentIndex >= 0 ? (
-                  <div className="whitespace-pre-wrap">
+                  <div className="whitespace-pre-line">
                     {renderHighlightedContent(txtContent)}
                   </div>
                 ) : (
-                  <div className="whitespace-pre-wrap">{txtContent}</div>
+                  <div className="whitespace-pre-line">{txtContent}</div>
                 )
               ) : (
                 <div className="flex items-center justify-center py-12">

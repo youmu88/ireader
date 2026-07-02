@@ -491,10 +491,18 @@ export function createBooksRouter(db: any, dataDir: string): Router {
         .where(sql`book_id = ${bookId}`)
         .get()?.count ?? 0;
 
-      const completedJobs = db.select({ count: sql<number>`count(*)` }).from(ttsGenerationJobs)
-        .where(sql`book_id = ${bookId} AND user_id = ${userId} AND status = 'completed'`)
-        .get()?.count ?? 0;
+      // 使用最新 TTS 任务的 completedChunks/totalChunks 计算真实进度
+      const latestJob = db.select().from(ttsGenerationJobs)
+        .where(sql`book_id = ${bookId} AND user_id = ${userId}`)
+        .orderBy(sql`created_at DESC`)
+        .get() as any;
 
+      const completedChunks = latestJob?.completedChunks || 0;
+      const totalChunks = latestJob?.totalChunks || 0;
+      const jobStatus = latestJob?.status || 'pending';
+      const jobProgress = latestJob?.progress || 0;
+
+      // 统计各状态任务数（用于状态展示）
       const pendingJobs = db.select({ count: sql<number>`count(*)` }).from(ttsGenerationJobs)
         .where(sql`book_id = ${bookId} AND user_id = ${userId} AND status IN ('pending', 'processing')`)
         .get()?.count ?? 0;
@@ -503,12 +511,13 @@ export function createBooksRouter(db: any, dataDir: string): Router {
         .where(sql`book_id = ${bookId} AND user_id = ${userId} AND status = 'failed'`)
         .get()?.count ?? 0;
 
-      // 按需播放产生的缓存（通过 tts_cache 按 text_hash 去重近似估算已播章节数）
+      // 按需播放产生的缓存
       const cachedChunks = db.select({ count: sql<number>`count(*)` }).from(ttsCache)
         .where(sql`user_id = ${userId}`)
         .get()?.count ?? 0;
 
-      const voiceGenerationRate = totalChapters > 0 ? Math.min(1, completedJobs / totalChapters) : 0;
+      // 进度 = 已完成分片 / 总分片
+      const voiceGenerationRate = totalChunks > 0 ? Math.min(1, completedChunks / totalChunks) : 0;
 
       // 内容缓存统计（已通过顶部静态导入 getBookCacheStats）
       const cacheStats = getBookCacheStats(db, bookId, userId);
@@ -519,10 +528,13 @@ export function createBooksRouter(db: any, dataDir: string): Router {
           readingPercentage,
           voiceGenerationRate,
           totalChapters,
-          completedVoiceChapters: completedJobs,
+          completedVoiceChapters: completedChunks,
+          totalVoiceChunks: totalChunks,
           pendingVoiceChapters: pendingJobs,
           failedVoiceChapters: failedJobs,
-          totalVoiceJobs: completedJobs + pendingJobs + failedJobs,
+          totalVoiceJobs: (jobStatus === 'completed' ? 1 : 0) + pendingJobs + failedJobs,
+          jobStatus,
+          jobProgress,
           ttsCacheCount: cachedChunks,
           cachedChapters: cacheStats.cachedChapters,
           cacheType: cacheStats.cacheType,
