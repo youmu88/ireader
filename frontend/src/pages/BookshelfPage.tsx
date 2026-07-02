@@ -131,6 +131,27 @@ useEffect(() => {
     } catch { /* 静默 */ }
   }, []);
 
+  // ── 取消单个 TTS 生成任务 ──
+  const handleCancelJob = useCallback(async (jobId: string) => {
+    try {
+      await axios.delete(`/api/tts/jobs/${jobId}`);
+      await fetchTTSJobs();
+    } catch (err: any) {
+      alert(err.response?.data?.error || '取消失败');
+    }
+  }, [fetchTTSJobs]);
+
+  // ── 清除全部排队任务 ──
+  const handleClearAllJobs = useCallback(async () => {
+    if (!window.confirm('确定取消所有排队中的语音生成任务？')) return;
+    try {
+      await axios.post('/api/tts/jobs/clear-all');
+      await fetchTTSJobs();
+    } catch (err: any) {
+      alert(err.response?.data?.error || '清除失败');
+    }
+  }, [fetchTTSJobs]);
+
   // 当面板打开或有活跃任务时轮询
   useEffect(() => {
     if (showTtsQueue) {
@@ -633,12 +654,23 @@ useEffect(() => {
                   return (
                     <div key={job.id} className="border border-gray-100 dark:border-gray-700 rounded-lg p-3">
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate max-w-[60%]">
+                        <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate max-w-[50%]">
                           {job.bookTitle}
                         </span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[job.status] || ''}`}>
-                          {statusLabel[job.status] || job.status}
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {(job.status === 'pending' || job.status === 'running') && (
+                            <button
+                              onClick={() => handleCancelJob(job.id)}
+                              className="text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800/40 transition-colors"
+                              title="取消此任务"
+                            >
+                              ✕ 取消
+                            </button>
+                          )}
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[job.status] || ''}`}>
+                            {statusLabel[job.status] || job.status}
+                          </span>
+                        </div>
                       </div>
                       {(job.status === 'running' || job.status === 'pending') && (
                         <div className="mt-2">
@@ -666,14 +698,27 @@ useEffect(() => {
               )}
             </div>
             {/* 底部按钮 */}
-            <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
-              <span className="text-xs text-gray-400">
-                共 {ttsJobs.length} 个任务 · {ttsJobs.filter(j => j.status === 'running').length} 个运行中
-              </span>
-              <button onClick={() => setShowTtsQueue(false)}
-                className="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white px-3 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
-                关闭
-              </button>
+            <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-gray-400">
+                  共 {ttsJobs.length} 个任务 · {ttsJobs.filter(j => j.status === 'running').length} 个运行中 · {ttsJobs.filter(j => j.status === 'pending').length} 个排队中
+                </span>
+                <button onClick={() => setShowTtsQueue(false)}
+                  className="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white px-3 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                  关闭
+                </button>
+              </div>
+              {/* 清除操作 */}
+              {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={handleClearAllJobs}
+                    className="text-xs px-3 py-1.5 rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
+                  >
+                    🗑 清除全部排队任务
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

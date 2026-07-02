@@ -316,6 +316,15 @@ async function processJob(
           })
           .where(sql`id = ${job.id}`)
           .run();
+
+        // 检查任务是否被用户取消（取消后 status 变为 'failed'）
+        const activeCheck = db.select({ status: ttsGenerationJobs.status }).from(ttsGenerationJobs)
+          .where(sql`id = ${job.id}`)
+          .get();
+        if (!activeCheck || activeCheck.status !== 'running') {
+          console.log(`[TTS] 任务 ${job.id} 已被用户取消，停止处理`);
+          return;
+        }
       }
     }
 
@@ -431,6 +440,68 @@ export function getAllBooksTTSStats(
   }
 
   return stats;
+}
+
+// ===== 取消任务 =====
+
+/**
+ * 取消单个生成任务
+ * 从 activeJobs 移除以停止实际处理，更新状态为 'failed'
+ */
+export function cancelJob(db: any, jobId: string): boolean {
+  const job = db.select().from(ttsGenerationJobs)
+    .where(sql`id = ${jobId}`)
+    .get();
+
+  if (!job) return false;
+  if (job.status !== 'pending' && job.status !== 'running') return false;
+
+  // 从活跃任务集合中移除，使正在运行的 processJob 循环在下次检查时停止
+  activeJobs.delete(jobId);
+
+  db.update(ttsGenerationJobs)
+    .set({
+      status: 'failed',
+      error: '用户取消了任务',
+      updatedAt: new Date().toISOString(),
+    })
+    .where(sql`id = ${jobId}`)
+    .run();
+
+  return true;
+}
+
+/**
+ * 批量取消生成任务
+ */
+export function cancelJobs(db: any, jobIds: string[]): number {
+  let count = 0;
+  for (const id of jobIds) {
+    if (cancelJob(db, id)) count++;
+  }
+  return count;
+}
+
+/**
+ * 取消用户所有 pending/running 的生成任务
+ */
+export function cancelAllUserJobs(db: any, userId: string): number {
+  const jobs = db.select().from(ttsGenerationJobs)
+    .where(sql`user_id = ${userId} AND status IN ('pending', 'running')`)
+    .all();
+
+  for (const job of jobs) {
+    activeJobs.delete(job.id);
+    db.update(ttsGenerationJobs)
+      .set({
+        status: 'failed',
+        error: '用户取消了任务',
+        updatedAt: new Date().toISOString(),
+      })
+      .where(sql`id = ${job.id}`)
+      .run();
+  }
+  return jobs.length;
 }
 
 /**

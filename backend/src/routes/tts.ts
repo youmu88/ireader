@@ -10,7 +10,7 @@ import { getSources, getVoices, checkHealth, synthesize } from '../services/ttsP
 import { ttsSettings, ttsCache, ttsGenerationJobs, books } from '../db/schema.js';
 import { findCache, isCacheValid, saveToCache, clearAllCache, evictStaleCache } from '../services/ttsCacheService.js';
 import { requireAuth } from '../middleware/auth.js';
-import { regenerateAllForNewVoice } from '../services/ttsGenerationService.js';
+import { regenerateAllForNewVoice, cancelJob, cancelJobs, cancelAllUserJobs } from '../services/ttsGenerationService.js';
 
 export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').initDatabase>, dataDir?: string) {
   const router = Router();
@@ -223,6 +223,47 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       res.json({ success: true, data: enriched });
     } catch (error) {
       res.status(500).json({ success: false, error: '获取 TTS 任务列表失败' });
+    }
+  });
+
+  // ── DELETE /api/tts/jobs/:jobId - 取消单个生成任务 ──
+  router.delete('/jobs/:jobId', requireAuth, (req: Request, res: Response) => {
+    try {
+      const { jobId } = req.params;
+      const ok = cancelJob(db, jobId);
+      if (!ok) {
+        res.status(404).json({ success: false, error: '任务不存在或无法取消' });
+        return;
+      }
+      res.json({ success: true, message: '任务已取消' });
+    } catch (error) {
+      res.status(500).json({ success: false, error: '取消任务失败' });
+    }
+  });
+
+  // ── POST /api/tts/jobs/batch-cancel - 批量取消生成任务 ──
+  router.post('/jobs/batch-cancel', requireAuth, (req: Request, res: Response) => {
+    try {
+      const { jobIds } = req.body;
+      if (!Array.isArray(jobIds) || jobIds.length === 0) {
+        res.status(400).json({ success: false, error: '请提供 jobIds 数组' });
+        return;
+      }
+      const count = cancelJobs(db, jobIds);
+      res.json({ success: true, cancelled: count, message: `已取消 ${count} 个任务` });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: '批量取消任务失败' });
+    }
+  });
+
+  // ── POST /api/tts/jobs/clear-all - 清除用户所有排队/运行中的任务 ──
+  router.post('/jobs/clear-all', requireAuth, (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.userId;
+      const count = cancelAllUserJobs(db, userId);
+      res.json({ success: true, cleared: count, message: `已清除 ${count} 个排队任务` });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: '清除任务失败' });
     }
   });
 
