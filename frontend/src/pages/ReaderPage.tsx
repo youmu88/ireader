@@ -133,6 +133,11 @@ function ReaderPage() {
 
   // ── 全屏阅读：点击屏幕切换UI显示 ──
   const handleTapReader = useCallback(() => {
+    // 如果目录(TOC)已打开，点击阅读区只关闭目录，不弹浮动菜单
+    if (showToc) {
+      setShowToc(false);
+      return;
+    }
     setShowUi(prev => {
       const next = !prev;
       if (uiHideTimerRef.current) clearTimeout(uiHideTimerRef.current);
@@ -141,7 +146,7 @@ function ReaderPage() {
       }
       return next;
     });
-  }, []);
+  }, [showToc]);
 
   // Cleanup auto-hide timer on unmount
   useEffect(() => {
@@ -1498,7 +1503,7 @@ function ReaderPage() {
           <div className="flex-1 flex overflow-hidden relative" onClick={handleTapReader}>
         {/* TOC Sidebar */}
         {showToc && (
-          <div className="w-64 sm:w-72 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-y-auto absolute sm:relative z-20 inset-y-0 left-0 shadow-lg sm:shadow-none">
+          <div onClick={(e) => e.stopPropagation()} className="w-64 sm:w-72 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-y-auto absolute sm:relative z-20 inset-y-0 left-0 shadow-lg sm:shadow-none">
             <div className="p-3 font-semibold text-sm border-b border-gray-200 dark:border-gray-700">
               章节目录
             </div>
@@ -1704,7 +1709,7 @@ function ReaderPage() {
                         {book?.title || ''}
                       </h2>
                       <button
-                        onClick={() => setShowToc(v => !v)}
+                        onClick={() => { setShowToc(v => !v); setShowUi(false); }}
                         className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
                           showToc
                             ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
