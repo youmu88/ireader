@@ -337,12 +337,23 @@ function ReaderPage() {
           if (saved) {
             targetChapter = saved;
             savedProgressRef.current = savedProgress; // 供 loadEpub 恢复精确位置
+          } else if (savedProgress.percentage != null) {
+            // ⭐ 兜底：chapterId 不匹配时（如书被重新解析后 ID 变了），
+            //    按 percentage 估算章节顺序号，用 order 字段匹配
+            const estimatedOrder = Math.round(savedProgress.percentage * chaptersData.length);
+            const fallback = chaptersData.find((c: Chapter) => c.order === estimatedOrder);
+            if (fallback) {
+              targetChapter = fallback;
+              savedProgressRef.current = savedProgress;
+            }
           }
         }
         // ⭐ 保存 TTS 进度到 ref（textOffset = segmentIndex），供 handleStartTTS 恢复播放位置
         if (savedProgress?.chapterId && savedProgress?.textOffset != null && savedProgress.textOffset >= 0) {
+          // 若 chapterId 未精确匹配（用了兜底），则修正为实际匹配的章节 ID
+          const exactMatch = chaptersData.some((c: Chapter) => c.id === savedProgress.chapterId);
           savedTtsProgressRef.current = {
-            chapterId: savedProgress.chapterId,
+            chapterId: exactMatch ? savedProgress.chapterId : (targetChapter?.id || savedProgress.chapterId),
             segmentIndex: savedProgress.textOffset,
             progress: savedProgress.percentage || 0,
           };
