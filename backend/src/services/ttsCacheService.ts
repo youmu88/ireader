@@ -109,10 +109,10 @@ export function saveToCache(
 
   const now = new Date().toISOString();
 
-  // 检查是否已有记录（按用户隔离）
+  // 检查是否已有记录（按用户隔离，同时过滤 voice + speed 防止跨音色/语速的意外覆盖）
   let query: any = db.select()
     .from(ttsCache)
-    .where(sql`text_hash = ${textHash}`);
+    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed}`);
   if (userId) {
     query = query.where(sql`user_id = ${userId}`);
   }
@@ -159,7 +159,7 @@ export function clearCacheByText(
   const textHash = generateCacheKey(text, voice, speed);
   const entry = db.select()
     .from(ttsCache)
-    .where(sql`text_hash = ${textHash}`)
+    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed}`)
     .get();
 
   if (entry) {
