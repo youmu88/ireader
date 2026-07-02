@@ -469,6 +469,10 @@ function ReaderPage() {
     s = s.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
     // Strip <link> CSS tags (prevents MIME errors when relative CSS paths hit SPA fallback)
     s = s.replace(/<link\b[^>]*>/gi, '');
+    // Strip <a> href links (prevent clicks from navigating SPA away to nonexistent routes → 404)
+    // EPUB internal links like href="text00007.html" would cause /api/books/text00007.html 404
+    s = s.replace(/<a\b[^>]*>/gi, '<span>');
+    s = s.replace(/<\/a>/gi, '</span>');
     // Rewrite relative image src paths to absolute backend URLs
     s = s.replace(/<img\s+([^>]*?)src\s*=\s*"(?!http|\/\/)([^"]+)"/gi, (_, before, src) => {
       return `<img ${before}src="/api/books/${bookId}/files/${src}"`;
@@ -659,10 +663,16 @@ function ReaderPage() {
       return txtContent;
     }
 
-    // EPUB: 直接返回已剥离好的纯文本（txtContent 已在 loadChapterContent 中完成 stripHtml + 实体解码）
-    if (txtContent) return txtContent;
+    // EPUB: 从 API 获取当前章节 HTML → 用 stripHtml 剥离为纯文本
+    // 注：不直接返回 txtContent（它可能与当前显示章节不同步——epubjs 翻页后 relocated 事件
+    // 更新了 currentChapter 但不会重新加载 txtContent），用 API 确保取到当前章节的正确内容
+    try {
+      const res = await axios.get(`/api/books/${bookId}/chapters/${currentChapter.id}/content`);
+      const rawContent = res.data.data?.content;
+      if (rawContent) return stripHtml(rawContent);
+    } catch { /* fallback */ }
 
-    // 尝试从 epubjs 获取当前显示内容
+    // 兜底：尝试从 epubjs 获取当前显示内容
     try {
       if (renditionRef.current) {
         const contents = renditionRef.current.getContents();
