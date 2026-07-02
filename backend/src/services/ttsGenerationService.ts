@@ -204,7 +204,9 @@ async function processJob(
       }
 
       if (!chapterText) {
-        completedChunks += Math.max(1, Math.ceil(2000 / 200));
+        // 使用与 totalChunks 估算相同的逻辑计算空章节应计分片数
+        const estSize = chapter.endOffset ? (chapter.endOffset - (chapter.startOffset || 0)) : 2000;
+        completedChunks += Math.max(1, Math.ceil(estSize / 200));
         continue;
       }
 
@@ -258,7 +260,7 @@ async function processJob(
         }
 
         completedChunks++;
-        const progress = Math.round((completedChunks / job.totalChunks) * 100);
+        const progress = Math.min(100, Math.round((completedChunks / job.totalChunks) * 100));
 
         db.update(ttsGenerationJobs)
           .set({

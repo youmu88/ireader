@@ -500,7 +500,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       const completedChunks = latestJob?.completedChunks || 0;
       const totalChunks = latestJob?.totalChunks || 0;
       const jobStatus = latestJob?.status || 'pending';
-      const jobProgress = latestJob?.progress || 0;
+      const jobProgress = Math.min(100, latestJob?.progress || 0);
 
       // 统计各状态任务数（用于状态展示）
       const pendingJobs = db.select({ count: sql<number>`count(*)` }).from(ttsGenerationJobs)
