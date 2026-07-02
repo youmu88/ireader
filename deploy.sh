@@ -345,7 +345,7 @@ do_build() {
   ) &
   BUILD_PID_BACKEND=$!
   (
-    cd frontend && npm run build 2>&1 | while IFS= read -r line; do log "  frontend: ${line}"; done
+    cd frontend && npm run build:fast 2>&1 | while IFS= read -r line; do log "  frontend: ${line}"; done
   ) &
   BUILD_PID_FRONTEND=$!
 
@@ -406,9 +406,7 @@ do_deploy() {
   if [ -d "${SOURCE_DIR}/backend/node_modules" ]; then
     log "拷贝 backend node_modules (从源码)..."
     cp -r "${SOURCE_DIR}/backend/node_modules" "${APP_DIR}/backend/"
-    log "  → ${APP_DIR}/backend/node_modules ✓"
-    # 移除 devDependencies 以节省磁盘空间（仅保留生产依赖）
-    cd "${APP_DIR}/backend" && npm prune --production 2>&1 | tail -1 || true
+    log "  → ${APP_DIR}/backend/node_modules ✓ (跳过 prune，完整拷贝 devDependencies)"
     cd "${SOURCE_DIR}"
   else
     # 兜底：源码无 node_modules 时才 npm install
