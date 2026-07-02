@@ -414,6 +414,11 @@ do_deploy() {
 # iReader Production Configuration
 PORT=${PORT}
 DATA_DIR=${DATA_DIR}
+
+# TTS Configuration
+TTS_DEFAULT_SOURCE=edgetts
+EDGETTS_URL=http://127.0.0.1:8883
+TTS_REQUEST_TIMEOUT_MS=30000
 ENVEOF
 
   log "部署完成 ✓"

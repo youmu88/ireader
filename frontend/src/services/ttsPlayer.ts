@@ -93,7 +93,11 @@ function stripHtml(html: string): string {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&#(\d+);/g, (_m, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#(\d+);/g, (_m: string, n: string) => String.fromCharCode(parseInt(n, 10)))
+    // Remove leading whitespace from each line (artifact of HTML indentation)
+    .replace(/^[ \t]+/gm, '')
+    // Remove whitespace-only lines
+    .replace(/^[ \t]+$/gm, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

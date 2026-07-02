@@ -5,7 +5,9 @@ import { fileURLToPath } from 'url';
 import { initDatabase } from './db/init.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import healthRouter from './routes/health.js';
-import { tryProcessQueue } from './services/ttsGenerationService.js';
+import { tryProcessQueue, createFullBookGenerationJob } from './services/ttsGenerationService.js';
+import { books, ttsSettings, ttsGenerationJobs } from './db/schema.js';
+import { sql } from 'drizzle-orm';
 
 // ESM-compatible current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -55,6 +57,36 @@ app.use(errorHandler);
 // 启动时扫描并处理未完成的 TTS 生成任务
 tryProcessQueue(db, DATA_DIR);
 setInterval(() => tryProcessQueue(db, DATA_DIR), 30000);
+
+// 自动为尚无 TTS 任务的书籍创建生成任务
+setTimeout(async () => {
+  try {
+    const allBooks = db.select({ id: books.id, userId: books.userId }).from(books).all() as any[];
+    let created = 0;
+    for (const b of allBooks) {
+      const existing = db.select({ id: ttsGenerationJobs.id })
+        .from(ttsGenerationJobs)
+        .where(sql`book_id = ${b.id}`)
+        .get() as any;
+      if (existing) continue;
+      
+      const settings = db.select()
+        .from(ttsSettings)
+        .where(sql`user_id = ${b.userId}`)
+        .get() as any;
+      
+      const voice = settings?.voice_id || 'zh-CN-XiaoxiaoNeural';
+      const speed = settings?.speed || 1.0;
+      createFullBookGenerationJob(db, b.id, b.userId, voice, speed, DATA_DIR);
+      created++;
+    }
+    if (created > 0) {
+      console.log(`[TTS] 自动创建了 ${created} 本书的语音生成任务`);
+    }
+  } catch (err) {
+    console.error('[TTS] 自动创建任务失败:', (err as Error).message);
+  }
+}, 1000);
 
 app.listen(PORT, () => {
   console.log(`📚 iReader server running at http://localhost:${PORT}`);
