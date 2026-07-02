@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, type PlayerState } from '../services/ttsPlayer';
 import UploadQueue from '../components/UploadQueue';
@@ -63,6 +63,37 @@ useEffect(() => {
   const [editingBook, setEditingBook] = useState<Book | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editAuthor, setEditAuthor] = useState('');
+  // ── 长按批量选择模式 ──
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  // ── Batch Delete ──
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`确定删除选中的 ${selectedIds.size} 本书？此操作不可恢复。`)) return;
+    try {
+      await Promise.all([...selectedIds].map(id => axios.delete(`/api/books/${id}`)));
+      exitSelectionMode();
+      await loadData();
+    } catch (err: any) {
+      alert(err.response?.data?.error || '批量删除失败');
+    }
+  };
   // ── 全局 TTS 播放状态（来自 TTSPlayer 单例，书架页后台听书控制） ──
   const [globalTtsInfo, setGlobalTtsInfo] = useState<{
     state: PlayerState;
@@ -306,19 +337,50 @@ useEffect(() => {
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
               {filteredBooks.map((book) => (
-                <div key={book.id} className="relative group">
+                <div
+                  key={book.id}
+                  className="relative group"
+                  onTouchStart={() => {
+                    if (selectionMode) return;
+                    longPressTimerRef.current = setTimeout(() => {
+                      setSelectionMode(true);
+                      setSelectedIds(new Set([book.id]));
+                    }, 500);
+                  }}
+                  onTouchMove={() => { if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = undefined; } }}
+                  onTouchEnd={() => { if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = undefined; } }}
+                >
                   <a
-                    href={`/reader/${book.id}`}
-                    className="block p-2 sm:p-3 border border-gray-200 dark:border-gray-700 rounded-lg hover:shadow-md transition-shadow bg-white dark:bg-gray-800"
+                    href={selectionMode ? '#' : `/reader/${book.id}`}
+                    onClick={(e) => {
+                      if (selectionMode) {
+                        e.preventDefault();
+                        toggleSelection(book.id);
+                      }
+                    }}
+                    className={`block p-2 sm:p-3 border rounded-lg transition-shadow bg-white dark:bg-gray-800 ${
+                      selectionMode && selectedIds.has(book.id)
+                        ? 'border-blue-500 ring-2 ring-blue-300 dark:ring-blue-700'
+                        : 'border-gray-200 dark:border-gray-700 hover:shadow-md'
+                    }`}
                   >
-                    <div className="aspect-[3/4] bg-gray-100 dark:bg-gray-700 rounded mb-2 flex items-center justify-center overflow-hidden">
+                    <div className="aspect-[3/4] bg-gray-100 dark:bg-gray-700 rounded mb-2 flex items-center justify-center overflow-hidden relative">
+                      {/* 选中态勾选框 */}
+                      {selectionMode && (
+                        <div className="absolute top-1 left-1 z-20">
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shadow-sm ${
+                            selectedIds.has(book.id) ? 'bg-blue-500 border-blue-500' : 'bg-white/90 dark:bg-gray-700/90 border-gray-400'
+                          }`}>
+                            {selectedIds.has(book.id) && <span className="text-white text-[11px] font-bold">✓</span>}
+                          </div>
+                        </div>
+                      )}
                       <img
                         src={`/api/books/${book.id}/cover`}
                         alt={book.title}
                         className="w-full h-full object-cover rounded"
                         loading="lazy"
                         onError={(e) => {
-                          // Fallback to emoji on load error
                           (e.target as HTMLImageElement).style.display = 'none';
                           (e.target as HTMLImageElement).parentElement!.innerHTML =
                             `<span class="text-4xl">${book.format === 'epub' ? '📖' : '📄'}</span>`;
@@ -332,14 +394,10 @@ useEffect(() => {
                     <div className="mt-1 flex items-center gap-1">
                       <span className="text-xs text-gray-400 uppercase">{book.format}</span>
                       {book.status === 'processing' && (
-                        <span className="text-xs text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 px-1.5 py-0.5 rounded">
-                          解析中
-                        </span>
+                        <span className="text-xs text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 px-1.5 py-0.5 rounded">解析中</span>
                       )}
                       {book.status === 'failed' && (
-                        <span className="text-xs text-red-600 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded" title={book.parseError || ''}>
-                          解析失败
-                        </span>
+                        <span className="text-xs text-red-600 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded" title={book.parseError || ''}>解析失败</span>
                       )}
                     </div>
                     {/* 阅读百分比 + 语音生成率 */}
@@ -352,10 +410,7 @@ useEffect(() => {
                           </span>
                         </div>
                         <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-blue-500 rounded-full transition-all duration-500"
-                            style={{ width: `${Math.round(bookStats[book.id].readingPercentage * 100)}%` }}
-                          />
+                          <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${Math.round(bookStats[book.id].readingPercentage * 100)}%` }} />
                         </div>
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-gray-500 dark:text-gray-400">语音</span>
@@ -365,38 +420,21 @@ useEffect(() => {
                           </span>
                         </div>
                         <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-green-500 rounded-full transition-all duration-500"
-                            style={{ width: `${Math.round(bookStats[book.id].voiceGenerationRate * 100)}%` }}
-                          />
+                          <div className="h-full bg-green-500 rounded-full transition-all duration-500" style={{ width: `${Math.round(bookStats[book.id].voiceGenerationRate * 100)}%` }} />
                         </div>
                       </div>
                     )}
                   </a>
-                  {/* Action buttons */}
-                  <div className="absolute top-2 right-2 flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                  {/* Action buttons - desktop hover only, mobile via long-press */}
+                  <div className="hidden sm:flex absolute top-2 right-2 gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {/* 正在播放指示器 */}
                     {globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId === book.id && (
                       <div className="absolute top-2 left-2 z-10">
-                        <span className="bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">
-                          🔊
-                        </span>
+                        <span className="bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">🔊</span>
                       </div>
                     )}
-                    <button
-                      onClick={(e) => handleEditBook(book, e)}
-                      className="w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-blue-600"
-                      title="编辑信息"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      onClick={(e) => handleDelete(book, e)}
-                      className="w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-red-600"
-                      title="删除图书"
-                    >
-                      ✕
-                    </button>
+                    <button onClick={(e) => handleEditBook(book, e)} className="w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-blue-600" title="编辑信息">✎</button>
+                    <button onClick={(e) => handleDelete(book, e)} className="w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-red-600" title="删除图书">✕</button>
                   </div>
                 </div>
               ))}
@@ -406,6 +444,31 @@ useEffect(() => {
       </div>
     </div>
       {/* 迷你播放器 - TTS 后台听书控制 */}
+      {/* 批量选择操作栏 */}
+      {selectionMode && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-2xl px-4 py-3">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <span className="text-sm text-gray-700 dark:text-gray-300">
+              已选择 <strong className="text-blue-600 dark:text-blue-400">{selectedIds.size}</strong> 本
+            </span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={exitSelectionMode}
+                className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleBatchDelete}
+                disabled={selectedIds.size === 0}
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                删除选中 ({selectedIds.size})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-2xl">
           {/* 进度条与书架整排宽度一致 */}

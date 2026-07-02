@@ -287,40 +287,77 @@ function ReaderPage() {
     // ⭐ 书籍切换守卫：更新 ref，使进行中的异步操作可通过对比检测到书籍已变更
     currentBookIdRef.current = bookId;
 
-    // ⭐ 书籍切换时彻底重置 TTS 播放器（单例），防止旧书音频继续播放
+    // ⭐ 检测当前播放器是否正在播放同一本书（从书架返回阅读页时保持后台播放不中断）
     const player = getDefaultPlayer();
-    player.stop();
-    player.setCallbacks({});
-    ttsPlayerRef.current = null;
-    setTtsState('idle');
-    setTtsProgress(0);
-    setTtsSegmentText('');
-    setActiveSegmentIndex(-1);
-    setTtsError(null);
+    const isSameBookPlaying = player.currentBookId === bookId &&
+      (player.getState() === 'playing' || player.getState() === 'paused' || player.getState() === 'loading');
 
-    // ⭐ 清除 TTS 进度保存定时器
-    if (ttsProgressSaveTimer.current) {
-      clearInterval(ttsProgressSaveTimer.current);
-      ttsProgressSaveTimer.current = null;
+    if (isSameBookPlaying) {
+      // ✅ 同一本书正在播放 → 保持播放，仅同步 UI 状态并挂载新回调
+      ttsPlayerRef.current = player;
+      const idx = player.getCurrentIndex();
+      const total = player.getTotalChunks();
+      setTtsState(player.getState());
+      setTtsProgress(total > 0 ? (idx + 1) / total : 0);
+      setTtsSegmentText(player.getCurrentSegmentText());
+      setActiveSegmentIndex(idx);
+      // 挂载新回调（旧的 setter 来自已卸载的组件）
+      player.setCallbacks({
+        onStateChange: (s) => { setTtsState(s); },
+        onSegmentPlay: (i, _t) => {
+          setTtsSegmentText(player.getCurrentSegmentText());
+          setActiveSegmentIndex(i);
+        },
+        onProgress: (p) => setTtsProgress(p),
+        onError: (err) => {
+          setTtsError(err);
+          setTimeout(() => setTtsError(null), 8000);
+        },
+        onEnd: () => {
+          setTtsProgress(1);
+          if (ttsProgressSaveTimer.current) {
+            clearInterval(ttsProgressSaveTimer.current);
+            ttsProgressSaveTimer.current = null;
+          }
+        },
+      });
+      // 仍然加载书籍信息（章节列表、封面等），但不重置播放器
+      loadBook();
+    } else {
+      // ❌ 不同书籍或未播放 → 彻底重置 TTS 播放器
+      player.stop();
+      player.setCallbacks({});
+      ttsPlayerRef.current = null;
+      setTtsState('idle');
+      setTtsProgress(0);
+      setTtsSegmentText('');
+      setActiveSegmentIndex(-1);
+      setTtsError(null);
+
+      // ⭐ 清除 TTS 进度保存定时器
+      if (ttsProgressSaveTimer.current) {
+        clearInterval(ttsProgressSaveTimer.current);
+        ttsProgressSaveTimer.current = null;
+      }
+
+      // ⭐ 重置书籍相关的 ref，防止旧书数据污染新书
+      nextChapterPreparedRef.current = false;
+      accumulatedIdsRef.current.clear();
+      preloadedChaptersRef.current.clear();
+      savedTtsProgressRef.current = null;
+      savedProgressRef.current = null;
+      loadingNextChapterRef.current = false;
+
+      // ⭐ 清除睡眠计时器
+      if (sleepTimerIntervalRef.current) {
+        clearInterval(sleepTimerIntervalRef.current);
+        sleepTimerIntervalRef.current = null;
+      }
+      setSleepTimerMinutes(null);
+      sleepTimerEndRef.current = null;
+
+      loadBook();
     }
-
-    // ⭐ 重置书籍相关的 ref，防止旧书数据污染新书
-    nextChapterPreparedRef.current = false;
-    accumulatedIdsRef.current.clear();
-    preloadedChaptersRef.current.clear();
-    savedTtsProgressRef.current = null;
-    savedProgressRef.current = null;
-    loadingNextChapterRef.current = false;
-
-    // ⭐ 清除睡眠计时器
-    if (sleepTimerIntervalRef.current) {
-      clearInterval(sleepTimerIntervalRef.current);
-      sleepTimerIntervalRef.current = null;
-    }
-    setSleepTimerMinutes(null);
-    sleepTimerEndRef.current = null;
-
-    loadBook();
 
     // Cleanup on unmount or book switch
     return () => {
