@@ -849,8 +849,6 @@ function ReaderPage() {
     }, TTS_PROGRESS_SAVE_INTERVAL);
   }, [saveTtsProgress, book]);
 
-  const handleStartTTS = useCallback(async () => {
-
   // ⭐ 进入书籍时，若 TTS 播放器正在播放本书 → 同步 UI 状态（恢复高亮、进度、回调）
   useEffect(() => {
     if (!bookId || !currentChapter || loading) return;
@@ -934,6 +932,8 @@ function ReaderPage() {
     // ⭐ 重启进度保存定时器（当前组件实例的上下文）
     startTtsProgressSaver(bookId, currentChapter.id, currentChapter?.title || '', player);
   }, [bookId, currentChapter, loading, chapters, preloadNextChapters, startTtsProgressSaver]);
+
+  const handleStartTTS = useCallback(async () => {
     if (!bookId || !currentChapter) return;
 
     // ⭐ 记录触发时的书籍 ID，异步获取文本后校验
