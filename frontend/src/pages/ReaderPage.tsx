@@ -339,7 +339,14 @@ function ReaderPage() {
             savedProgressRef.current = savedProgress; // 供 loadEpub 恢复精确位置
           }
         }
-        // ⭐ TTS 进度在用户点击「朗读」时从 API 恢复，进入书籍时不碰
+        // ⭐ 保存 TTS 进度到 ref（textOffset = segmentIndex），供 handleStartTTS 恢复播放位置
+        if (savedProgress?.chapterId && savedProgress?.textOffset != null && savedProgress.textOffset >= 0) {
+          savedTtsProgressRef.current = {
+            chapterId: savedProgress.chapterId,
+            segmentIndex: savedProgress.textOffset,
+            progress: savedProgress.percentage || 0,
+          };
+        }
       } catch { /* 无保存的进度 */ }
 
       // ⭐ 再次校验书籍是否仍为同一本
@@ -843,6 +850,90 @@ function ReaderPage() {
   }, [saveTtsProgress, book]);
 
   const handleStartTTS = useCallback(async () => {
+
+  // ⭐ 进入书籍时，若 TTS 播放器正在播放本书 → 同步 UI 状态（恢复高亮、进度、回调）
+  useEffect(() => {
+    if (!bookId || !currentChapter || loading) return;
+
+    const player = getDefaultPlayer();
+    const state = player.getState();
+    if (state === 'idle' || player.currentBookId !== bookId) return;
+
+    // ⭐ 播放器正在播放本书 → 同步 UI
+    ttsPlayerRef.current = player;
+    setTtsState(state);
+
+    const idx = player.getCurrentIndex();
+    if (idx >= 0) {
+      setActiveSegmentIndex(idx);
+      setTtsProgress(player.getTotalChunks() > 0 ? (idx + 1) / player.getTotalChunks() : 0);
+      setTtsSegmentText(player.getCurrentSegmentText());
+    }
+
+    // ⭐ 注册回调，使高亮和进度持续更新（与 handleStartTTS 中的回调一致）
+    player.setCallbacks({
+      onStateChange: (s) => {
+        setTtsState(s);
+        // 睡眠计时器：暂停/停止时清除定时器
+        if (s !== 'playing') {
+          if (sleepTimerIntervalRef.current) {
+            clearInterval(sleepTimerIntervalRef.current);
+            sleepTimerIntervalRef.current = null;
+          }
+        }
+      },
+      onSegmentPlay: (i, total) => {
+        setTtsSegmentText(player.getCurrentSegmentText());
+        setActiveSegmentIndex(i);
+
+        // ⭐ 自动滚动到当前高亮分段
+        requestAnimationFrame(() => {
+          const container = epubTextScrollRef.current || txtScrollRef.current;
+          if (!container) return;
+          const highlighted = container.querySelector('[data-tts-segment="active"]');
+          if (highlighted) {
+            highlighted.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        });
+
+        // ⭐ 播放到 75% 时预加载下一章内容
+        if (total > 0 && i >= total * 0.75) {
+          const ci = chapters.findIndex((c) => c.id === currentChapter?.id);
+          if (ci >= 0 && ci < chapters.length - 1) {
+            preloadNextChapters(currentChapter!.id);
+          }
+        }
+      },
+      onProgress: (p) => setTtsProgress(p),
+      onError: (err) => {
+        console.warn('TTS 朗读错误:', err);
+        let userMsg = err;
+        if (err.includes('Failed to fetch') || err.includes('NetworkError') || err.includes('TTS service unavailable')) {
+          userMsg = '语音服务连接失败，请检查设置面板中的 TTS 服务地址是否正确，或切换 TTS 后端';
+        } else if (err.includes('502') || err.includes('TTS 合成失败')) {
+          userMsg = '语音合成失败，TTS 后端可能未启动（默认需 Kokoro :8880），当前仅 Edge-TTS(:8883) 在运行';
+        }
+        setTtsError(userMsg);
+        setTimeout(() => setTtsError(null), 8000);
+      },
+      onEnd: () => {
+        setTtsProgress(1);
+        if (ttsProgressSaveTimer.current) {
+          clearInterval(ttsProgressSaveTimer.current);
+          ttsProgressSaveTimer.current = null;
+        }
+        if (sleepTimerIntervalRef.current) {
+          clearInterval(sleepTimerIntervalRef.current);
+          sleepTimerIntervalRef.current = null;
+        }
+        // ⭐ 单章播放完毕 → 自动加载下一章并继续播放
+        advanceToNextChapterTTSRef.current?.(player);
+      },
+    });
+
+    // ⭐ 重启进度保存定时器（当前组件实例的上下文）
+    startTtsProgressSaver(bookId, currentChapter.id, currentChapter?.title || '', player);
+  }, [bookId, currentChapter, loading, chapters, preloadNextChapters, startTtsProgressSaver]);
     if (!bookId || !currentChapter) return;
 
     // ⭐ 记录触发时的书籍 ID，异步获取文本后校验
