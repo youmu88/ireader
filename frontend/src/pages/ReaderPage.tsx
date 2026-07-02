@@ -892,10 +892,16 @@ function ReaderPage() {
         },
       });
 
+      // ⭐ 从 localStorage 读取"实时合成模式"开关（设置页可配置）
+      const noCachePref = (() => {
+        try { return localStorage.getItem('ireader_tts_noCache') === 'true'; } catch { return true; }
+      })();
       await player.init({
         speed: ttsSpeed,
-        // ⭐ 调试模式：跳过后端 TTS 音频缓存，每次都实时合成（排查"打开书B朗读书A"问题）
-        noCache: true,
+        noCache: noCachePref,
+        // ⭐ 传入书籍信息用于 Media Session 锁屏封面
+        bookTitle: book?.title || '',
+        bookCoverUrl: book ? `/api/books/${bookId}/cover` : '',
       });
       player.setVolume(ttsVolume);
 

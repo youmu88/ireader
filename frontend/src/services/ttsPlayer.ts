@@ -37,6 +37,10 @@ export interface TTSPlayerOptions {
   preGenCount?: number;
   /** 调试：跳过后端 TTS 音频缓存，每次都实时合成 */
   noCache?: boolean;
+  /** 书籍标题（用于 Media Session 锁屏显示） */
+  bookTitle?: string;
+  /** 书籍封面 URL（用于 Media Session 锁屏封面） */
+  bookCoverUrl?: string;
 }
 
 export interface TTSPlayerCallbacks {
@@ -179,6 +183,9 @@ export class TTSPlayer {
   private generation = 0;
   /** 所有 blob URL 清单，用于统一清理 */
   private allBlobUrls: string[] = [];
+  /** 当前书籍信息（用于 Media Session 锁屏封面） */
+  private bookTitle = '';
+  private bookCoverUrl = '';
 
 
   // ── 初始化 ──
@@ -189,6 +196,8 @@ export class TTSPlayer {
     if (options?.voice) this.voice = options.voice;
     if (options?.preGenCount) this.preGenCount = options.preGenCount;
     if (options?.noCache !== undefined) this.noCache = options.noCache;
+    if (options?.bookTitle) this.bookTitle = options.bookTitle;
+    if (options?.bookCoverUrl) this.bookCoverUrl = options.bookCoverUrl;
 
     // 尝试加载后端设置
     try {
@@ -469,15 +478,9 @@ export class TTSPlayer {
     };
 
     // ── 1. Media Session API ──
+    this.updateMediaSessionMetadata();
     if ('mediaSession' in navigator) {
       try {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: 'iReader 语音朗读',
-          artist: 'iReader',
-          album: '有声书',
-        });
-        navigator.mediaSession.playbackState = 'playing';
-
         // 注册媒体控制按钮（锁屏/通知栏控制）
         navigator.mediaSession.setActionHandler('play', () => this.play());
         navigator.mediaSession.setActionHandler('pause', () => this.pause());
@@ -503,6 +506,19 @@ export class TTSPlayer {
     if ('mediaSession' in navigator) {
       try { navigator.mediaSession.playbackState = state; } catch { /* ignore */ }
     }
+  }
+
+  /** 更新 Media Session 元数据（锁屏显示书名+封面） */
+  private updateMediaSessionMetadata(): void {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: this.bookTitle || 'iReader 语音朗读',
+        artist: 'iReader',
+        album: this.bookTitle || '有声书',
+        ...(this.bookCoverUrl ? { artwork: [{ src: this.bookCoverUrl, sizes: '256x256', type: 'image/png' }] } : {}),
+      });
+    } catch { /* Media Session 不可用则静默跳过 */ }
   }
 
   // ── 核心播放循环 ──
@@ -586,6 +602,8 @@ export class TTSPlayer {
     this.audioElement.playbackRate = this.speed;
     this.audioElement.volume = this.volume;
 
+    // 播放时更新 Media Session 元数据（书名+封面）
+    this.updateMediaSessionMetadata();
     this.setState('playing');
     this.updateMediaSessionState('playing');
 

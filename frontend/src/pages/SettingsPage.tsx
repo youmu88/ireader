@@ -41,6 +41,17 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saveMessage, setSaveMessage] = useState('');
+  // ── 实时合成（noCache）开关 ──
+  const NO_CACHE_KEY = 'ireader_tts_noCache';
+  const [noCache, setNoCache] = useState(() => {
+    try { return localStorage.getItem(NO_CACHE_KEY) === 'true'; } catch { return true; }
+  });
+
+  const handleToggleNoCache = () => {
+    const next = !noCache;
+    setNoCache(next);
+    try { localStorage.setItem(NO_CACHE_KEY, next ? 'true' : 'false'); } catch { /* ignore */ }
+  };
 
   // 判断当前是否为自定义模式
   const isCustomSource = selectedSource === 'custom';
@@ -341,6 +352,31 @@ export default function SettingsPage() {
               {voices.length > 0 && (
                 <p className="text-xs text-gray-400 mt-1">共 {voices.length} 个可用音色</p>
               )}
+            </div>
+
+            {/* 实时合成开关 */}
+            <div className="flex items-center justify-between py-2">
+              <div>
+                <label className="text-sm font-medium">实时合成模式</label>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  开启：每次朗读都实时合成音频（准确但稍慢）<br />
+                  关闭：复用已缓存的音频（快速，但切换书籍后可能读到旧缓存）
+                </p>
+              </div>
+              <button
+                onClick={handleToggleNoCache}
+                className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${
+                  noCache ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    noCache ? 'translate-x-6' : 'translate-x-0.5'
+                  } flex items-center justify-center text-[10px]`}
+                >
+                  {noCache ? '✓' : '⏺'}
+                </span>
+              </button>
             </div>
 
             {/* 语速 */}
