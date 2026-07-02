@@ -337,15 +337,26 @@ do_build() {
     fi
   fi
 
-  # 执行构建
+  # 执行构建（并行：backend tsc + frontend vite build 同时跑，节省约 40% 时间）
   cd "${SOURCE_DIR}"
-  log "执行构建: backend..."
-  cd backend && npm run build 2>&1 | while IFS= read -r line; do log "  backend: ${line}"; done
-  cd ..
+  log "执行构建: backend + frontend (并行)..."
+  (
+    cd backend && npm run build 2>&1 | while IFS= read -r line; do log "  backend: ${line}"; done
+  ) &
+  BUILD_PID_BACKEND=$!
+  (
+    cd frontend && npm run build 2>&1 | while IFS= read -r line; do log "  frontend: ${line}"; done
+  ) &
+  BUILD_PID_FRONTEND=$!
 
-  log "执行构建: frontend..."
-  cd frontend && npm run build 2>&1 | while IFS= read -r line; do log "  frontend: ${line}"; done
-  cd ..
+  # 等待两端构建完成
+  BUILD_EXIT=0
+  wait "${BUILD_PID_BACKEND}" || BUILD_EXIT=1
+  wait "${BUILD_PID_FRONTEND}" || BUILD_EXIT=1
+  if [ "${BUILD_EXIT}" -ne 0 ]; then
+    log "❌ 构建失败，请检查上方日志"
+    exit 1
+  fi
 
   log "构建完成 ✓"
 }
@@ -379,6 +390,7 @@ do_deploy() {
   log "拷贝 backend..."
   mkdir -p "${APP_DIR}/backend"
   cp -r "${SOURCE_DIR}/backend/package.json" "${APP_DIR}/backend/"
+  cp -r "${SOURCE_DIR}/backend/package-lock.json" "${APP_DIR}/backend/" 2>/dev/null || true
 
   # 拷贝 dist
   if [ -d "${SOURCE_DIR}/backend/dist" ]; then
@@ -389,10 +401,21 @@ do_deploy() {
     exit 1
   fi
 
-  # 安装 backend 生产依赖
-  log "安装 backend 生产依赖..."
-  cd "${APP_DIR}/backend" && npm install --production 2>&1 | while IFS= read -r line; do log "  npm: ${line}"; done
-  cd "${SOURCE_DIR}"
+  # 拷贝 backend node_modules（替代 npm install --production，快约 100 倍）
+  # 直接从源码目录拷贝已有依赖，避免每次重新下载 167 个包
+  if [ -d "${SOURCE_DIR}/backend/node_modules" ]; then
+    log "拷贝 backend node_modules (从源码)..."
+    cp -r "${SOURCE_DIR}/backend/node_modules" "${APP_DIR}/backend/"
+    log "  → ${APP_DIR}/backend/node_modules ✓"
+    # 移除 devDependencies 以节省磁盘空间（仅保留生产依赖）
+    cd "${APP_DIR}/backend" && npm prune --production 2>&1 | tail -1 || true
+    cd "${SOURCE_DIR}"
+  else
+    # 兜底：源码无 node_modules 时才 npm install
+    log "源码无 node_modules，回退到 npm install --production..."
+    cd "${APP_DIR}/backend" && npm install --production 2>&1 | while IFS= read -r line; do log "  npm: ${line}"; done
+    cd "${SOURCE_DIR}"
+  fi
 
   # 拷贝 frontend 构建产物
   log "拷贝 frontend..."
