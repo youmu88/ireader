@@ -1,12 +1,17 @@
 /**
- * TTS Player — Web Audio API 驱动的分片预生成 TTS 播放引擎
+ * TTS Player — 基于 <audio> 元素的分片预生成 TTS 播放引擎
+ *
+ * 使用 <audio> 元素替代 Web Audio API 的 AudioContext/BufferSource，
+ * 以确保在移动端切换到后台时仍能正常播放（浏览器原生媒体管道
+ * 配合 Media Session API 保持后台音频）。
  *
  * 功能：
  * 1. 将长文本按句子分段
- * 2. 逐段调用后端 TTS API 合成语音
- * 3. 边播边预生成后续段落
- * 4. 播放 / 暂停 / 停止 / 语速控制
- * 5. 状态事件回调
+ * 2. 逐段调用后端 TTS API 合成语音（返回 WAV）
+ * 3. 每段通过 <audio> 元素播放，片段间无缝衔接
+ * 4. 播放 / 暂停 / 停止 / 语速 / 音量控制
+ * 5. 后台播放支持（Media Session + 锁屏控制）
+ * 6. 状态事件回调
  */
 
 import { fetchTTSSettings } from './ttsService';
@@ -20,7 +25,8 @@ interface TTSChunk {
   index: number;
   text: string;
   status: 'pending' | 'loading' | 'ready' | 'played' | 'error';
-  audioBuffer?: AudioBuffer;
+  /** Blob URL 指向合成的 WAV 音频数据 */
+  audioBlobUrl?: string;
   error?: string;
 }
 
@@ -146,10 +152,10 @@ function stripHtml(html: string): string {
 // ===== TTSPlayer =====
 
 export class TTSPlayer {
-  private audioContext: AudioContext | null = null;
-  private sourceNode: AudioBufferSourceNode | null = null;
-  private gainNode: GainNode | null = null;
+  /** 隐藏 <audio> 元素，用于播放每段合成的 WAV 音频 */
+  private audioElement: HTMLAudioElement | null = null;
   private chunks: TTSChunk[] = [];
+  private currentBlobUrl: string | null = null;
   private currentIndex = -1;
   private state: PlayerState = 'idle';
   private callbacks: TTSPlayerCallbacks = {};
@@ -166,6 +172,10 @@ export class TTSPlayer {
   private nextChapterAppended = false;
   /** Bound visibilitychange handler for cleanup */
   private boundVisibilityHandler: (() => void) | null = null;
+  /** 递增的 generation ID，用于丢弃旧 generation 的异步 fetch 结果 */
+  private generation = 0;
+  /** 所有 blob URL 清单，用于统一清理 */
+  private allBlobUrls: string[] = [];
 
 
   // ── 初始化 ──
@@ -186,15 +196,18 @@ export class TTSPlayer {
       // 使用默认值
     }
 
-    if (!this.audioContext) {
-      this.audioContext = new AudioContext();
-    }
-    if (!this.gainNode) {
-      this.gainNode = this.audioContext.createGain();
-      this.gainNode.connect(this.audioContext.destination);
+    // 创建隐藏 <audio> 元素
+    if (!this.audioElement) {
+      const el = new Audio();
+      el.preload = 'auto';
+      el.volume = this.volume;
+      el.playbackRate = this.speed;
+      el.style.display = 'none';
+      document.body.appendChild(el);
+      this.audioElement = el;
     }
 
-    // ⭐ 初始化后台播放支持（Media Session API + AudioContext 自动恢复）
+    // ⭐ 初始化后台播放支持（Media Session API + <audio> 原生后台支持）
     this.setupBackgroundPlayback();
   }
 
@@ -208,9 +221,8 @@ export class TTSPlayer {
 
   setSpeed(speed: number): void {
     this.speed = Math.max(0.5, Math.min(2.0, speed));
-    // 如果正在播放，实时调整
-    if (this.sourceNode && this.state === 'playing') {
-      this.sourceNode.playbackRate.value = this.speed;
+    if (this.audioElement && this.state === 'playing') {
+      this.audioElement.playbackRate = this.speed;
     }
   }
 
@@ -222,8 +234,8 @@ export class TTSPlayer {
 
   setVolume(volume: number): void {
     this.volume = Math.max(0, Math.min(1.0, volume));
-    if (this.gainNode) {
-      this.gainNode.gain.value = this.volume;
+    if (this.audioElement) {
+      this.audioElement.volume = this.volume;
     }
   }
 
@@ -282,14 +294,30 @@ export class TTSPlayer {
 
   // ── 加载文本 ──
 
+  // ── Blob URL 清理 ──
+
+  /** 清理所有缓存的 Blob URL */
+  private clearAllBlobUrls(): void {
+    for (const url of this.allBlobUrls) {
+      try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+    }
+    this.allBlobUrls = [];
+    if (this.currentBlobUrl) {
+      try { URL.revokeObjectURL(this.currentBlobUrl); } catch { /* ignore */ }
+      this.currentBlobUrl = null;
+    }
+  }
+
   /**
    * 加载要朗读的文本（纯文本或 HTML），准备播放
    */
   async load(text: string, isHtml = false): Promise<void> {
     if (this.isDestroyed) return;
 
-    // 停止当前播放
+    // 停止当前播放并清理旧 Blob URL
     this.stopInternal();
+    this.clearAllBlobUrls();
+    this.generation++; // 递增 generation，丢弃旧 fetch 结果
 
     const plainText = isHtml ? stripHtml(text) : text;
     const segments = splitText(plainText);
@@ -319,28 +347,24 @@ export class TTSPlayer {
   async play(): Promise<void> {
     if (this.isDestroyed) return;
 
-    if (this.state === 'paused' && this.sourceNode && this.audioContext) {
-      // 恢复播放：如果 AudioContext 被浏览器挂起（切后台等），先恢复
-      if (this.audioContext.state === 'suspended') {
+    if (this.state === 'paused') {
+      // 从暂停恢复：<audio> 元素直接调用 play()
+      if (this.audioElement) {
         try {
-          await this.audioContext.resume();
-        } catch {
-          // 恢复失败，通知上层
-          this.callbacks.onBackgroundInterrupted?.();
-          return;
+          await this.audioElement.play();
+        } catch (err: any) {
+          if (err.name === 'NotAllowedError') {
+            this.callbacks.onBackgroundInterrupted?.();
+            return;
+          }
         }
-      } else {
-        await this.audioContext.resume();
       }
+      this.updateMediaSessionState('playing');
       this.setState('playing');
       return;
     }
 
     if (this.state === 'loading' || this.state === 'idle') {
-      // 确保 AudioContext 未被挂起
-      if (this.audioContext?.state === 'suspended') {
-        try { await this.audioContext.resume(); } catch { /* silent */ }
-      }
       // 开始播放
       this.currentIndex = -1;
       this.playNext();
@@ -350,9 +374,8 @@ export class TTSPlayer {
 
   pause(): void {
     if (this.state !== 'playing') return;
-    if (this.audioContext) {
-      this.audioContext.suspend();
-    }
+    this.audioElement?.pause();
+    this.updateMediaSessionState('paused');
     this.setState('paused');
   }
 
@@ -369,17 +392,23 @@ export class TTSPlayer {
   }
 
   private stopInternal(): void {
-    try {
-      this.sourceNode?.stop();
-    } catch { /* 已停止则忽略 */ }
-    this.sourceNode?.disconnect();
-    this.sourceNode = null;
+    if (this.audioElement) {
+      this.audioElement.pause();
+      this.audioElement.removeAttribute('src');
+    }
+    if (this.currentBlobUrl) {
+      try { URL.revokeObjectURL(this.currentBlobUrl); } catch { /* ignore */ }
+      this.currentBlobUrl = null;
+    }
   }
 
   destroy(): void {
     this.isDestroyed = true;
     this.stopInternal();
     this.callbacks = {};
+
+    // 清理所有 Blob URL
+    this.clearAllBlobUrls();
 
     // 清理后台播放相关
     if (this.boundVisibilityHandler) {
@@ -392,15 +421,17 @@ export class TTSPlayer {
       navigator.mediaSession.playbackState = 'none';
     }
 
-    if (this.audioContext) {
-      this.audioContext.onstatechange = null;
-      this.audioContext.close().catch(() => {});
-      this.audioContext = null;
+    // 移除 <audio> 元素
+    if (this.audioElement && this.audioElement.parentNode) {
+      this.audioElement.pause();
+      this.audioElement.removeAttribute('src');
+      this.audioElement.onended = null;
+      this.audioElement.onerror = null;
+      this.audioElement.parentNode.removeChild(this.audioElement);
     }
-    this.gainNode = null;
+    this.audioElement = null;
+    this.chunks = [];
   }
-
-  // ── 核心播放循环 ──
 
   // ════════════════════════════════════════════
   // 后台播放支持
@@ -408,12 +439,30 @@ export class TTSPlayer {
 
   /**
    * 初始化后台播放支持：
-   * 1. Media Session API — 告诉浏览器正在播放音频，部分浏览器（Android Chrome）会保持播放
-   * 2. AudioContext state change — 被挂起时自动尝试恢复
-   * 3. visibilitychange — 从后台切回前台时恢复 AudioContext
+   * 1. Media Session API — 锁屏/通知栏显示播放控制，浏览器保持音频通道活跃
+   * 2. <audio> 元素原生支持后台播放（AudioContext 在后台会被挂起，<audio> 不会）
+   * 3. visibilitychange — 从后台切回前台时同步 Media Session 状态
+   * 4. onended 事件链 — 播放完成后自动播放下一个分段
    */
   private setupBackgroundPlayback(): void {
-    if (this.isDestroyed) return;
+    if (this.isDestroyed || !this.audioElement) return;
+
+    // ── 设置 <audio> 事件 ──
+    this.audioElement.onended = () => {
+      if (this.isDestroyed) return;
+      if (this.state === 'playing') {
+        this.playNext();
+      }
+    };
+
+    this.audioElement.onerror = () => {
+      if (this.isDestroyed) return;
+      this.callbacks.onError?.('音频播放失败');
+      // 跳过当前分段，继续播放下一个
+      if (this.state === 'playing') {
+        this.playNext();
+      }
+    };
 
     // ── 1. Media Session API ──
     if ('mediaSession' in navigator) {
@@ -429,35 +478,27 @@ export class TTSPlayer {
         navigator.mediaSession.setActionHandler('play', () => this.play());
         navigator.mediaSession.setActionHandler('pause', () => this.pause());
         navigator.mediaSession.setActionHandler('stop', () => this.stop());
+        // 可选：seek 控制
+        navigator.mediaSession.setActionHandler('seekbackward', () => { /* 预留 */ });
+        navigator.mediaSession.setActionHandler('seekforward', () => { /* 预留 */ });
       } catch { /* Media Session 不可用则静默跳过 */ }
     }
 
-    // ── 2. AudioContext 状态变化监听 ──
-    if (this.audioContext) {
-      this.audioContext.onstatechange = () => {
-        if (this.isDestroyed || !this.audioContext) return;
-        if (this.audioContext.state === 'suspended' && this.state === 'playing') {
-          // 浏览器挂起了 AudioContext → 尝试自动恢复
-          this.audioContext.resume().catch(() => {
-            // 恢复失败，通知上层（如浏览器阻止了自动播放）
-            this.callbacks.onBackgroundInterrupted?.();
-          });
-        }
-      };
-    }
-
-    // ── 3. visibilitychange：从后台切回前台时恢复 AudioContext ──
+    // ── 2. visibilitychange：从后台切回前台时同步状态 ──
     this.boundVisibilityHandler = () => {
       if (this.isDestroyed) return;
-      if (document.visibilityState === 'visible' && this.audioContext?.state === 'suspended') {
-        this.audioContext.resume().catch(() => {});
-        // 更新 Media Session 状态
-        if ('mediaSession' in navigator) {
-          try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
-        }
+      if (document.visibilityState === 'visible' && this.state === 'playing') {
+        this.updateMediaSessionState('playing');
       }
     };
     document.addEventListener('visibilitychange', this.boundVisibilityHandler);
+  }
+
+  /** 更新 Media Session 播放状态（锁屏/通知栏状态同步） */
+  private updateMediaSessionState(state: 'playing' | 'paused' | 'none'): void {
+    if ('mediaSession' in navigator) {
+      try { navigator.mediaSession.playbackState = state; } catch { /* ignore */ }
+    }
   }
 
   // ── 核心播放循环 ──
@@ -468,16 +509,27 @@ export class TTSPlayer {
     this.currentIndex++;
     if (this.currentIndex >= this.chunks.length) {
       this.setState('idle');
+      this.updateMediaSessionState('none');
       this.callbacks.onEnd?.();
       return;
     }
 
     const chunk = this.chunks[this.currentIndex];
 
-    // 标记已播放的
+    // 标记已播放的并释放 Blob URL
     for (let i = 0; i < this.currentIndex; i++) {
-      if (this.chunks[i].status === 'ready') {
+      if (this.chunks[i].status === 'ready' || this.chunks[i].status === 'played') {
         this.chunks[i].status = 'played';
+        // 释放已播放的 Blob URL
+        const playedUrl = this.chunks[i].audioBlobUrl;
+        if (playedUrl) {
+          const idx = this.allBlobUrls.indexOf(playedUrl);
+          if (idx >= 0) {
+            try { URL.revokeObjectURL(playedUrl); } catch { /* ignore */ }
+            this.allBlobUrls.splice(idx, 1);
+          }
+          this.chunks[i].audioBlobUrl = undefined;
+        }
       }
     }
 
@@ -495,7 +547,7 @@ export class TTSPlayer {
     }
 
     // 再次检查状态
-    if (chunk.status !== 'ready' || !chunk.audioBuffer) {
+    if (chunk.status !== 'ready' || !chunk.audioBlobUrl) {
       this.callbacks.onError?.(`段落 ${chunk.index + 1} 无可用音频`);
       this.playNext();
       return;
@@ -503,7 +555,7 @@ export class TTSPlayer {
 
     // 播放
     this.currentSegmentText = chunk.text;
-    this.playAudioBuffer(chunk.audioBuffer);
+    this.playChunk(chunk.audioBlobUrl);
 
     // 更新进度回调
     const progress = (this.currentIndex + 1) / this.chunks.length;
@@ -517,29 +569,29 @@ export class TTSPlayer {
     chunk.status = 'played';
   }
 
-  private playAudioBuffer(buffer: AudioBuffer): void {
-    if (!this.audioContext || this.isDestroyed) return;
+  /**
+   * 通过 <audio> 元素播放指定 Blob URL 的音频数据
+   */
+  private playChunk(blobUrl: string): void {
+    if (!this.audioElement || this.isDestroyed) return;
 
     this.stopInternal();
 
-    const source = this.audioContext.createBufferSource();
-    source.buffer = buffer;
-    source.playbackRate.value = this.speed;
-    source.connect(this.gainNode!);
+    this.audioElement.src = blobUrl;
+    this.currentBlobUrl = blobUrl;
+    this.audioElement.playbackRate = this.speed;
+    this.audioElement.volume = this.volume;
 
-    this.sourceNode = source;
     this.setState('playing');
+    this.updateMediaSessionState('playing');
 
-    source.start(0);
-
-    // 监听结束
-    source.onended = () => {
-      if (this.isDestroyed) return;
-      // 检查是否是自然结束
-      if (this.state === 'playing') {
-        this.playNext();
+    // 浏览器可能阻止自动播放（特别是恢复播放时），静默处理
+    this.audioElement.play().catch((err) => {
+      if (err.name === 'NotAllowedError') {
+        // 用户尚未交互，播放被阻止 — 在 playNext 已由用户交互触发时不应出现
+        this.callbacks.onBackgroundInterrupted?.();
       }
-    };
+    });
   }
 
   // ── 预生成 ──
@@ -563,12 +615,21 @@ export class TTSPlayer {
     if (chunk.status !== 'pending') return;
     chunk.status = 'loading';
 
+    const gen = this.generation; // 记录当前的 generation
+
     try {
       const arrayBuffer = await this.fetchTTSAudio(chunk.text);
-      if (!this.audioContext) return;
 
-      const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
-      chunk.audioBuffer = audioBuffer;
+      // generation 守卫：丢弃旧文本的异步 fetch 结果
+      if (gen !== this.generation || this.isDestroyed) {
+        return;
+      }
+
+      // 将服务端返回的 WAV ArrayBuffer 直接创建为 Blob URL
+      const blob = new Blob([arrayBuffer], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+      this.allBlobUrls.push(url);
+      chunk.audioBlobUrl = url;
       chunk.status = 'ready';
     } catch (err: any) {
       chunk.status = 'error';
