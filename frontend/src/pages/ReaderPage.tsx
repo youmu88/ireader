@@ -100,6 +100,8 @@ function ReaderPage() {
   const epubTextScrollRef = useRef<HTMLDivElement>(null);
   const txtScrollRef = useRef<HTMLDivElement>(null);
   const savedTtsProgressRef = useRef<{chapterId: string; segmentIndex: number; progress: number} | null>(null);
+  /** 当前书籍 ID 的 ref（用于异步操作的书籍切换守卫） */
+  const currentBookIdRef = useRef<string | undefined>(bookId);
 
   // ── 睡眠计时器 ──
 
@@ -248,15 +250,60 @@ function ReaderPage() {
     }
   }, [bookId]);
 
-  // Load book and chapters
+  // Load book and chapters — also handles book-switch cleanup
   useEffect(() => {
     if (!bookId) return;
+
+    // ⭐ 书籍切换守卫：更新 ref，使进行中的异步操作可通过对比检测到书籍已变更
+    currentBookIdRef.current = bookId;
+
+    // ⭐ 书籍切换时彻底重置 TTS 播放器（单例），防止旧书音频继续播放
+    const player = getDefaultPlayer();
+    player.stop();
+    player.setCallbacks({});
+    ttsPlayerRef.current = null;
+    setTtsState('idle');
+    setTtsProgress(0);
+    setTtsSegmentText('');
+    setActiveSegmentIndex(-1);
+    setTtsError(null);
+
+    // ⭐ 清除 TTS 进度保存定时器
+    if (ttsProgressSaveTimer.current) {
+      clearInterval(ttsProgressSaveTimer.current);
+      ttsProgressSaveTimer.current = null;
+    }
+
+    // ⭐ 重置书籍相关的 ref，防止旧书数据污染新书
+    nextChapterPreparedRef.current = false;
+    accumulatedIdsRef.current.clear();
+    preloadedChaptersRef.current.clear();
+    savedTtsProgressRef.current = null;
+    savedProgressRef.current = null;
+    loadingNextChapterRef.current = false;
+
+    // ⭐ 清除睡眠计时器
+    if (sleepTimerIntervalRef.current) {
+      clearInterval(sleepTimerIntervalRef.current);
+      sleepTimerIntervalRef.current = null;
+    }
+    setSleepTimerMinutes(null);
+    sleepTimerEndRef.current = null;
+
     loadBook();
-  }, [bookId]);
-  // Load book and chapters
-  useEffect(() => {
-    if (!bookId) return;
-    loadBook();
+
+    // Cleanup on unmount or book switch
+    return () => {
+      // 书籍切换/卸载时停止 TTS 播放，防止旧书音频继续播放
+      const p = getDefaultPlayer();
+      p.stop();
+      p.setCallbacks({});
+      if (ttsProgressSaveTimer.current) {
+        clearInterval(ttsProgressSaveTimer.current);
+        ttsProgressSaveTimer.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId]);
 
   // ── 持久化阅读偏好 ──
@@ -273,12 +320,18 @@ function ReaderPage() {
   }, [book]);
 
   const loadBook = async () => {
+    // ⭐ 记录触发时的书籍 ID，异步完成后校验是否仍为同一本书
+    const triggerBookId = bookId;
     try {
       setLoading(true);
       const [bookRes, chaptersRes] = await Promise.all([
         axios.get(`/api/books/${bookId}`),
         axios.get(`/api/books/${bookId}/chapters`),
       ]);
+
+      // ⭐ 书籍切换守卫：异步 fetch 期间用户可能已切换到另一本书
+      if (currentBookIdRef.current !== triggerBookId) return;
+
       const bookData = bookRes.data.data;
       setBook(bookData);
       const chaptersData = chaptersRes.data.data || [];
@@ -298,6 +351,9 @@ function ReaderPage() {
           }
         }
       } catch { /* 无保存的进度 */ }
+
+      // ⭐ 再次校验书籍是否仍为同一本
+      if (currentBookIdRef.current !== triggerBookId) return;
 
       if (targetChapter) {
         await loadChapterContent(targetChapter, undefined, isEpub);
@@ -717,11 +773,18 @@ function ReaderPage() {
     if (ci < 0 || ci >= chapters.length - 1) return; // 没有下一章
     nextChapterPreparedRef.current = true;
 
+    // ⭐ 记录触发时的书籍 ID，异步完成后校验是否仍为同一本书
+    const triggerBookId = bookId;
+
     const nextCh = chapters[ci + 1];
     try {
       const res = await axios.get(`/api/books/${bookId}/chapters/${nextCh.id}/content`);
       let rawContent = res.data.data?.content || '';
       if (!rawContent) return;
+
+      // ⭐ 书籍切换守卫：异步 fetch 期间用户可能已切换到另一本书
+      // 若已切换，绝不将旧书内容追加到当前播放器，否则会导致"打开书B朗读书A"
+      if (currentBookIdRef.current !== triggerBookId) return;
 
       // EPUB 内容去 HTML 标签
       if (book?.format === 'epub') {
@@ -742,8 +805,13 @@ function ReaderPage() {
   const handleStartTTS = useCallback(async () => {
     if (!bookId || !currentChapter) return;
 
+    // ⭐ 记录触发时的书籍 ID，异步获取文本后校验
+    const triggerBookId = bookId;
     const text = await getCurrentChapterText();
     if (!text) return;
+
+    // ⭐ 书籍切换守卫：异步获取文本期间用户可能已切换书籍
+    if (currentBookIdRef.current !== triggerBookId) return;
 
     try {
       const player = getDefaultPlayer();
