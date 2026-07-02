@@ -312,6 +312,28 @@ export class TTSPlayer {
     return this.currentSegmentText;
   }
 
+
+  /**
+   * 跳转到指定分段索引后开始播放
+   * 预生成目标分段之前的所有音频，再从目标分段开始播放
+   */
+  async jumpToSegment(index: number): Promise<void> {
+    if (this.isDestroyed || index <= 0 || index >= this.chunks.length) return;
+
+    // 预生成所有到目标分段为止的音频
+    const promises: Promise<void>[] = [];
+    for (let i = 0; i <= index; i++) {
+      const chunk = this.chunks[i];
+      if (chunk && chunk.status === 'pending') {
+        promises.push(this.fetchChunk(chunk).catch(() => {}));
+      }
+    }
+    await Promise.all(promises);
+
+    this.currentIndex = index - 1; // playNext 会递增到 index
+    this.currentSegmentText = this.chunks[index]?.text || '';
+  }
+
   // ── 加载文本 ──
   /** 获取原始章节的分段数量（appendSegments 前的边界） */
   getOriginalChunkCount(): number {

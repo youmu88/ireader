@@ -408,11 +408,14 @@ useEffect(() => {
       {/* 迷你播放器 - TTS 后台听书控制 */}
       {globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-2xl">
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gray-200 dark:bg-gray-700">
-            <div
-              className="h-full bg-blue-500 transition-all duration-300"
-              style={{ width: `${Math.round(globalTtsInfo.progress * 100)}%` }}
-            />
+          {/* 进度条与书架整排宽度一致 */}
+          <div className="max-w-7xl mx-auto">
+            <div className="h-0.5 bg-gray-200 dark:bg-gray-700">
+              <div
+                className="h-full bg-blue-500 transition-all duration-300"
+                style={{ width: `${Math.round(globalTtsInfo.progress * 100)}%` }}
+              />
+            </div>
           </div>
           <a
             href={`/reader/${globalTtsInfo.bookId}`}

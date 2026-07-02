@@ -293,10 +293,8 @@ function ReaderPage() {
 
     // Cleanup on unmount or book switch
     return () => {
-      // 书籍切换/卸载时停止 TTS 播放，防止旧书音频继续播放
-      const p = getDefaultPlayer();
-      p.stop();
-      p.setCallbacks({});
+      // ⭐ 不再调用 p.stop() 和 p.setCallbacks({})——卸载时保持 TTS 后台播放
+      // （用户可能在书架页继续听书）。书籍切换时，新的 effect 会调用 stop() 处理。
       if (ttsProgressSaveTimer.current) {
         clearInterval(ttsProgressSaveTimer.current);
         ttsProgressSaveTimer.current = null;
@@ -844,29 +842,53 @@ function ReaderPage() {
         },
         onSegmentPlay: (idx, _total) => {
           setTtsSegmentText(player.getCurrentSegmentText());
-          setActiveSegmentIndex(idx);
 
-          // ── TTS 后台预生成：当前章节播放到 75% 时预加载下一章 ──
+          // ── TTS 后台预生成 & 文字同步：当前章节播放到 75% 时预加载下一章 ──
           const oc = player.getOriginalChunkCount();
           if (oc > 0 && idx >= oc) {
-            // 已过渡到下一章节追加的分段 → 更新 currentChapter
-            // 找到对应的下一章节
+            // 已过渡到下一章节追加的分段 → 更新 currentChapter 并同步显示文本
             if (currentChapter && !nextChapterPreparedRef.current) {
               const ci = chapters.findIndex((c) => c.id === currentChapter.id);
               if (ci >= 0 && ci < chapters.length - 1) {
                 const nextCh = chapters[ci + 1];
                 setCurrentChapter(nextCh);
                 setDisplayChapter(nextCh);
+                // ⭐ 将 activeSegmentIndex 设为下一章内的本地偏移
+                setActiveSegmentIndex(idx - oc);
                 // 保存上一章播放完成进度
                 saveTtsProgress(currentChapter.id, -1, 1);
+                // ⭐ 异步加载下一章文本内容替换显示（使文字与朗读同步）
+                (async () => {
+                  try {
+                    const triggerId = bookId;
+                    const res = await axios.get(`/api/books/${bookId}/chapters/${nextCh.id}/content`);
+                    if (currentBookIdRef.current !== triggerId) return;
+                    const rawContent = res.data.data?.content || '';
+                    const content = book?.format === 'epub'
+                      ? stripHtml(rawContent)
+                      : rawContent;
+                    if (content) {
+                      accumulatedIdsRef.current.clear();
+                      accumulatedIdsRef.current.add(nextCh.id);
+                      setTxtContent(content);
+                      if (book?.format === 'epub') {
+                        setEpubDisplayHtml(sanitizeEpubHtml(rawContent, bookId!));
+                      }
+                    }
+                  } catch { /* 静默失败 */ }
+                })();
                 // 预加载再下一章
                 setTimeout(() => prepareNextChapterTTS(player), 100);
               }
               nextChapterPreparedRef.current = true;
             }
-          } else if (!nextChapterPreparedRef.current && _total > 0 && idx >= _total * 0.75) {
-            // 播放到当前章节 75% 位置 → 预生成下一章音频
-            prepareNextChapterTTS(player);
+          } else {
+            // 当前章节内：正常更新 activeSegmentIndex
+            setActiveSegmentIndex(idx);
+            if (!nextChapterPreparedRef.current && _total > 0 && idx >= _total * 0.75) {
+              // 播放到当前章节 75% 位置 → 预生成下一章音频
+              prepareNextChapterTTS(player);
+            }
           }
         },
         onProgress: (p) => setTtsProgress(p),
@@ -921,6 +943,12 @@ function ReaderPage() {
 
       // 文本已是纯文本（EPUB 已由 getCurrentChapterText 返回 txtContent，非原始 HTML）
       await player.load(text, false);
+
+      // ⭐ 恢复 TTS 位置：跳转到上次保存的分段
+      const savedPos = savedTtsProgressRef.current;
+      if (savedPos && savedPos.chapterId === currentChapter?.id && savedPos.segmentIndex > 0) {
+        await player.jumpToSegment(savedPos.segmentIndex);
+      }
 
       // Start periodic TTS progress saving
       startTtsProgressSaver(currentChapter.id, player);
