@@ -204,7 +204,11 @@ export class TTSPlayer {
   private speed = 1.0;
   private source = 'kokoro';
   private voice = 'zh-CN-XiaoxiaoNeural';
-  private preGenCount = 3;
+  private preGenCount = 10;
+  /** 最大重试次数（后台 fetch 失败时） */
+  private maxRetries = 2;
+  /** 是否正在后台（visibility hidden） */
+  private isBackground = false;
   private noCache = false;
   private isDestroyed = false;
   private currentSegmentText = '';
@@ -563,14 +567,40 @@ export class TTSPlayer {
       } catch { /* Media Session 不可用则静默跳过 */ }
     }
 
-    // ── 2. visibilitychange：从后台切回前台时同步状态 ──
+    // ── 2. visibilitychange：后台时预取所有音频 + 切回前台时同步状态 ──
     this.boundVisibilityHandler = () => {
       if (this.isDestroyed) return;
-      if (document.visibilityState === 'visible' && this.state === 'playing') {
-        this.updateMediaSessionState('playing');
+      if (document.visibilityState === 'hidden') {
+        // ⭐ 进入后台时记录标志，并立即预取所有尚未准备好的音频片段
+        // （移动端后台时 fetch 会被节流/暂停，预取后可依赖已缓存的 Blob URL 继续播放）
+        this.isBackground = true;
+        this.prefetchAllRemaining();
+      } else if (document.visibilityState === 'visible') {
+        this.isBackground = false;
+        if (this.state === 'playing') {
+          this.updateMediaSessionState('playing');
+        }
       }
     };
     document.addEventListener('visibilitychange', this.boundVisibilityHandler);
+  }
+
+  /**
+   * 预取所有尚未准备好的音频片段（进入后台时调用）
+   * 确保移动端后台播放时无需再发起 fetch 请求
+   */
+  private prefetchAllRemaining(): void {
+    if (this.isDestroyed || this.chunks.length === 0) return;
+    const pendingCount = this.chunks.filter(c => c.status === 'pending').length;
+    if (pendingCount === 0) return;
+    // 从当前播放位置之后开始，预取所有 pending 片段
+    const startIdx = Math.max(0, this.currentIndex + 1);
+    for (let i = startIdx; i < this.chunks.length; i++) {
+      const chunk = this.chunks[i];
+      if (chunk && chunk.status === 'pending') {
+        this.fetchChunk(chunk).catch(() => {});
+      }
+    }
   }
 
   /** 更新 Media Session 播放状态（锁屏/通知栏状态同步） */
@@ -705,7 +735,7 @@ export class TTSPlayer {
     }
   }
 
-  private async fetchChunk(chunk: TTSChunk): Promise<void> {
+  private async fetchChunk(chunk: TTSChunk, retryCount = 0): Promise<void> {
     if (chunk.status !== 'pending') return;
     chunk.status = 'loading';
 
@@ -726,6 +756,13 @@ export class TTSPlayer {
       chunk.audioBlobUrl = url;
       chunk.status = 'ready';
     } catch (err: any) {
+      // ⭐ 后台取失败时自动重试（最多 maxRetries 次），避免移动端后台临时网络波动导致中断
+      if (retryCount < this.maxRetries && this.isBackground) {
+        await new Promise(r => setTimeout(r, 1000 * (retryCount + 1))); // 递增延迟
+        if (this.isDestroyed || gen !== this.generation) return;
+        chunk.status = 'pending'; // 重置为 pending 以允许重试
+        return this.fetchChunk(chunk, retryCount + 1);
+      }
       chunk.status = 'error';
       chunk.error = err.message || '合成失败';
     }

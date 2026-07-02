@@ -94,6 +94,36 @@ useEffect(() => {
       alert(err.response?.data?.error || '批量删除失败');
     }
   };
+
+  const [batchActionLoading, setBatchActionLoading] = useState<string | null>(null);
+  const handleBatchGenerateVoice = async () => {
+    if (selectedIds.size === 0) return;
+    setBatchActionLoading('voice');
+    try {
+      await Promise.all([...selectedIds].map(id =>
+        axios.post(`/api/books/${id}/tts-generate`)
+      ));
+      alert(`已为 ${selectedIds.size} 本书提交语音预生成任务，后台正在处理中`);
+      exitSelectionMode();
+      await loadData();
+    } catch (err: any) {
+      alert(err.response?.data?.error || '提交语音预生成失败');
+    } finally {
+      setBatchActionLoading(null);
+    }
+  };
+
+  /** 批量操作项配置（可扩展） */
+  interface BatchAction {
+    id: string;
+    label: string;
+    icon: string;
+    color: string;
+    hoverColor: string;
+    disabled?: boolean;
+    loading?: boolean;
+    onClick: () => void;
+  }
   // ── 全局 TTS 播放状态（来自 TTSPlayer 单例，书架页后台听书控制） ──
   const [globalTtsInfo, setGlobalTtsInfo] = useState<{
     state: PlayerState;
@@ -229,6 +259,12 @@ useEffect(() => {
             />
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
           </div>
+          <button
+            onClick={() => { setSelectionMode(true); setSelectedIds(new Set()); }}
+            className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+          >
+            ☐ 批量选择
+          </button>
           <button
             onClick={() => setShowUpload(true)}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
@@ -444,7 +480,7 @@ useEffect(() => {
       </div>
     </div>
       {/* 迷你播放器 - TTS 后台听书控制 */}
-      {/* 批量选择操作栏 */}
+      {/* 批量选择操作栏 — 可扩展的 actions 数组驱动 */}
       {selectionMode && (
         <div className="fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-2xl px-4 py-3">
           <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -458,13 +494,37 @@ useEffect(() => {
               >
                 取消
               </button>
-              <button
-                onClick={handleBatchDelete}
-                disabled={selectedIds.size === 0}
-                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                删除选中 ({selectedIds.size})
-              </button>
+              {/* ⭐ 可扩展操作列表：在此数组中添加新项即可扩展批量操作 */}
+              {([
+                {
+                  id: 'delete',
+                  label: '删除选中',
+                  icon: '🗑',
+                  color: 'bg-red-600',
+                  hoverColor: 'hover:bg-red-700',
+                  disabled: selectedIds.size === 0,
+                  onClick: handleBatchDelete,
+                },
+                {
+                  id: 'voice',
+                  label: '预生成语音',
+                  icon: '🎙',
+                  color: 'bg-green-600',
+                  hoverColor: 'hover:bg-green-700',
+                  disabled: selectedIds.size === 0 || batchActionLoading === 'voice',
+                  loading: batchActionLoading === 'voice',
+                  onClick: handleBatchGenerateVoice,
+                },
+              ] as BatchAction[]).map(action => (
+                <button
+                  key={action.id}
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  className={`px-4 py-2 text-sm text-white rounded-lg transition-colors ${action.color} ${action.hoverColor} disabled:opacity-40 disabled:cursor-not-allowed`}
+                >
+                  {action.loading ? '⏳ 处理中...' : `${action.icon} ${action.label}`}
+                </button>
+              ))}
             </div>
           </div>
         </div>
