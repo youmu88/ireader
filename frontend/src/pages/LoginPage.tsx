@@ -53,11 +53,11 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
-      <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8">
+      <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8 animate-slide-up">
         <h1 className="text-2xl font-bold text-center mb-2 text-gray-800 dark:text-white">
           iReader
         </h1>
-        <p className="text-sm text-center text-gray-500 dark:text-gray-400 mb-6">
+        <p className="text-sm text-center text-gray-500 dark:text-gray-400 mb-6 animate-fade-in">
           {isRegister ? '创建新账号' : '登录你的账号'}
         </p>
 
@@ -72,7 +72,8 @@ export default function LoginPage() {
               onChange={(e) => setUsername(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
                          bg-white dark:bg-gray-700 text-gray-800 dark:text-white
-                         focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                         focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none
+                         transition-shadow duration-200"
               placeholder="请输入用户名"
               required
               minLength={3}
@@ -81,7 +82,7 @@ export default function LoginPage() {
           </div>
 
           {isRegister && (
-            <div>
+            <div className="animate-slide-up">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 显示名称（可选）
               </label>
@@ -91,7 +92,8 @@ export default function LoginPage() {
                 onChange={(e) => setDisplayName(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
                            bg-white dark:bg-gray-700 text-gray-800 dark:text-white
-                           focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                           focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none
+                           transition-shadow duration-200"
                 placeholder="给自己取个好听的名字吧"
                 maxLength={50}
               />
@@ -108,7 +110,8 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
                          bg-white dark:bg-gray-700 text-gray-800 dark:text-white
-                         focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                         focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none
+                         transition-shadow duration-200"
               placeholder={isRegister ? '至少6个字符' : '请输入密码'}
               required
               minLength={6}
@@ -116,7 +119,7 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
+            <div className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2 animate-slide-up">
               {error}
             </div>
           )}
@@ -125,7 +128,8 @@ export default function LoginPage() {
             type="submit"
             disabled={submitting}
             className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400
-                       text-white font-medium rounded-lg transition-colors"
+                       text-white font-medium rounded-lg transition-all duration-200
+                       active:scale-[0.97] active:opacity-90 ripple-btn"
           >
             {submitting ? '处理中...' : isRegister ? '注册' : '登录'}
           </button>
@@ -135,7 +139,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={toggleMode}
-            className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+            className="text-sm text-blue-600 dark:text-blue-400 hover:underline tap-active"
           >
             {isRegister ? '已有账号？去登录' : '没有账号？去注册'}
           </button>

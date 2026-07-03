@@ -65,7 +65,7 @@ function Layout() {
             <nav className="flex items-center gap-1 sm:gap-3">
               <Link
                 to="/"
-                className={`px-2 sm:px-3 py-1 rounded text-xs sm:text-sm ${
+                className={`px-2 sm:px-3 py-1 rounded text-xs sm:text-sm tap-active ${
                   location.pathname === '/' ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300' : ''
                 }`}
               >
@@ -74,19 +74,19 @@ function Layout() {
               {/* TTS 队列图标（带角标） */}
               <button
                 onClick={openTtsQueue}
-                className="relative px-2 sm:px-3 py-1 rounded text-xs sm:text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                className="relative px-2 sm:px-3 py-1 rounded text-xs sm:text-sm hover:bg-gray-100 dark:hover:bg-gray-700 tap-active"
                 title="语音生成队列"
               >
                 🎙
                 {activeJobCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 text-[10px] sm:text-xs font-bold text-white bg-red-500 rounded-full">
+                  <span className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 text-[10px] sm:text-xs font-bold text-white bg-red-500 rounded-full animate-pop-in">
                     {activeJobCount > 99 ? '99+' : activeJobCount}
                   </span>
                 )}
               </button>
               <Link
                 to="/settings"
-                className={`px-2 sm:px-3 py-1 rounded text-xs sm:text-sm ${
+                className={`px-2 sm:px-3 py-1 rounded text-xs sm:text-sm tap-active ${
                   location.pathname === '/settings' ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300' : ''
                 }`}
               >
@@ -98,10 +98,10 @@ function Layout() {
                   {user.displayName || user.username}
                 </span>
               )}
-              {/* 主题切换按钮 */}
+              {/* 主题切换按钮（iOS 式按压） */}
               <button
                 onClick={toggleTheme}
-                className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-600 tap-icon ripple-btn"
                 title={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}
               >
                 {theme === 'dark' ? '☀️' : '🌙'}
@@ -109,7 +109,7 @@ function Layout() {
               {/* 退出登录 */}
               <button
                 onClick={handleLogout}
-                className="p-1 sm:px-3 sm:py-1 rounded text-xs sm:text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                className="p-1 sm:px-3 sm:py-1 rounded text-xs sm:text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 tap-active"
                 title="退出登录"
               >
                 <span className="sm:hidden">🚪</span><span className="hidden sm:inline">退出</span>

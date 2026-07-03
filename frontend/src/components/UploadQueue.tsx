@@ -323,7 +323,7 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
           </h2>
           <button
             onClick={handleMinimize}
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 tap-icon"
             title="最小化（后台继续上传）"
           >
             ⛅
@@ -457,17 +457,17 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
                   {/* Actions */}
                   <div className="shrink-0 flex gap-1">
                     {task.status === 'failed' && (
-                      <button
-                        onClick={() => handleRetry(task.id)}
-                        className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-                        title="重试"
-                      >
-                        重试
-                      </button>
+              <button
+                onClick={() => handleRetry(task.id)}
+                className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors tap-active"
+                title="重试"
+              >
+                重试
+              </button>
                     )}
                     <button
                       onClick={() => handleRemove(task.id)}
-                      className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                      className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors tap-icon"
                       title="移除"
                     >
                       ✕
@@ -485,7 +485,7 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
             {failedCount > 0 && (
               <button
                 onClick={handleRetryAll}
-                className="px-3 py-1.5 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+                className="px-3 py-1.5 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors tap-active"
               >
                 重试全部失败 ({failedCount})
               </button>
@@ -493,7 +493,7 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
             {successCount > 0 && (
               <button
                 onClick={handleClearCompleted}
-                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors tap-active"
               >
                 清除已完成
               </button>
@@ -502,13 +502,13 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
           <div className="flex gap-2">
             <button
               onClick={handleMinimize}
-              className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors tap-active"
             >
               后台运行
             </button>
             <button
               onClick={handleFinish}
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors ripple-btn"
             >
               完成并刷新
             </button>

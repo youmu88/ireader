@@ -500,20 +500,20 @@ useEffect(() => {
           </div>
           <button
             onClick={() => { setSelectionMode(true); setSelectedIds(new Set()); }}
-            className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+            className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 tap-active whitespace-nowrap"
           >
             ☐ 批量选择
           </button>
           <button
             onClick={() => uploadQueueRef.current?.show()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-200 ripple-btn whitespace-nowrap"
           >
             + 上传图书
           </button>
           {/* 书籍去重按钮 */}
           <button
             onClick={handleDedup}
-            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 tap-active whitespace-nowrap"
             title="扫描并删除书架上的重复书籍"
           >
             🔄 去重
@@ -548,7 +548,7 @@ useEffect(() => {
       {/* Edit Modal */}
       {editingBook && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setEditingBook(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md mx-4 shadow-xl animate-pop-in" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold mb-4">编辑图书信息</h2>
 
             <div className="space-y-4">
@@ -576,13 +576,13 @@ useEffect(() => {
             <div className="flex justify-end gap-2 mt-6">
               <button
                 onClick={() => setEditingBook(null)}
-                className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg tap-active"
               >
                 取消
               </button>
               <button
                 onClick={handleSaveEdit}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 ripple-btn"
               >
                 保存
               </button>
@@ -662,7 +662,7 @@ useEffect(() => {
                         toggleSelection(book.id);
                       }
                     }}
-                    className={`block p-2 sm:p-3 border rounded-lg transition-shadow bg-white dark:bg-gray-800 ${
+                    className={`block p-2 sm:p-3 border rounded-lg transition-all duration-200 bg-white dark:bg-gray-800 tap-row ${
                       selectionMode && selectedIds.has(book.id)
                         ? 'border-blue-500 ring-2 ring-blue-300 dark:ring-blue-700'
                         : 'border-gray-200 dark:border-gray-700 hover:shadow-md'
@@ -739,8 +739,8 @@ useEffect(() => {
                         <span className="bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">🔊</span>
                       </div>
                     )}
-                    <button onClick={(e) => handleEditBook(book, e)} className="w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-blue-600" title="编辑信息">✎</button>
-                    <button onClick={(e) => handleDelete(book, e)} className="w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-red-600" title="删除图书">✕</button>
+                    <button onClick={(e) => handleEditBook(book, e)} className="w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-blue-600 tap-icon" title="编辑信息">✎</button>
+                    <button onClick={(e) => handleDelete(book, e)} className="w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-red-600 tap-icon" title="删除图书">✕</button>
                   </div>
                 </div>
               ))}
@@ -776,7 +776,7 @@ useEffect(() => {
                           toggleSelection(book.id);
                         }
                       }}
-                      className={`block p-2 sm:p-3 border rounded-lg transition-shadow bg-white dark:bg-gray-800 ${
+                      className={`block p-2 sm:p-3 border rounded-lg transition-all duration-200 bg-white dark:bg-gray-800 tap-row ${
                         selectionMode && selectedIds.has(book.id)
                           ? 'border-blue-500 ring-2 ring-blue-300 dark:ring-blue-700'
                           : 'border-gray-200 dark:border-gray-700 hover:shadow-md'
@@ -849,9 +849,9 @@ useEffect(() => {
                           <span className="bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">🔊</span>
                         </div>
                       )}
-                      <button onClick={(e) => handleTogglePin(book, e)} className="w-7 h-7 bg-amber-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-amber-600" title={book.pinned ? '取消置顶' : '置顶'}>{book.pinned ? '📌' : '📍'}</button>
-                      <button onClick={(e) => handleEditBook(book, e)} className="w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-blue-600" title="编辑信息">✎</button>
-                      <button onClick={(e) => handleDelete(book, e)} className="w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-red-600" title="删除图书">✕</button>
+                      <button onClick={(e) => handleTogglePin(book, e)} className="w-7 h-7 bg-amber-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-amber-600 tap-icon" title={book.pinned ? '取消置顶' : '置顶'}>{book.pinned ? '📌' : '📍'}</button>
+                      <button onClick={(e) => handleEditBook(book, e)} className="w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-blue-600 tap-icon" title="编辑信息">✎</button>
+                      <button onClick={(e) => handleDelete(book, e)} className="w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-red-600 tap-icon" title="删除图书">✕</button>
                     </div>
                   </div>
                 ))}
@@ -944,7 +944,7 @@ useEffect(() => {
       {/* ── TTS 预生成队列可视化面板（支持批量选择） ── */}
       {showTtsQueue && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[70vh] overflow-hidden flex flex-col"
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[70vh] overflow-hidden flex flex-col animate-pop-in"
             onClick={(e) => e.stopPropagation()}>
             {/* 标题栏 */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
@@ -958,27 +958,27 @@ useEffect(() => {
                 )}
               </h3>
               <div className="flex items-center gap-2">
-                <button onClick={fetchTTSJobs} className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">🔄 刷新</button>
-                <button onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
+                <button onClick={fetchTTSJobs} className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 tap-active">🔄 刷新</button>
+                <button onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none tap-icon">&times;</button>
               </div>
             </div>
             {/* 批量选择工具栏 */}
             {ttsJobs.length > 0 && (
               <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
                 <div className="flex items-center gap-2">
-                  <button onClick={selectAllJobs} className="text-xs px-2 py-1 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/60 transition-colors">
+                  <button onClick={selectAllJobs} className="text-xs px-2 py-1 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/60 transition-all duration-150 tap-active">
                     ☑ 全选
                   </button>
-                  <button onClick={deselectAllJobs} className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                  <button onClick={deselectAllJobs} className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-150 tap-active">
                     □ 取消全选
                   </button>
                 </div>
                 {selectedJobIds.size > 0 && (
                   <div className="flex items-center gap-1.5">
-                    <button onClick={handleBatchCancelSelected} className="text-xs px-2 py-1 rounded bg-yellow-500 text-white hover:bg-yellow-600 transition-colors" title="取消选中的排队/运行中任务">
+                    <button onClick={handleBatchCancelSelected} className="text-xs px-2 py-1 rounded bg-yellow-500 text-white hover:bg-yellow-600 transition-all duration-150 tap-active" title="取消选中的排队/运行中任务">
                       ⏹ 取消选中
                     </button>
-                    <button onClick={handleBatchDeleteSelected} className="text-xs px-2 py-1 rounded bg-red-500 text-white hover:bg-red-600 transition-colors" title="删除选中的任务（不限状态）">
+                    <button onClick={handleBatchDeleteSelected} className="text-xs px-2 py-1 rounded bg-red-500 text-white hover:bg-red-600 transition-all duration-150 tap-active" title="删除选中的任务（不限状态）">
                       🗑 删除选中
                     </button>
                   </div>
@@ -1079,7 +1079,7 @@ useEffect(() => {
                 {ttsJobs.some(j => j.status === 'completed' || j.status === 'failed') && (
                   <button
                     onClick={handleClearTerminated}
-                    className="text-xs px-3 py-1.5 rounded bg-gray-500 text-white hover:bg-gray-600 transition-colors"
+                    className="text-xs px-3 py-1.5 rounded bg-gray-500 text-white hover:bg-gray-600 transition-all duration-150 tap-active"
                   >
                     🧹 清除已完成/失败
                   </button>
@@ -1087,7 +1087,7 @@ useEffect(() => {
                 {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
                   <button
                     onClick={handleClearAllJobs}
-                    className="text-xs px-3 py-1.5 rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
+                    className="text-xs px-3 py-1.5 rounded bg-red-500 text-white hover:bg-red-600 transition-all duration-150 tap-active"
                   >
                     🗑 清除全部排队任务
                   </button>
@@ -1132,7 +1132,6 @@ useEffect(() => {
                   if (globalTtsInfo.state === 'playing') player.pause();
                   else if (globalTtsInfo.state === 'paused') player.resume();
                 } else {
-                  // 直接恢复播放，无需跳转到阅读页
                   try {
                     const lastPlayback = getLastPlaybackFromLocalStorage();
                     if (!lastPlayback || lastPlayback.bookId !== globalTtsInfo.bookId) return;
@@ -1141,17 +1140,14 @@ useEffect(() => {
                     ]);
                     const chapters = chaptersRes.data.data || [];
                     if (chapters.length === 0) return;
-                    // 找到目标章节
                     let targetChapter = chapters[0];
                     if (lastPlayback.chapterId) {
                       const saved = chapters.find((c: any) => c.id === lastPlayback.chapterId);
                       if (saved) targetChapter = saved;
                     }
-                    // 获取章节内容
                     const contentRes = await axios.get(`/api/books/${globalTtsInfo.bookId}/chapters/${targetChapter.id}/content`);
                     const content = contentRes.data.data;
                     if (!content) return;
-                    // 初始化 player 并播放
                     player.init({
                       bookId: globalTtsInfo.bookId,
                       bookTitle: globalTtsInfo.bookTitle || lastPlayback.bookTitle,
@@ -1164,7 +1160,7 @@ useEffect(() => {
                   } catch { /* 恢复播放失败时静默处理 */ }
                 }
               }}
-              className="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 transition-colors shrink-0 shadow-lg"
+              className="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 transition-all duration-200 active:scale-90 shadow-lg ripple-btn shrink-0"
             >
               {globalTtsInfo.state === 'playing' ? '⏸' : '▶'}
             </button>

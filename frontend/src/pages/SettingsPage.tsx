@@ -218,25 +218,25 @@ export default function SettingsPage() {
                 切换应用的亮色/暗色外观
               </p>
             </div>
-            <button
-              onClick={toggleTheme}
-              className={`relative w-14 h-7 rounded-full transition-colors ${
-                theme === 'dark' ? 'bg-blue-600' : 'bg-gray-300'
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${
-                  theme === 'dark' ? 'translate-x-7.5' : 'translate-x-0.5'
-                } flex items-center justify-center text-xs`}
+              <button
+                onClick={toggleTheme}
+                className={`relative w-14 h-7 rounded-full toggle-track ${
+                  theme === 'dark' ? 'bg-blue-600' : 'bg-gray-300'
+                }`}
               >
-                {theme === 'dark' ? '🌙' : '☀️'}
-              </span>
-            </button>
+                <span
+                  className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow toggle-thumb ${
+                    theme === 'dark' ? 'translate-x-7.5' : 'translate-x-0.5'
+                  } flex items-center justify-center text-xs`}
+                >
+                  {theme === 'dark' ? '🌙' : '☀️'}
+                </span>
+              </button>
           </div>
           <div className="flex gap-3 mt-4">
             <button
               onClick={() => setTheme('light')}
-              className={`flex-1 px-2 sm:px-3 py-2 sm:py-3 rounded-lg border-2 transition-colors ${
+              className={`flex-1 px-2 sm:px-3 py-2 sm:py-3 rounded-lg border-2 transition-all duration-200 tap-row ${
                 theme === 'light'
                   ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                   : 'border-gray-200 dark:border-gray-600 hover:border-gray-300'
@@ -249,7 +249,7 @@ export default function SettingsPage() {
             </button>
             <button
               onClick={() => setTheme('dark')}
-              className={`flex-1 px-2 sm:px-3 py-2 sm:py-3 rounded-lg border-2 transition-colors ${
+              className={`flex-1 px-2 sm:px-3 py-2 sm:py-3 rounded-lg border-2 transition-all duration-200 tap-row ${
                 theme === 'dark'
                   ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                   : 'border-gray-200 dark:border-gray-600 hover:border-gray-300'
@@ -330,7 +330,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-400 hover:text-gray-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-400 hover:text-gray-600 tap-icon"
                 >
                   {showApiKey ? '🙈' : '👁'}
                 </button>
@@ -344,7 +344,7 @@ export default function SettingsPage() {
                 <button
                   onClick={handleFetchVoices}
                   disabled={fetchingVoices || (isCustomSource && !apiUrl)}
-                  className="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100 disabled:opacity-40"
+                  className="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100 disabled:opacity-40 tap-active"
                 >
                   {fetchingVoices ? '获取中...' : '🔄 从服务器获取音色'}
                 </button>
@@ -379,12 +379,12 @@ export default function SettingsPage() {
               </div>
               <button
                 onClick={handleToggleNoCache}
-                className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${
+                className={`relative w-12 h-6 rounded-full toggle-track flex-shrink-0 ${
                   noCache ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
                 }`}
               >
                 <span
-                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow toggle-thumb ${
                     noCache ? 'translate-x-6' : 'translate-x-0.5'
                   } flex items-center justify-center text-[10px]`}
                 >
@@ -419,12 +419,12 @@ export default function SettingsPage() {
               </div>
               <button
                 onClick={() => setAutoPreSynthesize(!autoPreSynthesize)}
-                className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${
+                className={`relative w-12 h-6 rounded-full toggle-track flex-shrink-0 ${
                   autoPreSynthesize ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
                 }`}
               >
                 <span
-                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow toggle-thumb ${
                     autoPreSynthesize ? 'translate-x-6' : 'translate-x-0.5'
                   } flex items-center justify-center text-[10px]`}
                 >
@@ -436,7 +436,7 @@ export default function SettingsPage() {
             {/* Connection Test & Cache Clear */}
             <div className="flex items-center gap-3 flex-wrap">
               <button onClick={handleTestConnection} disabled={testing}
-                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 text-sm">
+                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 text-sm ripple-btn">
                 {testing ? '测试中...' : '🔌 测试连接'}
               </button>
               {connectionStatus && (
@@ -447,7 +447,7 @@ export default function SettingsPage() {
                 </span>
               )}
               <button onClick={handleClearCache} disabled={clearing}
-                className="px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:opacity-50 text-sm ml-auto">
+                className="px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:opacity-50 text-sm ml-auto ripple-btn">
                 {clearing ? '清理中...' : '🗑 清除缓存'}
               </button>
               {clearMessage && (
@@ -460,7 +460,7 @@ export default function SettingsPage() {
             {/* Save Button */}
             <div className="flex items-center gap-3 pt-2">
               <button onClick={handleSave} disabled={saving}
-                className="px-6 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:opacity-50 text-sm">
+                className="px-6 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:opacity-50 text-sm ripple-btn">
                 {saving ? '保存中...' : '💾 保存设置'}
               </button>
               {saveMessage && (

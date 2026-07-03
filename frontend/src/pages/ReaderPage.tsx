@@ -1604,7 +1604,7 @@ function ReaderPage() {
         <button
           onClick={(e) => { e.stopPropagation(); goToPrevChapter(); }}
           disabled={!currentChapter || chapters.findIndex(c => c.id === currentChapter.id) === 0}
-          className="absolute left-2 top-1/2 -translate-y-1/2 z-30 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/20 dark:hover:bg-white/30 backdrop-blur-sm text-white text-xl flex items-center justify-center disabled:opacity-0 disabled:pointer-events-none transition-all"
+          className="absolute left-2 top-1/2 -translate-y-1/2 z-30 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/20 dark:hover:bg-white/30 backdrop-blur-sm text-white text-xl flex items-center justify-center disabled:opacity-0 disabled:pointer-events-none transition-all duration-200 active:scale-90"
           title="上一章"
         >
           ‹
@@ -1612,7 +1612,7 @@ function ReaderPage() {
         <button
           onClick={(e) => { e.stopPropagation(); goToNextChapter(); }}
           disabled={!currentChapter || chapters.findIndex(c => c.id === currentChapter.id) === chapters.length - 1}
-          className="absolute right-2 top-1/2 -translate-y-1/2 z-30 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/20 dark:hover:bg-white/30 backdrop-blur-sm text-white text-xl flex items-center justify-center disabled:opacity-0 disabled:pointer-events-none transition-all"
+          className="absolute right-2 top-1/2 -translate-y-1/2 z-30 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/20 dark:hover:bg-white/30 backdrop-blur-sm text-white text-xl flex items-center justify-center disabled:opacity-0 disabled:pointer-events-none transition-all duration-200 active:scale-90"
           title="下一章"
         >
           ›
@@ -1814,13 +1814,13 @@ function ReaderPage() {
 
             {/* 底部控制面板 — 阻止点击冒泡到外层遮罩，避免非关闭按钮意外关闭面板 */}
             <div className="relative z-10 pointer-events-none">
-              <div className="pointer-events-auto bg-white dark:bg-gray-800 rounded-t-2xl shadow-2xl max-h-[55vh] overflow-y-auto mx-auto max-w-3xl" onClick={(e) => e.stopPropagation()}>
+              <div className="pointer-events-auto bg-white dark:bg-gray-800 rounded-t-2xl shadow-2xl max-h-[55vh] overflow-y-auto mx-auto max-w-3xl animate-slide-up" onClick={(e) => e.stopPropagation()}>
                   <div className="p-4 space-y-3">
                     {/* ── 第一行：返回 + 书名 + 目录 ── */}
                     <div className="flex items-center justify-between">
                       <button
                         onClick={() => navigate('/')}
-                        className="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-full px-3 py-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        className="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-full px-3 py-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-200 tap-active"
                       >
                         ← 返回
                       </button>
@@ -1829,7 +1829,7 @@ function ReaderPage() {
                       </h2>
                       <button
                         onClick={() => { setShowToc(v => !v); setShowUi(false); }}
-                        className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
+                        className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all duration-200 tap-active ${
                           showToc
                             ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -1845,21 +1845,21 @@ function ReaderPage() {
                       <button
                         onClick={ttsState !== 'idle' ? handleStopTTS : handleStartTTS}
                         disabled={ttsState === 'loading'}
-                        className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${ttsState !== 'idle' ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                        className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all duration-200 tap-active ${ttsState !== 'idle' ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
                       >
                         {ttsState === 'playing' ? '🔊 朗读中' : ttsState === 'paused' ? '⏸ 已暂停' : ttsState === 'loading' ? '⏳ 加载中' : '🔊 朗读'}
                       </button>
                       <button
                         onClick={handleCacheCurrentChapter}
                         disabled={cachingInProgress}
-                        className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-200 tap-active"
                       >
                         💾 缓存本章
                       </button>
                       <button
                         onClick={handleCacheFullBook}
                         disabled={cachingInProgress}
-                        className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-200 tap-active"
                       >
                         📦 全书缓存
                       </button>
@@ -1881,21 +1881,21 @@ function ReaderPage() {
                           <div className="flex items-center gap-1.5">
                             <button
                               onClick={handleClearTextCache}
-                              className="text-[10px] px-2 py-1 rounded-full text-orange-500 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors"
+                              className="text-[10px] px-2 py-1 rounded-full text-orange-500 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-all duration-150 tap-active"
                             >
                               🗑 清除文字
                             </button>
                             {cacheStatus.audioSegmentCount > 0 && (
                               <button
                                 onClick={handleClearAudioCache}
-                                className="text-[10px] px-2 py-1 rounded-full text-purple-500 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
+                                className="text-[10px] px-2 py-1 rounded-full text-purple-500 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-all duration-150 tap-active"
                               >
                                 🗑 清除语音
                               </button>
                             )}
                             <button
                               onClick={handleClearCache}
-                              className="text-[10px] px-2 py-1 rounded-full text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                              className="text-[10px] px-2 py-1 rounded-full text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-all duration-150 tap-active"
                             >
                               ✕ 清除全部
                             </button>
@@ -1912,12 +1912,12 @@ function ReaderPage() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => setFontSize(Math.max(12, fontSize - 2))}
-                        className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-150 tap-icon"
                       >A-</button>
                       <span className="text-sm text-gray-700 dark:text-gray-300 w-8 text-center font-medium">{fontSize}</span>
                       <button
                         onClick={() => setFontSize(Math.min(36, fontSize + 2))}
-                        className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-150 tap-icon"
                       >A+</button>
                     </div>
                   </div>
@@ -1955,7 +1955,7 @@ function ReaderPage() {
                       </select>
                       <button
                         onClick={() => { setReadingMode(prev => prev === 'scroll' ? 'paginated' : 'scroll'); setPageIndex(0); }}
-                        className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                        className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all duration-200 tap-active ${
                           readingMode === 'paginated'
                             ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -1997,18 +1997,18 @@ function ReaderPage() {
                           {/* 播放控制 */}
                           <div className="flex items-center gap-1">
                             {ttsState === 'playing' ? (
-                              <button onClick={handlePauseTTS} className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs hover:bg-blue-600" title="暂停">⏸</button>
+                              <button onClick={handlePauseTTS} className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs hover:bg-blue-600 active:scale-90 transition-all duration-150" title="暂停">⏸</button>
                             ) : (
-                              <button onClick={ttsState === 'paused' ? handleResumeTTS : handleStartTTS} className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs hover:bg-blue-600" title={ttsState === 'paused' ? '继续' : '播放'}>▶</button>
+                              <button onClick={ttsState === 'paused' ? handleResumeTTS : handleStartTTS} className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs hover:bg-blue-600 active:scale-90 transition-all duration-150" title={ttsState === 'paused' ? '继续' : '播放'}>▶</button>
                             )}
-                            <button onClick={handleStopTTS} className="w-7 h-7 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600" title="停止">⏹</button>
+                            <button onClick={handleStopTTS} className="w-7 h-7 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150" title="停止">⏹</button>
                           </div>
                           {/* 进度 */}
                           <span className="text-xs text-gray-500 min-w-[2.5rem]">{Math.round(ttsProgress * 100)}%</span>
                           {/* 快进/快退 */}
                           <div className="flex items-center gap-1">
-                            <button onClick={handleSkipBackward} className="w-7 h-7 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-200 dark:hover:bg-gray-600" title="后退10秒">⏪</button>
-                            <button onClick={handleSkipForward} className="w-7 h-7 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-200 dark:hover:bg-gray-600" title="快进10秒">⏩</button>
+                            <button onClick={handleSkipBackward} className="w-7 h-7 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-200 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150" title="后退10秒">⏪</button>
+                            <button onClick={handleSkipForward} className="w-7 h-7 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-200 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150" title="快进10秒">⏩</button>
                           </div>
                           {/* 睡眠定时 */}
                           <button
@@ -2018,7 +2018,7 @@ function ReaderPage() {
                               const next = opts[(idx + 1) % opts.length];
                               handleSetSleepTimer(next);
                             }}
-                            className={`text-xs px-2 py-1 rounded transition-colors ${
+                            className={`text-xs px-2 py-1 rounded transition-all duration-200 tap-active ${
                               sleepTimerMinutes
                                 ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
                                 : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -2061,17 +2061,17 @@ function ReaderPage() {
                     </div>
                     {book?.format === 'txt' && readingMode === 'paginated' && (
                       <div className="flex items-center justify-between mt-1">
-                        <button
-                          onClick={() => { if (pageIndex > 0) setPageIndex(i => i - 1); else goToPrevChapter(); }}
-                          disabled={pageIndex === 0 && chapters.findIndex(c => c.id === currentChapter?.id) === 0}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                        >← 上一页</button>
+                          <button
+                            onClick={() => { if (pageIndex > 0) setPageIndex(i => i - 1); else goToPrevChapter(); }}
+                            disabled={pageIndex === 0 && chapters.findIndex(c => c.id === currentChapter?.id) === 0}
+                            className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-150 tap-active"
+                          >← 上一页</button>
                         <span className="text-xs text-gray-500">{pageIndex + 1} / {totalPages}</span>
-                        <button
-                          onClick={() => { if (pageIndex < totalPages - 1) setPageIndex(i => i + 1); else goToNextChapter(); }}
-                          disabled={pageIndex >= totalPages - 1 && chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1}
-                          className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                        >下一页 →</button>
+                          <button
+                            onClick={() => { if (pageIndex < totalPages - 1) setPageIndex(i => i + 1); else goToNextChapter(); }}
+                            disabled={pageIndex >= totalPages - 1 && chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1}
+                            className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-150 tap-active"
+                          >下一页 →</button>
                       </div>
                     )}
                   </div>
@@ -2158,7 +2158,7 @@ function ReaderTopBar({
   return (
     <div className="flex items-center justify-between px-2 sm:px-4 py-1 sm:py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-x-auto">
       <div className="flex items-center gap-3">
-        <button onClick={onBack} className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
+        <button onClick={onBack} className="text-blue-600 dark:text-blue-400 hover:underline text-sm tap-active">
           ← 返回书架
         </button>
         <h1 className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate max-w-xs">
@@ -2172,7 +2172,7 @@ function ReaderTopBar({
           <button
             onClick={ttsActive ? onStopTTS : onStartTTS}
             disabled={ttsState === 'loading'}
-            className={`text-xs px-2 py-1 rounded transition-colors ${
+            className={`text-xs px-2 py-1 rounded transition-all duration-200 tap-active ${
               ttsActive
                 ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
                 : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
@@ -2188,7 +2188,7 @@ function ReaderTopBar({
             <button
               onClick={onCacheChapter}
               disabled={cachingInProgress}
-              className={`text-xs px-2 py-1 rounded transition-colors ${
+              className={`text-xs px-2 py-1 rounded transition-all duration-200 tap-active ${
                 cacheStatus?.chapterCount
                   ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
                   : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
@@ -2200,7 +2200,7 @@ function ReaderTopBar({
             <button
               onClick={onCacheFullBook}
               disabled={cachingInProgress}
-              className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+              className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 tap-active"
               title="缓存全书到本地（离线可用）"
             >
               💾 缓存全书
@@ -2212,7 +2212,7 @@ function ReaderTopBar({
                 </span>
                 <button
                   onClick={onClearCache}
-                  className="text-xs px-1 py-1 rounded text-red-500 hover:text-red-700 dark:hover:text-red-300"
+                  className="text-xs px-1 py-1 rounded text-red-500 hover:text-red-700 dark:hover:text-red-300 tap-icon"
                   title="清除本地缓存"
                 >
                   ✕
@@ -2224,7 +2224,7 @@ function ReaderTopBar({
         {onToggleToc && (
           <button
             onClick={onToggleToc}
-            className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+            className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 tap-active"
           >
             📑 目录
           </button>
@@ -2245,7 +2245,7 @@ function ReaderTopBar({
         {/* 阅读模式切换 */}
         <button
           onClick={onToggleReadingMode}
-          className={`text-xs px-2 py-1 rounded transition-colors ${
+          className={`text-xs px-2 py-1 rounded transition-all duration-200 tap-active ${
             readingMode === 'paginated'
               ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
               : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
@@ -2259,14 +2259,14 @@ function ReaderTopBar({
           <div className="flex items-center gap-1">
             <button
               onClick={() => onFontSizeChange(Math.max(12, (fontSize || 18) - 2))}
-              className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600"
+              className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150"
             >
               A-
             </button>
             <span className="text-xs text-gray-500 w-6 text-center">{fontSize || 18}</span>
             <button
               onClick={() => onFontSizeChange(Math.min(36, (fontSize || 18) + 2))}
-              className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600"
+              className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150"
             >
               A+
             </button>
@@ -2277,7 +2277,7 @@ function ReaderTopBar({
           <div className="flex items-center gap-1">
             <button
               onClick={() => onLineHeightChange(Math.max(1.2, (lineHeight || 1.8) - 0.2))}
-              className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600"
+              className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150"
               disabled={(lineHeight || 1.8) <= 1.2}
             >
               行-
@@ -2285,7 +2285,7 @@ function ReaderTopBar({
             <span className="text-xs text-gray-500 w-6 text-center">{(lineHeight || 1.8).toFixed(1)}</span>
             <button
               onClick={() => onLineHeightChange(Math.min(3.0, (lineHeight || 1.8) + 0.2))}
-              className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600"
+              className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150"
               disabled={(lineHeight || 1.8) >= 3.0}
             >
               行+
