@@ -113,13 +113,15 @@ export async function cacheBookChapters(
     cached++;
   }
 
-  // 更新元数据
+  // 更新元数据 - 重新计算实际缓存章节数（避免重复点击累加）
+  const allBookChapters = await chapterStore.index('bookId').getAll(bookId) as BookChapterCache[];
+  const actualCachedCount = allBookChapters.length;
   const existingMeta = await metaStore.get(bookId) as CacheMeta | undefined;
   const newMeta: CacheMeta = {
     bookId,
     bookTitle,
     totalChapters: Math.max(existingMeta?.totalChapters ?? 0, chapters.length),
-    cachedChapters: (existingMeta?.cachedChapters ?? 0) + cached,
+    cachedChapters: actualCachedCount,
     totalAudioSegments: existingMeta?.totalAudioSegments ?? 0,
     cachedAudioSegments: existingMeta?.cachedAudioSegments ?? 0,
     lastCachedAt: now,

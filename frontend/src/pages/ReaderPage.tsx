@@ -100,10 +100,8 @@ function ReaderPage() {
   const [ttsProgress, setTtsProgress] = useState(0);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
   const [ttsError, setTtsError] = useState<string | null>(null);
-  const [ttsSpeed, setTtsSpeed] = useState(1.0);
-  const [ttsVolume, setTtsVolume] = useState(() => {
-    try { const v = localStorage.getItem('ireader_tts_volume'); return v ? parseFloat(v) : 1.0; } catch { return 1.0; }
-  });
+  const ttsSpeed = 1.0;
+  const ttsVolume = 1.0;
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(-1);
   const [readingMode, setReadingMode] = useState<'scroll' | 'paginated'>(initialPrefs.readingMode ?? 'scroll');
   const [pageIndex, setPageIndex] = useState(0);
@@ -257,12 +255,13 @@ function ReaderPage() {
       } catch { /* 预合成触发失败不影响主流程 */ }
 
       await checkCacheStatus();
+      await loadServerStats();
     } catch (err) {
       console.warn('缓存全书失败:', err);
     } finally {
       setCachingInProgress(false);
     }
-  }, [bookId, book, chapters, checkCacheStatus, ttsSpeed, ttsVoice]);
+  }, [bookId, book, chapters, checkCacheStatus, loadServerStats, ttsSpeed, ttsVoice]);
 
   /** 清除文字缓存 */
   const handleClearTextCache = useCallback(async () => {
@@ -1331,18 +1330,19 @@ function ReaderPage() {
     );
   }, [ttsState, activeSegmentIndex]);
 
-  /** 设置 TTS 语速 */
-  const handleTTSSpeedChange = useCallback((speed: number) => {
-    setTtsSpeed(speed);
-    ttsPlayerRef.current?.setSpeed(speed);
-  }, []);
+  /** 快退10秒 */
+  const handleSkipBackward = useCallback(() => {
+    const player = ttsPlayerRef.current;
+    if (!player || player.getState() === 'idle') return;
+    handleTTSSeek(Math.max(0, ttsProgress - 0.1));
+  }, [ttsProgress, handleTTSSeek]);
 
-  /** 设置 TTS 音量 */
-  const handleVolumeChange = useCallback((vol: number) => {
-    setTtsVolume(vol);
-    ttsPlayerRef.current?.setVolume(vol);
-    try { localStorage.setItem('ireader_tts_volume', String(vol)); } catch {}
-  }, []);
+  /** 快进10秒 */
+  const handleSkipForward = useCallback(() => {
+    const player = ttsPlayerRef.current;
+    if (!player || player.getState() === 'idle') return;
+    handleTTSSeek(Math.min(1, ttsProgress + 0.1));
+  }, [ttsProgress, handleTTSSeek]);
 
   // After book loads, check for saved TTS progress and offer resume
   // ⭐ 全局鼠标/触摸拖拽进度条 seek
@@ -2005,16 +2005,10 @@ function ReaderPage() {
                           </div>
                           {/* 进度 */}
                           <span className="text-xs text-gray-500 min-w-[2.5rem]">{Math.round(ttsProgress * 100)}%</span>
-                          {/* 语速 */}
+                          {/* 快进/快退 */}
                           <div className="flex items-center gap-1">
-                            <button onClick={() => handleTTSSpeedChange(Math.max(0.5, ttsSpeed - 0.1))} disabled={ttsSpeed <= 0.5} className="text-xs px-1.5 py-1 rounded bg-gray-100 dark:bg-gray-700 disabled:opacity-40">慢</button>
-                            <span className="text-xs text-gray-500 w-7 text-center font-medium">{ttsSpeed.toFixed(1)}x</span>
-                            <button onClick={() => handleTTSSpeedChange(Math.min(2.0, ttsSpeed + 0.1))} disabled={ttsSpeed >= 2.0} className="text-xs px-1.5 py-1 rounded bg-gray-100 dark:bg-gray-700 disabled:opacity-40">快</button>
-                          </div>
-                          {/* 音量 */}
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs">🔊</span>
-                            <input type="range" min="0" max="1" step="0.05" value={ttsVolume} onChange={(e) => handleVolumeChange(parseFloat(e.target.value))} className="w-14 sm:w-20 h-1 accent-blue-500" />
+                            <button onClick={handleSkipBackward} className="w-7 h-7 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-200 dark:hover:bg-gray-600" title="后退10秒">⏪</button>
+                            <button onClick={handleSkipForward} className="w-7 h-7 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-200 dark:hover:bg-gray-600" title="快进10秒">⏩</button>
                           </div>
                           {/* 睡眠定时 */}
                           <button
