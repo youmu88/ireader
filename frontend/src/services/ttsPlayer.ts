@@ -238,6 +238,8 @@ export class TTSPlayer {
   private nextChapterAppended = false;
   /** Bound visibilitychange handler for cleanup */
   private boundVisibilityHandler: (() => void) | null = null;
+  /** Bound pagehide handler for save state on page unload */
+  private boundPageHideHandler: (() => void) | null = null;
   /** 递增的 generation ID，用于丢弃旧 generation 的异步 fetch 结果 */
   private generation = 0;
   /** 所有 blob URL 清单，用于统一清理 */
@@ -631,6 +633,10 @@ export class TTSPlayer {
       document.removeEventListener('visibilitychange', this.boundVisibilityHandler);
       this.boundVisibilityHandler = null;
     }
+    if (this.boundPageHideHandler) {
+      window.removeEventListener('pagehide', this.boundPageHideHandler);
+      this.boundPageHideHandler = null;
+    }
     // 清理 concat position 跟踪
     if (this.concatTimeupdater && this.audioElement) {
       this.audioElement.removeEventListener('timeupdate', this.concatTimeupdater);
@@ -742,12 +748,23 @@ export class TTSPlayer {
             } else {
               this.playNext();
             }
+          } else if (this.audioElement.paused) {
+            // ⭐ 音频被浏览器意外暂停（如 PWA 切换/关闭回收音频焦点）→ 立即恢复
+            this.audioElement.play().catch(() => {});
           }
         }
         this.updateMediaSessionState('playing');
       }
     };
     document.addEventListener('visibilitychange', this.boundVisibilityHandler);
+
+    // ⭐ 页面隐藏时持久化播放状态（浏览器回收/刷新时保护进度）
+    this.boundPageHideHandler = () => {
+      if (this.state === 'playing' || this.state === 'paused') {
+        this.persistPlaybackState();
+      }
+    };
+    window.addEventListener('pagehide', this.boundPageHideHandler);
   }
 
   /**
@@ -1457,6 +1474,11 @@ export class TTSPlayer {
       try { listener(info); } catch { /* ignore */ }
     }
     // ⭐ 每次通知时自动持久化到 localStorage（供退出重进后恢复使用）
+    this.persistPlaybackState();
+  }
+
+  /** 持久化当前播放状态到 localStorage（页面隐藏/心跳/状态变更时均会调用） */
+  private persistPlaybackState(): void {
     if (this.state !== 'idle' && this.currentBookId) {
       try {
         localStorage.setItem('ireader_last_playback', JSON.stringify({
@@ -1464,7 +1486,7 @@ export class TTSPlayer {
           bookTitle: this.bookTitle,
           chapterId: this.chapterId,
           chapterTitle: this.chapterTitle,
-          progress: info.progress,
+          progress: this.chunks.length > 0 ? (this.currentIndex + 1) / this.chunks.length : 0,
           currentIndex: this.currentIndex,
           totalChunks: this.chunks.length,
           timestamp: Date.now(),

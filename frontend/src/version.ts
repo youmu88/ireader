@@ -10,4 +10,4 @@
  * 每次开发完成后，在提交前根据本次改动类型更新对应位。
  */
 
-export const APP_VERSION = '1.7.1';
+export const APP_VERSION = '1.8.0';

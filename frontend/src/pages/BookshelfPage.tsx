@@ -971,10 +971,7 @@ useEffect(() => {
               />
             </div>
           </div>
-          <a
-            href={`/reader/${globalTtsInfo.bookId}${globalTtsInfo.state === 'paused' ? '?autoPlayTts=1' : ''}`}
-            className="flex items-center gap-3 px-4 py-3 max-w-7xl mx-auto"
-          >
+          <div className="flex items-center gap-3 px-4 py-3 max-w-7xl mx-auto">
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
                 🔊 {globalTtsInfo.bookTitle || '正在播放'}
@@ -989,7 +986,7 @@ useEffect(() => {
               </div>
             </div>
             <button
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 const player = getDefaultPlayer();
@@ -997,15 +994,43 @@ useEffect(() => {
                   if (globalTtsInfo.state === 'playing') player.pause();
                   else if (globalTtsInfo.state === 'paused') player.resume();
                 } else {
-                  // 从 localStorage 恢复：跳转到阅读页面并自动续播
-                  window.location.href = `/reader/${globalTtsInfo.bookId}?autoPlayTts=1`;
+                  // 直接恢复播放，无需跳转到阅读页
+                  try {
+                    const lastPlayback = getLastPlaybackFromLocalStorage();
+                    if (!lastPlayback || lastPlayback.bookId !== globalTtsInfo.bookId) return;
+                    const [chaptersRes] = await Promise.all([
+                      axios.get(`/api/books/${globalTtsInfo.bookId}/chapters`),
+                    ]);
+                    const chapters = chaptersRes.data.data || [];
+                    if (chapters.length === 0) return;
+                    // 找到目标章节
+                    let targetChapter = chapters[0];
+                    if (lastPlayback.chapterId) {
+                      const saved = chapters.find((c: any) => c.id === lastPlayback.chapterId);
+                      if (saved) targetChapter = saved;
+                    }
+                    // 获取章节内容
+                    const contentRes = await axios.get(`/api/books/${globalTtsInfo.bookId}/chapters/${targetChapter.id}/content`);
+                    const content = contentRes.data.data;
+                    if (!content) return;
+                    // 初始化 player 并播放
+                    player.init({
+                      bookId: globalTtsInfo.bookId,
+                      bookTitle: globalTtsInfo.bookTitle || lastPlayback.bookTitle,
+                    });
+                    await player.load(content.text || content.content || content, false, targetChapter.id);
+                    if (lastPlayback.currentIndex > 0) {
+                      player['currentIndex'] = lastPlayback.currentIndex;
+                    }
+                    await player.play();
+                  } catch { /* 恢复播放失败时静默处理 */ }
                 }
               }}
               className="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 transition-colors shrink-0 shadow-lg"
             >
               {globalTtsInfo.state === 'playing' ? '⏸' : '▶'}
             </button>
-          </a>
+          </div>
         </div>
       )}
     </>

@@ -129,6 +129,14 @@ export function createFullBookGenerationJob(
     return sum + Math.max(1, Math.ceil(estSize / 200));
   }, 0);
 
+  // 去重检查：如果已存在相同书+音色+速度的未完成任务，不再重复创建
+  const existingJob = db.select().from(ttsGenerationJobs)
+    .where(sql`book_id = ${bookId} AND voice = ${voice} AND speed = ${speed} AND status != 'completed' AND status != 'failed'`)
+    .get();
+  if (existingJob) {
+    return existingJob as unknown as GenerationJob;
+  }
+
   const job: GenerationJob = {
     id: jobId,
     userId,

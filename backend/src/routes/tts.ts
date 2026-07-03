@@ -177,22 +177,25 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         }).run();
       }
 
-      // 检测音色是否变更，若变更则异步触发全量预生成（仅在后台预合成开启时）
-      const bgPreSynth = autoPreSynthesize !== undefined ? autoPreSynthesize : existing?.autoPreSynthesize;
-      if (voiceId !== undefined && existing && existing.voiceId !== voiceId && dataDir && bgPreSynth) {
-        try {
-          regenerateAllForNewVoice(db, userId, voiceId, speed ?? existing.speed ?? 1.0, dataDir);
-        } catch { /* 触发预生成失败不影响主流程 */ }
-      }
+      // 检测是否需要触发全量预生成任务（仅后台预合成开启时）
+      // 合并处理「音色变更」和「自动预合成刚开启」两种场景，避免重复创建任务
+      const isPreSynthOn = autoPreSynthesize !== undefined ? autoPreSynthesize : existing?.autoPreSynthesize;
+      const wasPreSynthOff = existing && !existing.autoPreSynthesize;
+      const voiceChanged = voiceId !== undefined && existing && existing.voiceId !== voiceId;
 
-      // 检测 autoPreSynthesize 是否开启，若开启则触发全量预生成
-      if (autoPreSynthesize === true && existing && !existing.autoPreSynthesize && dataDir) {
+      if (dataDir && isPreSynthOn && (voiceChanged || (autoPreSynthesize === true && wasPreSynthOff))) {
         try {
-          const voice = voiceId || existing.voiceId || 'zh-CN-XiaoxiaoNeural';
-          const spd = speed ?? existing.speed ?? 1.0;
-          const userBooks = db.select().from(books).where(sql`user_id = ${userId}`).all();
-          for (const b of userBooks) {
-            createFullBookGenerationJob(db, b.id, userId, voice, spd, dataDir);
+          if (voiceChanged) {
+            // 音色变更：为所有书创建新音色任务（createFullBookGenerationJob 内含去重检查）
+            regenerateAllForNewVoice(db, userId, voiceId, speed ?? existing.speed ?? 1.0, dataDir);
+          } else {
+            // 刚开启自动预合成：为所有书创建任务
+            const voice = existing?.voiceId || 'zh-CN-XiaoxiaoNeural';
+            const spd = existing?.speed ?? 1.0;
+            const userBooks = db.select().from(books).where(sql`user_id = ${userId}`).all();
+            for (const b of userBooks) {
+              createFullBookGenerationJob(db, b.id, userId, voice, spd, dataDir);
+            }
           }
         } catch { /* 全量预合成触发失败不影响主流程 */ }
       }

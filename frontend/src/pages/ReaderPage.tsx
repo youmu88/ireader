@@ -1812,9 +1812,9 @@ function ReaderPage() {
 
             <div className="flex-1 relative z-10" onClick={() => setShowUi(false)} />
 
-            {/* 底部控制面板 */}
+            {/* 底部控制面板 — 阻止点击冒泡到外层遮罩，避免非关闭按钮意外关闭面板 */}
             <div className="relative z-10 pointer-events-none">
-              <div className="pointer-events-auto bg-white dark:bg-gray-800 rounded-t-2xl shadow-2xl max-h-[55vh] overflow-y-auto mx-auto max-w-3xl">
+              <div className="pointer-events-auto bg-white dark:bg-gray-800 rounded-t-2xl shadow-2xl max-h-[55vh] overflow-y-auto mx-auto max-w-3xl" onClick={(e) => e.stopPropagation()}>
                   <div className="p-4 space-y-3">
                     {/* ── 第一行：返回 + 书名 + 目录 ── */}
                     <div className="flex items-center justify-between">
