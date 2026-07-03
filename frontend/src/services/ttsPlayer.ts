@@ -102,8 +102,16 @@ export interface TTSPlayerCallbacks {
 export function splitText(text: string): string[] {
   const segments: string[] = [];
 
+  // ⭐ 前置清理：移除可能导致 TTS 合成失败的 Unicode 特殊字符
+  // 零宽字符（ZWSP/ZWNJ/ZWJ/BOM）、控制字符、装饰性私用区字符
+  let cleaned = text
+    .replace(/[\u200B-\u200D\uFEFF\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '')
+    // 保留常见装饰符号（◆◇■●※☆★○◎等），但移除纯符号段落首尾的孤立符号
+    .replace(/(?:[◆◇■●※☆★○◎▷▶△▲▽▼□▣◈◐◑☯☰☱☲☳☴☵☶☷♠♣♥♦♤♧♡♢♔♕♖♗♘♙♚♛♜♝♞♟]+[\s　]*){3,}/g, '\n')
+    .trim();
+
   // 按双换行分段（段落级）
-  const paragraphs = text.split(/\n\s*\n/);
+  const paragraphs = cleaned.split(/\n\s*\n/);
 
   for (const para of paragraphs) {
     const trimmed = para.trim();
@@ -120,10 +128,16 @@ export function splitText(text: string): string[] {
         const subParts = st.match(/[^，、,；;：:]+[，、,；;：:]?/g) || [st];
         for (const part of subParts) {
           const pt = part.trim();
-          if (pt) segments.push(pt);
+          // ⭐ 过滤纯符号/纯空白分段（TTS 合成这类空段会失败）
+          if (pt && !/^[\s\u00A0◆◇■●※☆★○◎▷▶△▲▽▼□▣◈◐◑♠♣♥♦♤♧♡♢♔♕♖♗♘♙\u2000-\u206F\u2100-\u214F\u3000\u3001-\u303F]+$/.test(pt)) {
+            segments.push(pt);
+          }
         }
       } else {
-        segments.push(st);
+        // ⭐ 过滤纯符号/纯空白分段
+        if (!/^[\s\u00A0◆◇■●※☆★○◎▷▶△▲▽▼□▣◈◐◑♠♣♥♦♤♧♡♢♔♕♖♗♘♙\u2000-\u206F\u2100-\u214F\u3000\u3001-\u303F]+$/.test(st)) {
+          segments.push(st);
+        }
       }
     }
   }

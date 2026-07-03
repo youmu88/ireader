@@ -929,6 +929,10 @@ function ReaderPage() {
       onProgress: (p) => setTtsProgress(p),
       onError: (err) => {
         console.warn('TTS 朗读错误:', err);
+        // ⭐ 段落级合成失败/无可用音频 → 播放器已自动跳过(playNext)，不弹横幅打扰用户
+        if (err.includes('合成失败') || err.includes('无可用音频')) {
+          return;
+        }
         let userMsg = err;
         if (err.includes('Failed to fetch') || err.includes('NetworkError') || err.includes('TTS service unavailable')) {
           userMsg = '语音服务连接失败，请检查设置面板中的 TTS 服务地址是否正确，或切换 TTS 后端';
@@ -1039,6 +1043,10 @@ function ReaderPage() {
         onProgress: (p) => setTtsProgress(p),
         onError: (err) => {
           console.warn('TTS 朗读错误:', err);
+          // ⭐ 段落级合成失败/无可用音频 → 播放器已自动跳过(playNext)，不弹横幅打扰用户
+          if (err.includes('合成失败') || err.includes('无可用音频')) {
+            return;
+          }
           let userMsg = err;
           if (err.includes('Failed to fetch') || err.includes('NetworkError') || err.includes('TTS service unavailable')) {
             userMsg = '语音服务连接失败，请检查设置面板中的 TTS 服务地址是否正确，或切换 TTS 后端';
