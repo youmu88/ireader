@@ -592,6 +592,7 @@ function ReaderPage() {
         const cachedContent = await getCachedChapterContent(bookId!, chapter.id);
         if (cachedContent) {
           content = cachedContent;
+          if (!_append) setChapterLoading(false);
         } else {
           if (!_append) setChapterLoading(true);
           const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`);
