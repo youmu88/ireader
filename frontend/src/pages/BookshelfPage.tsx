@@ -3,6 +3,7 @@ import { useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
 import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, type PlayerState } from '../services/ttsPlayer';
 import UploadQueue, { type UploadQueueStats, type UploadQueueHandle } from '../components/UploadQueue';
+import { APP_VERSION } from '../version';
 
 interface TTSJob {
   id: string;
@@ -415,7 +416,12 @@ useEffect(() => {
     <div className={`max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8 ${globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId ? 'pb-24' : ''}`}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
-        <h1 className="text-2xl font-bold">我的书架</h1>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          我的书架
+          <span className="text-xs text-gray-400 dark:text-gray-500 font-normal bg-gray-100 dark:bg-gray-700/50 px-1.5 py-0.5 rounded select-none">
+            v{APP_VERSION}
+          </span>
+        </h1>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           {/* 搜索框 */}
           <div className="relative flex-1 sm:w-56">
