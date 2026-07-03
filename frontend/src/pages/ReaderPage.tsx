@@ -558,19 +558,31 @@ function ReaderPage() {
   // Load chapter content
   const loadChapterContent = async (chapter: Chapter, _offset?: number, _isEpub?: boolean, _append?: boolean) => {
     try {
-      // 在异步获取内容前清空 txtContent，防止 getCurrentChapterText() 读到旧数据
-      setTxtContent('');
+      const isEpub = _isEpub ?? (book?.format === 'epub');
+
+      // ⭐ 先检查预加载缓存：有缓存时不触发空白闪烁，不显示 loading
+      const preloaded = preloadedChaptersRef.current.get(chapter.id);
+      const hasPreloadedContent = !!preloaded;
+
+      if (!hasPreloadedContent) {
+        // 无预缓存 → 清空内容并显示加载状态（append 模式仅清空，不显示 loading）
+        setTxtContent('');
+        if (!_append) setChapterLoading(true);
+      } else {
+        // 有预缓存 → 保留当前内容（不 setTxtContent('')），跳过 loading 闪烁
+      }
       setCurrentChapter(chapter);
       // append 模式下不更新显示标题（保持显示原始章节名，避免标题跳跃）
       if (!_append) {
         setDisplayChapter(chapter);
       }
 
+      // ⭐ 尽早启动后续章节预加载（与内容获取并行），而非等渲染完
+      preloadNextChapters(chapter.id);
+
       // 获取章节内容（优先使用预加载内容，其次离线缓存，最后 API）
       let content: string;
       let epubHtml: string | undefined;
-      const isEpub = _isEpub ?? (book?.format === 'epub');
-      const preloaded = preloadedChaptersRef.current.get(chapter.id);
       if (preloaded) {
         content = preloaded.content;
         epubHtml = preloaded.html;
@@ -581,7 +593,6 @@ function ReaderPage() {
         if (cachedContent) {
           content = cachedContent;
         } else {
-          // append 模式下不显示「加载中...」闪烁：保持现有内容可见，静默加载
           if (!_append) setChapterLoading(true);
           const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`);
           const rawContent = res.data.data?.content || '';
@@ -623,9 +634,6 @@ function ReaderPage() {
           setEpubDisplayHtml(displayContent);
         }
       }
-
-      // 预加载后续章节，确保滚动到末尾时内容已就绪
-      preloadNextChapters(chapter.id);
     } catch (err: any) {
       setError('加载章节内容失败');
       setChapterLoading(false);
@@ -634,15 +642,15 @@ function ReaderPage() {
 
   // Debounced progress save
 
-  /** 预加载后续2个章节内容，实现滚动到底无缝过渡 */
+  /** 预加载后续3个章节内容，实现滚动到底无缝过渡 */
   const preloadNextChapters = useCallback(async (currentChapterId: string) => {
     if (!chapters.length) return;
     const idx = chapters.findIndex(c => c.id === currentChapterId);
     if (idx < 0) return;
-    // 并行预加载后续2章，互不等待，大幅提高预加载速度
+    // 并行预加载后续3章（从2→3增加缓冲），互不等待，大幅提高预加载速度
     const isEpub = book?.format === 'epub';
     const preloadTasks = [];
-    for (let i = 1; i <= 2; i++) {
+    for (let i = 1; i <= 3; i++) {
       const next = chapters[idx + i];
       if (next && !preloadedChaptersRef.current.has(next.id)) {
         preloadTasks.push(
