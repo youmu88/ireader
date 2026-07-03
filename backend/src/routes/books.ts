@@ -552,11 +552,24 @@ export function createBooksRouter(db: any, dataDir: string): Router {
         .where(sql`book_id = ${bookId}`)
         .get()?.count ?? 0;
 
-      // 使用最新 TTS 任务的 completedChunks/totalChunks 计算真实进度
-      const latestJob = db.select().from(ttsGenerationJobs)
-        .where(sql`book_id = ${bookId} AND user_id = ${userId}`)
+      // 优先使用已完成的 TTS 任务（代表实际合成完成的状态）
+      // 避免新创建的 pending 任务覆盖已完成进度（显示为 0）
+      const completedJob = db.select().from(ttsGenerationJobs)
+        .where(sql`book_id = ${bookId} AND user_id = ${userId} AND status = 'completed'`)
         .orderBy(sql`created_at DESC`)
         .get() as any;
+
+      let latestJob: any;
+      if (completedJob) {
+        // 有已完成任务 → 使用已完成的统计数据（真实合成状态）
+        latestJob = completedJob;
+      } else {
+        // 无已完成任务 → 使用最新任务（展示进行中进度）
+        latestJob = db.select().from(ttsGenerationJobs)
+          .where(sql`book_id = ${bookId} AND user_id = ${userId}`)
+          .orderBy(sql`created_at DESC`)
+          .get() as any;
+      }
 
       const completedChunks = latestJob?.completedChunks || 0;
       const totalChunks = latestJob?.totalChunks || 0;
