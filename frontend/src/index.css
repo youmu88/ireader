@@ -301,6 +301,11 @@ button, a, [role="button"] {
   margin: var(--reader-p-spacing) 0;
   text-indent: var(--reader-first-line-indent);
 }
+/* 首行缩进开关：data-first-indent="false" 时关闭 */
+.reading-container[data-first-indent="false"] .epub-content p,
+.reading-container:not([data-first-indent="true"]) .epub-content p {
+  text-indent: 0 !important;
+}
 .epub-content p:first-of-type {
   margin-top: 0;
 }

@@ -592,27 +592,38 @@ useEffect(() => {
       {/* Edit Modal */}
       {editingBook && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setEditingBook(null)}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md mx-4 shadow-xl animate-pop-in" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-semibold mb-4">编辑图书信息</h2>
+          <div className="rounded-2xl p-6 w-full max-w-md mx-4 shadow-ios-lg animate-pop-in" onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--color-bg-card)' }}>
+            <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text)' }}>编辑图书信息</h2>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">书名</label>
+                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>书名</label>
                 <input
                   type="text"
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 rounded-xl text-sm outline-none transition-all duration-200"
+                  style={{
+                    background: 'var(--color-bg-alt)',
+                    color: 'var(--color-text)',
+                    border: '0.5px solid var(--color-border)',
+                  }}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">作者</label>
+                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>作者</label>
                 <input
                   type="text"
                   value={editAuthor}
                   onChange={(e) => setEditAuthor(e.target.value)}
                   placeholder="可选"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 rounded-xl text-sm outline-none transition-all duration-200"
+                  style={{
+                    background: 'var(--color-bg-alt)',
+                    color: 'var(--color-text)',
+                    border: '0.5px solid var(--color-border)',
+                  }}
                 />
               </div>
             </div>
@@ -620,13 +631,15 @@ useEffect(() => {
             <div className="flex justify-end gap-2 mt-6">
               <button
                 onClick={() => setEditingBook(null)}
-                className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg tap-active"
+                className="px-4 py-2 rounded-xl text-sm font-medium tap-active"
+                style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}
               >
                 取消
               </button>
               <button
                 onClick={handleSaveEdit}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 ripple-btn"
+                className="px-4 py-2 rounded-xl text-sm font-medium text-white ripple-btn"
+                style={{ background: 'var(--color-primary)' }}
               >
                 保存
               </button>
@@ -640,11 +653,15 @@ useEffect(() => {
           <div className="flex sm:flex-col gap-1 pb-1 sm:pb-0">
             <button
               onClick={() => setSelectedCategoryId(null)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+              className={`w-full text-left px-3 py-2 rounded-xl text-sm transition-all duration-200 ${
                 selectedCategoryId === null
-                  ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-medium'
-                  : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                  ? 'font-medium'
+                  : ''
               }`}
+              style={{
+                background: selectedCategoryId === null ? 'var(--color-primary-subtle)' : 'transparent',
+                color: selectedCategoryId === null ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+              }}
             >
               全部 ({books.length})
             </button>
@@ -652,11 +669,15 @@ useEffect(() => {
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategoryId(cat.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                className={`w-full text-left px-3 py-2 rounded-xl text-sm transition-all duration-200 ${
                   selectedCategoryId === cat.id
-                    ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-medium'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                    ? 'font-medium'
+                    : ''
                 }`}
+                style={{
+                  background: selectedCategoryId === cat.id ? 'var(--color-primary-subtle)' : 'transparent',
+                  color: selectedCategoryId === cat.id ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                }}
               >
                 {cat.name} ({categoryCount.get(cat.id) || 0})
               </button>
@@ -667,7 +688,7 @@ useEffect(() => {
         {/* Book Grid */}
         <div className="flex-1">
           {filteredBooks.length === 0 ? (
-            <div className="text-center py-16 text-gray-500 dark:text-gray-400">
+            <div className="text-center py-16" style={{ color: 'var(--color-text-muted)' }}>
               <p className="text-6xl mb-4">📚</p>
               <p className="text-lg">
                 {selectedCategoryId ? '该分类下还没有图书' : '书架还是空的'}
@@ -680,7 +701,8 @@ useEffect(() => {
               {/* ── 置顶区 ── */}
               {pinnedBooks.length > 0 && (
                 <div className="mb-6">
-                  <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-1.5">
+                  <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5"
+                    style={{ color: 'var(--color-text-muted)' }}>
                     <span>📌</span> 置顶
                   </h3>
                   <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
@@ -706,13 +728,19 @@ useEffect(() => {
                         toggleSelection(book.id);
                       }
                     }}
-                    className={`block p-2 sm:p-3 border rounded-lg transition-all duration-200 bg-white dark:bg-gray-800 tap-row ${
+                    className={`block p-2 sm:p-3 border rounded-2xl transition-all duration-200 tap-row ${
                       selectionMode && selectedIds.has(book.id)
-                        ? 'border-blue-500 ring-2 ring-blue-300 dark:ring-blue-700'
-                        : 'border-gray-200 dark:border-gray-700 hover:shadow-md'
+                        ? ''
+                        : ''
                     }`}
+                    style={{
+                      background: 'var(--color-bg-card)',
+                      borderColor: selectionMode && selectedIds.has(book.id) ? 'var(--color-primary)' : 'var(--color-border)',
+                      boxShadow: selectionMode && selectedIds.has(book.id) ? '0 0 0 2px var(--color-primary-muted)' : 'var(--shadow-ios-sm)',
+                    }}
                   >
-                    <div className="aspect-[3/4] bg-gray-100 dark:bg-gray-700 rounded mb-2 flex items-center justify-center overflow-hidden relative">
+                    <div className="aspect-[3/4] rounded-xl mb-2 flex items-center justify-center overflow-hidden relative"
+                      style={{ background: 'var(--color-bg-alt)' }}>
                       {/* 选中态勾选框 */}
                       {selectionMode && (
                         <div className="absolute top-1 left-1 z-20">
@@ -757,11 +785,13 @@ useEffect(() => {
                             {Math.round(bookStats[book.id].readingPercentage * 100)}%
                           </span>
                         </div>
-                        <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                          <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${Math.round(bookStats[book.id].readingPercentage * 100)}%` }} />
+                        <div className="w-full h-1.5 rounded-full overflow-hidden"
+                          style={{ background: 'var(--color-border)' }}>
+                          <div className="h-full rounded-full transition-all duration-500"
+                            style={{ width: `${Math.round(bookStats[book.id].readingPercentage * 100)}%`, background: 'var(--color-primary)' }} />
                         </div>
                         <div className="flex items-center justify-between text-xs">
-                          <span className="text-gray-500 dark:text-gray-400">语音</span>
+                          <span style={{ color: 'var(--color-text-muted)' }}>语音</span>
                           <span className="text-gray-700 dark:text-gray-300 font-medium">
                             {bookStats[book.id].totalVoiceChunks > 0
                               ? `${bookStats[book.id].completedVoiceChapters}/${bookStats[book.id].totalVoiceChunks}段`
@@ -769,8 +799,10 @@ useEffect(() => {
                             {bookStats[book.id].ttsCacheCount ? ` · ${bookStats[book.id].ttsCacheCount}条` : ''}
                           </span>
                         </div>
-                        <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                          <div className="h-full bg-green-500 rounded-full transition-all duration-500" style={{ width: `${Math.round(bookStats[book.id].voiceGenerationRate * 100)}%` }} />
+                        <div className="w-full h-1.5 rounded-full overflow-hidden"
+                          style={{ background: 'var(--color-border)' }}>
+                          <div className="h-full rounded-full transition-all duration-500"
+                            style={{ width: `${Math.round(bookStats[book.id].voiceGenerationRate * 100)}%`, background: 'var(--color-accent-2)' }} />
                         </div>
                       </div>
                     )}
@@ -794,7 +826,8 @@ useEffect(() => {
           {/* ── 其它区 ── */}
           {otherBooks.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-1.5">
+              <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5"
+                style={{ color: 'var(--color-text-muted)' }}>
                 <span>📚</span> 其它
               </h3>
               <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
@@ -820,13 +853,19 @@ useEffect(() => {
                           toggleSelection(book.id);
                         }
                       }}
-                      className={`block p-2 sm:p-3 border rounded-lg transition-all duration-200 bg-white dark:bg-gray-800 tap-row ${
+                                             className={`block p-2 sm:p-3 border rounded-2xl transition-all duration-200 tap-row ${
                         selectionMode && selectedIds.has(book.id)
-                          ? 'border-blue-500 ring-2 ring-blue-300 dark:ring-blue-700'
-                          : 'border-gray-200 dark:border-gray-700 hover:shadow-md'
+                          ? ''
+                          : ''
                       }`}
+                      style={{
+                        background: 'var(--color-bg-card)',
+                        borderColor: selectionMode && selectedIds.has(book.id) ? 'var(--color-primary)' : 'var(--color-border)',
+                        boxShadow: selectionMode && selectedIds.has(book.id) ? '0 0 0 2px var(--color-primary-muted)' : 'var(--shadow-ios-sm)',
+                      }}
                     >
-                      <div className="aspect-[3/4] bg-gray-100 dark:bg-gray-700 rounded mb-2 flex items-center justify-center overflow-hidden relative">
+                      <div className="aspect-[3/4] rounded-xl mb-2 flex items-center justify-center overflow-hidden relative"
+                      style={{ background: 'var(--color-bg-alt)' }}>
                         {selectionMode && (
                           <div className="absolute top-1 left-1 z-20">
                             <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shadow-sm ${
@@ -850,10 +889,10 @@ useEffect(() => {
                       </div>
                       <h3 className="font-medium text-sm truncate" title={book.title}>{book.title}</h3>
                       {book.author && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{book.author}</p>
+                        <p className="text-xs truncate" style={{ color: 'var(--color-text-muted)' }}>{book.author}</p>
                       )}
                       <div className="mt-1 flex items-center gap-1">
-                        <span className="text-xs text-gray-400 uppercase">{book.format}</span>
+                        <span className="text-xs uppercase" style={{ color: 'var(--color-text-muted)' }}>{book.format}</span>
                         {book.status === 'processing' && (
                           <span className="text-xs text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 px-1.5 py-0.5 rounded">解析中</span>
                         )}
@@ -864,8 +903,8 @@ useEffect(() => {
                       {book.status === 'ready' && bookStats[book.id] && (
                         <div className="mt-2 space-y-1">
                           <div className="flex items-center justify-between text-xs">
-                            <span className="text-gray-500 dark:text-gray-400">阅读</span>
-                            <span className="text-gray-700 dark:text-gray-300 font-medium">
+                            <span style={{ color: 'var(--color-text-muted)' }}>阅读</span>
+                            <span className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>
                               {Math.round(bookStats[book.id].readingPercentage * 100)}%
                             </span>
                           </div>
@@ -873,16 +912,18 @@ useEffect(() => {
                             <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${Math.round(bookStats[book.id].readingPercentage * 100)}%` }} />
                           </div>
                           <div className="flex items-center justify-between text-xs">
-                            <span className="text-gray-500 dark:text-gray-400">语音</span>
-                            <span className="text-gray-700 dark:text-gray-300 font-medium">
+                            <span style={{ color: 'var(--color-text-muted)' }}>语音</span>
+                            <span className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>
                               {bookStats[book.id].totalVoiceChunks > 0
                                 ? `${bookStats[book.id].completedVoiceChapters}/${bookStats[book.id].totalVoiceChunks}段`
                                 : `${Math.round((bookStats[book.id].voiceGenerationRate || 0) * bookStats[book.id].totalChapters)}/${bookStats[book.id].totalChapters}章`}
                               {bookStats[book.id].ttsCacheCount ? ` · ${bookStats[book.id].ttsCacheCount}条` : ''}
                             </span>
                           </div>
-                          <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                            <div className="h-full bg-green-500 rounded-full transition-all duration-500" style={{ width: `${Math.round(bookStats[book.id].voiceGenerationRate * 100)}%` }} />
+                          <div className="w-full h-1.5 rounded-full overflow-hidden"
+                            style={{ background: 'var(--color-border)' }}>
+                            <div className="h-full rounded-full transition-all duration-500"
+                              style={{ width: `${Math.round(bookStats[book.id].voiceGenerationRate * 100)}%`, background: 'var(--color-accent-2)' }} />
                           </div>
                         </div>
                       )}
@@ -909,13 +950,18 @@ useEffect(() => {
       {/* 迷你播放器 - TTS 后台听书控制 */}
       {/* 批量选择操作栏 — 可扩展的 actions 数组驱动 */}
       {selectionMode && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-2xl px-4 py-3">
+        <div className="fixed bottom-0 left-0 right-0 z-50 px-4 py-3"
+          style={{
+            background: 'var(--color-bg-card)',
+            borderTop: '0.5px solid var(--color-border)',
+            boxShadow: '0 -2px 12px rgba(0,0,0,0.06)',
+          }}>
           <div className="max-w-7xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-700 dark:text-gray-300">
-                已选择 <strong className="text-blue-600 dark:text-blue-400">{selectedIds.size}</strong> 本
+              <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                已选择 <strong style={{ color: 'var(--color-primary)' }}>{selectedIds.size}</strong> 本
               </span>
-              <span className="text-gray-300 dark:text-gray-600">|</span>
+              <span style={{ color: 'var(--color-border)' }}>|</span>
               <button
                 onClick={() => {
                   const allFilteredIds = new Set(filteredBooks.map(b => b.id));
@@ -927,7 +973,8 @@ useEffect(() => {
                     setSelectedIds(allFilteredIds);
                   }
                 }}
-                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium transition-colors"
+                className="text-sm font-medium transition-colors"
+                style={{ color: 'var(--color-primary)' }}
               >
                 {selectedIds.size > 0 && selectedIds.size >= filteredBooks.length ? '☐ 全不选' : '☑ 全选'}
               </button>
@@ -935,7 +982,8 @@ useEffect(() => {
             <div className="flex items-center gap-3">
               <button
                 onClick={exitSelectionMode}
-                className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm rounded-xl transition-colors"
+                style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}
               >
                 取消
               </button>
@@ -988,41 +1036,52 @@ useEffect(() => {
       {/* ── TTS 预生成队列可视化面板（支持批量选择） ── */}
       {showTtsQueue && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[70vh] overflow-hidden flex flex-col animate-pop-in"
-            onClick={(e) => e.stopPropagation()}>
+                           <div className="rounded-2xl shadow-ios-lg max-w-lg w-full mx-4 max-h-[70vh] overflow-hidden flex flex-col animate-pop-in"
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--color-bg-card)' }}>
             {/* 标题栏 */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
+            <div className="flex items-center justify-between px-5 py-4"
+              style={{ borderBottom: '0.5px solid var(--color-border)' }}>
+              <h3 className="text-base font-semibold flex items-center gap-1.5"
+                style={{ color: 'var(--color-text)' }}>
                 🎙 语音生成队列
                 {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
-                  <span className="ml-2 inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
-                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                  <span className="ml-2 inline-flex items-center gap-1 text-xs"
+                    style={{ color: 'var(--color-primary)' }}>
+                    <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--color-primary)' }} />
                     任务进行中
                   </span>
                 )}
               </h3>
               <div className="flex items-center gap-2">
-                <button onClick={fetchTTSJobs} className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 tap-active">🔄 刷新</button>
-                <button onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none tap-icon">&times;</button>
+                <button onClick={fetchTTSJobs} className="text-xs px-2 py-1 rounded-xl tap-active"
+                  style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}>🔄 刷新</button>
+                <button onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }} className="text-xl leading-none tap-icon"
+                  style={{ color: 'var(--color-text-muted)' }}>&times;</button>
               </div>
             </div>
             {/* 批量选择工具栏 */}
             {ttsJobs.length > 0 && (
-              <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+              <div className="flex items-center justify-between px-4 py-2"
+                style={{ borderBottom: '0.5px solid var(--color-border)', background: 'var(--color-bg-alt)' }}>
                 <div className="flex items-center gap-2">
-                  <button onClick={selectAllJobs} className="text-xs px-2 py-1 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/60 transition-all duration-150 tap-active">
+                  <button onClick={selectAllJobs} className="text-xs px-2 py-1 rounded-lg transition-all duration-150 tap-active font-medium"
+                    style={{ background: 'var(--color-primary-subtle)', color: 'var(--color-primary)' }}>
                     ☑ 全选
                   </button>
-                  <button onClick={deselectAllJobs} className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-150 tap-active">
+                  <button onClick={deselectAllJobs} className="text-xs px-2 py-1 rounded-lg transition-all duration-150 tap-active"
+                    style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-card)' }}>
                     □ 取消全选
                   </button>
                 </div>
                 {selectedJobIds.size > 0 && (
                   <div className="flex items-center gap-1.5">
-                    <button onClick={handleBatchCancelSelected} className="text-xs px-2 py-1 rounded bg-yellow-500 text-white hover:bg-yellow-600 transition-all duration-150 tap-active" title="取消选中的排队/运行中任务">
+                    <button onClick={handleBatchCancelSelected} className="text-xs px-2 py-1 rounded-lg transition-all duration-150 tap-active text-white"
+                      style={{ background: '#FF9500' }} title="取消选中的排队/运行中任务">
                       ⏹ 取消选中
                     </button>
-                    <button onClick={handleBatchDeleteSelected} className="text-xs px-2 py-1 rounded bg-red-500 text-white hover:bg-red-600 transition-all duration-150 tap-active" title="删除选中的任务（不限状态）">
+                    <button onClick={handleBatchDeleteSelected} className="text-xs px-2 py-1 rounded-lg transition-all duration-150 tap-active text-white"
+                      style={{ background: '#FF3B30' }} title="删除选中的任务（不限状态）">
                       🗑 删除选中
                     </button>
                   </div>
@@ -1032,7 +1091,7 @@ useEffect(() => {
             {/* 列表 */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {ttsJobs.length === 0 ? (
-                <p className="text-center text-gray-400 dark:text-gray-500 py-8 text-sm">暂无语音生成任务</p>
+                <p className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>暂无语音生成任务</p>
               ) : (
                 ttsJobs.slice(0, 30).map(job => {
                   const pct = job.totalChunks > 0 ? Math.min(job.completedChunks / job.totalChunks, 1) : 0;
@@ -1047,22 +1106,28 @@ useEffect(() => {
                   return (
                     <div
                       key={job.id}
-                      className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                      className={`border rounded-xl p-3 cursor-pointer transition-all duration-200 ${
                         isSelected
-                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-600'
-                          : 'border-gray-100 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                          ? ''
+                          : ''
                       }`}
+                      style={{
+                        borderColor: isSelected ? 'var(--color-primary)' : 'var(--color-border)',
+                        background: isSelected ? 'var(--color-primary-subtle)' : 'var(--color-bg-card)',
+                      }}
                       onClick={() => toggleJobSelection(job.id)}
                     >
                       <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           {/* 多选框 */}
-                          <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${
-                            isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300 dark:border-gray-500'
-                          }`}>
+                          <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0`}
+                            style={{
+                              background: isSelected ? 'var(--color-primary)' : 'transparent',
+                              borderColor: isSelected ? 'var(--color-primary)' : 'var(--color-border)',
+                            }}>
                             {isSelected && <span className="text-white text-[10px] font-bold">✓</span>}
                           </div>
-                          <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                          <span className="text-sm font-medium truncate" style={{ color: 'var(--color-text)' }}>
                             {job.bookTitle}
                           </span>
                         </div>
@@ -1087,9 +1152,10 @@ useEffect(() => {
                             <span>{job.completedChunks || 0} / {job.totalChunks || '?'} 段</span>
                             <span>{Math.round(pct * 100)}%</span>
                           </div>
-                          <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-500 rounded-full transition-all duration-500"
-                              style={{ width: `${Math.round(pct * 100)}%` }} />
+                          <div className="w-full h-1.5 rounded-full overflow-hidden"
+                            style={{ background: 'var(--color-border)' }}>
+                            <div className="h-full rounded-full transition-all duration-500"
+                              style={{ width: `${Math.round(pct * 100)}%`, background: 'var(--color-primary)' }} />
                           </div>
                         </div>
                       )}
@@ -1107,13 +1173,15 @@ useEffect(() => {
               )}
             </div>
             {/* 底部按钮 */}
-            <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-2">
+            <div className="px-4 py-3 flex flex-col gap-2"
+              style={{ borderTop: '0.5px solid var(--color-border)' }}>
               <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-400">
+                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                   共 {ttsJobs.length} 个任务 · {ttsJobs.filter(j => j.status === 'running').length} 个运行中 · {ttsJobs.filter(j => j.status === 'pending').length} 个排队中
                 </span>
                 <button onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}
-                  className="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white px-3 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                  className="text-sm px-3 py-1 rounded-xl"
+                  style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}>
                   关闭
                 </button>
               </div>
@@ -1123,7 +1191,8 @@ useEffect(() => {
                 {ttsJobs.some(j => j.status === 'completed' || j.status === 'failed') && (
                   <button
                     onClick={handleClearTerminated}
-                    className="text-xs px-3 py-1.5 rounded bg-gray-500 text-white hover:bg-gray-600 transition-all duration-150 tap-active"
+                    className="text-xs px-3 py-1.5 rounded-lg transition-all duration-150 tap-active text-white"
+                    style={{ background: 'var(--color-text-muted)' }}
                   >
                     🧹 清除已完成/失败
                   </button>
@@ -1131,7 +1200,8 @@ useEffect(() => {
                 {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
                   <button
                     onClick={handleClearAllJobs}
-                    className="text-xs px-3 py-1.5 rounded bg-red-500 text-white hover:bg-red-600 transition-all duration-150 tap-active"
+                    className="text-xs px-3 py-1.5 rounded-lg transition-all duration-150 tap-active text-white"
+                    style={{ background: '#FF3B30' }}
                   >
                     🗑 清除全部排队任务
                   </button>
