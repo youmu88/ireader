@@ -402,13 +402,13 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* 自动预合成开关 */}
+            {/* 后台预合成开关 */}
             <div className="flex items-center justify-between py-2">
               <div>
-                <label className="text-sm font-medium">自动预合成</label>
+                <label className="text-sm font-medium">后台预合成</label>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  开启：打开书籍或切换章节时自动预合成后续内容的音频<br />
-                  关闭：仅播放当前章节，不触发后台预合成
+                  开启：后台利用空闲资源将书架所有书籍进行语音预合成（占用资源低）<br />
+                  关闭：不自动预合成，由用户手工执行（在书架页选中书籍 → 预生成语音）
                 </p>
               </div>
               <button

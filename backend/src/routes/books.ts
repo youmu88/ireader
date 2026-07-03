@@ -9,6 +9,20 @@ import { AppError } from '../middleware/errorHandler.js';
 import { requireAuth } from '../middleware/auth.js';
 import { parseBook, getChapterContent, parseTxt } from '../parser/index.js';
 import { getBookCacheStats } from '../services/contentCacheService.js';
+import crypto from 'crypto';
+
+/**
+ * 计算文件 SHA256 哈希（流式读取，适合大文件）
+ */
+function computeFileHash(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk: Buffer) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
+}
 
 /**
  * Simple string hash (djb2) for deterministic hue generation.
@@ -73,13 +87,26 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     const bookDir = path.join(booksDir, bookId);
     const targetPath = path.join(bookDir, `original${ext}`);
 
+    // 计算文件哈希，用于去重检测
+    const fileHash = await computeFileHash(file.path);
+
+    // 检查当前用户的书籍中是否已有相同哈希的书籍
+    const existing = db.select({ id: books.id, title: books.title }).from(books)
+      .where(sql`user_id = ${userId} AND file_hash = ${fileHash}`)
+      .get() as any;
+    if (existing) {
+      // 删除临时文件并抛出去重提示
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      throw new Error(`书籍去重：已存在《${existing.title}》，请勿重复上传`);
+    }
+
     // Create book directory
     fs.mkdirSync(bookDir, { recursive: true });
 
     // Move uploaded file to book directory
     fs.renameSync(file.path, targetPath);
 
-    // Create book record (processing)
+    // Create book record (processing) — 包含 file_hash
     const bookRecord = {
       id: bookId,
       userId,
@@ -89,6 +116,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       categoryId: null,
       filePath: targetPath,
       coverPath: null,
+      fileHash,
       size: file.size,
       status: 'processing' as const,
       parseError: null,
@@ -615,6 +643,78 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     }
   });
 
+  // ── POST /api/books/dedup - 对书架上已存在的书籍进行去重 ──
+  router.post('/dedup', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const userBooks = db.select().from(books).where(sql`user_id = ${userId}`).all() as any[];
+      let removed = 0;
+      let kept = 0;
+
+      // 先为没有 file_hash 的书籍计算哈希
+      const toHash = userBooks.filter((b: any) => !b.fileHash);
+      for (const b of toHash) {
+        if (fs.existsSync(b.filePath)) {
+          try {
+            b.fileHash = await computeFileHash(b.filePath);
+            db.update(books).set({ fileHash: b.fileHash, updatedAt: new Date().toISOString() })
+              .where(sql`id = ${b.id}`).run();
+          } catch {
+            // 无法读取文件，跳过
+            continue;
+          }
+        }
+      }
+
+      // 重新读取包含 hash 的完整列表
+      const allBooks = db.select().from(books).where(sql`user_id = ${userId}`).all() as any[];
+
+      // 按 hash 分组
+      const groups = new Map<string, any[]>();
+      for (const b of allBooks) {
+        if (!b.fileHash) continue; // 无 hash 的书籍跳过
+        if (!groups.has(b.fileHash)) groups.set(b.fileHash, []);
+        groups.get(b.fileHash)!.push(b);
+      }
+
+      // 对每组重复书籍：保留最早创建的，删除其他
+      for (const [, group] of groups) {
+        if (group.length <= 1) continue;
+        // 按创建时间排序，保留最早创建的
+        group.sort((a: any, b: any) => a.createdAt.localeCompare(b.createdAt));
+        const keep = group[0];
+        const duplicates = group.slice(1);
+
+        for (const dup of duplicates) {
+          // 删除关联数据
+          db.delete(readingProgress).where(sql`book_id = ${dup.id}`).run();
+          db.delete(bookChapters).where(sql`book_id = ${dup.id}`).run();
+          db.delete(ttsGenerationJobs).where(sql`book_id = ${dup.id}`).run();
+          db.delete(books).where(sql`id = ${dup.id}`).run();
+          // 删除物理文件
+          const dupDir = path.join(booksDir, dup.id);
+          if (fs.existsSync(dupDir)) {
+            fs.rmSync(dupDir, { recursive: true, force: true });
+          }
+          removed++;
+        }
+        kept++;
+      }
+
+      res.json({
+        success: true,
+        data: { removed, kept, totalBefore: allBooks.length, totalAfter: allBooks.length - removed },
+        message: removed > 0
+          ? `去重完成：删除了 ${removed} 本重复书籍，保留了 ${kept} 本唯一书籍`
+          : '📚 书架已是去重状态，未发现重复书籍',
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  return router;
+  return router;
   return router;
   return router;
 }

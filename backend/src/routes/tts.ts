@@ -177,8 +177,9 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         }).run();
       }
 
-      // 检测音色是否变更，若变更则异步触发全量预生成
-      if (voiceId !== undefined && existing && existing.voiceId !== voiceId && dataDir) {
+      // 检测音色是否变更，若变更则异步触发全量预生成（仅在后台预合成开启时）
+      const bgPreSynth = autoPreSynthesize !== undefined ? autoPreSynthesize : existing?.autoPreSynthesize;
+      if (voiceId !== undefined && existing && existing.voiceId !== voiceId && dataDir && bgPreSynth) {
         try {
           regenerateAllForNewVoice(db, userId, voiceId, speed ?? existing.speed ?? 1.0, dataDir);
         } catch { /* 触发预生成失败不影响主流程 */ }

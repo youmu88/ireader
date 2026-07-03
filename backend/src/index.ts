@@ -64,16 +64,18 @@ setTimeout(async () => {
     const allBooks = db.select({ id: books.id, userId: books.userId }).from(books).all() as any[];
     let created = 0;
     for (const b of allBooks) {
+      // 检查用户是否开启了后台预合成
+      const settings = db.select()
+        .from(ttsSettings)
+        .where(sql`user_id = ${b.userId}`)
+        .get() as any;
+      if (!settings || !settings.autoPreSynthesize) continue;
+
       const existing = db.select({ id: ttsGenerationJobs.id })
         .from(ttsGenerationJobs)
         .where(sql`book_id = ${b.id}`)
         .get() as any;
       if (existing) continue;
-      
-      const settings = db.select()
-        .from(ttsSettings)
-        .where(sql`user_id = ${b.userId}`)
-        .get() as any;
       
       const voice = settings?.voice_id || 'zh-CN-XiaoxiaoNeural';
       const speed = settings?.speed || 1.0;

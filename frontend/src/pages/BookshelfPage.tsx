@@ -225,6 +225,25 @@ useEffect(() => {
     }
   }, [fetchTTSJobs]);
 
+  // ── 书籍去重 ──
+  const [deduping, setDeduping] = useState(false);
+  const handleDedup = useCallback(async () => {
+    if (deduping) return;
+    if (!window.confirm('确定要扫描并删除书架上的重复书籍吗？仅保留每本书最早上传的副本。')) return;
+    setDeduping(true);
+    try {
+      const res = await axios.post('/api/books/dedup');
+      alert(res.data.message);
+      if (res.data.data.removed > 0) {
+        await loadData();
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.error || '去重操作失败');
+    } finally {
+      setDeduping(false);
+    }
+  }, [deduping]);
+
   // 当面板打开或有活跃任务时轮询
   useEffect(() => {
     if (showTtsQueue) {
@@ -445,6 +464,14 @@ useEffect(() => {
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
           >
             + 上传图书
+          </button>
+          {/* 书籍去重按钮 */}
+          <button
+            onClick={handleDedup}
+            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+            title="扫描并删除书架上的重复书籍"
+          >
+            🔄 去重
           </button>
           {/* 上传队列图标（带角标）— 队列有任务时动态显示 */}
           {uploadStats.total > 0 && (

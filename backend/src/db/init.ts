@@ -39,6 +39,7 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       category_id TEXT,
       file_path TEXT NOT NULL,
       cover_path TEXT,
+      file_hash TEXT,
       size INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'processing' CHECK(status IN ('processing', 'ready', 'failed')),
       parse_error TEXT,
@@ -172,6 +173,8 @@ migrateOldTables(sqlite);
   } catch (err) {
     console.error('[迁移] tts_settings 列补充失败:', (err as Error).message);
   }
+
+  // ── 旧表迁移：检查是否需要从旧版升级 ──
 
   // ── 旧表迁移：检查是否需要从旧版升级 ──
   const userCount = sqlite.prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number };

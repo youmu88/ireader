@@ -19,6 +19,7 @@ export const books = sqliteTable('books', {
   categoryId: text('category_id'),
   filePath: text('file_path').notNull(),
   coverPath: text('cover_path'),
+  fileHash: text('file_hash'),
   size: integer('size').notNull(),
   status: text('status', { enum: ['processing', 'ready', 'failed'] }).notNull().default('processing'),
   parseError: text('parse_error'),
