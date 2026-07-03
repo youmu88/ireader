@@ -1859,6 +1859,14 @@ function ReaderPage() {
                       </button>
                     </div>
                     <div style={{ borderTop: '0.5px solid var(--color-border)' }} />
+                    {/* ── 阅读进度（预读x% · 章节位置） ── */}
+                    {serverStats && (
+                      <div className="flex items-center justify-center text-xs -mt-2" style={{ color: 'var(--color-text-muted)' }}>
+                        <span>预读 {Math.round(serverStats.readingPercentage * 100)}%</span>
+                        <span className="mx-1">·</span>
+                        <span>{currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1}/${serverStats.totalChapters}` : `共${serverStats.totalChapters}`}章</span>
+                      </div>
+                    )}
                     
                     {/* ── 播放栏（始终显示） ── */}
                     <div className="space-y-3">
@@ -1917,27 +1925,7 @@ function ReaderPage() {
                           style={{ left: `calc(${Math.round(ttsProgress * 100)}% - 8px)` }}
                         />
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>音色</span>
-                        <select
-                          value={ttsVoice}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setTtsVoice(v);
-                            try { localStorage.setItem('ireader_tts_voice', v); } catch {}
-                            const player = ttsPlayerRef.current;
-                            if (player) player.setVoice(v);
-                          }}
-                          className="text-sm px-3 py-2 rounded-lg border-none cursor-pointer max-w-[200px] outline-none"
-                          style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                        >
-                          <option value="zh-CN-XiaoxiaoNeural">Xiaoxiao（女）</option>
-                          <option value="zh-CN-YunxiNeural">Yunxi（男）</option>
-                          <option value="zh-CN-YunyangNeural">Yunyang（男·新闻）</option>
-                          <option value="zh-CN-XiaochenNeural">Xiaochen（女·亲切）</option>
-                          <option value="zh-CN-XiaomengNeural">Xiaomeng（女·活泼）</option>
-                        </select>
-                      </div>
+
                     </div>
 
                     <div style={{ borderTop: '0.5px solid var(--color-border)' }} />
@@ -2054,7 +2042,7 @@ function ReaderPage() {
                         className="text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
                         style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                       >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 缓存本章
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 本章
                       </button>
                       <button
                         onClick={handleCacheFullBook}
@@ -2062,7 +2050,7 @@ function ReaderPage() {
                         className="text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
                         style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                       >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> 全书缓存
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> 全书
                       </button>
                     </div>
                     {cacheStatus && cacheStatus.chapterCount > 0 && (
@@ -2086,7 +2074,7 @@ function ReaderPage() {
                             className="text-xs px-3 py-1.5 rounded-full transition-all duration-150 tap-active"
                             style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 清除文字
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 文字
                           </button>
                           {cacheStatus.audioSegmentCount > 0 && (
                             <button
@@ -2094,7 +2082,7 @@ function ReaderPage() {
                               className="text-xs px-3 py-1.5 rounded-full transition-all duration-150 tap-active"
                               style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                             >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 清除语音
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 语音
                             </button>
                           )}
                           <button
@@ -2102,7 +2090,7 @@ function ReaderPage() {
                             className="text-xs px-3 py-1.5 rounded-full transition-all duration-150 tap-active"
                             style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 清除全部
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 全部
                           </button>
                         </div>
                       </div>
@@ -2114,8 +2102,7 @@ function ReaderPage() {
                   {serverStats && (
                     <div className="pt-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
                       <div className="flex items-center gap-3 flex-wrap text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                        <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> 阅读 {Math.round(serverStats.readingPercentage * 100)}%</span>
-                        <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> {currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1}/${serverStats.totalChapters}` : `共${serverStats.totalChapters}`}章</span>
+
                         <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 预合成 {Math.round((serverStats.voiceGenerationRate || 0) * serverStats.totalChapters)}/{serverStats.totalChapters}章</span>
                         {serverStats.ttsCacheCount !== undefined && serverStats.ttsCacheCount > 0 && (
                           <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> 语音缓存 {serverStats.ttsCacheCount}条</span>
