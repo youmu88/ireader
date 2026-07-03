@@ -31,7 +31,7 @@ set -euo pipefail
 # ============================================================
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY_SCRIPT="${PROJECT_DIR}/deploy.sh"
-DELAY_SECONDS=60
+DELAY_SECONDS=10
 LOG_DIR="${PROJECT_DIR}/logs/triggered-deploy"
 SELF_PID=$$
 

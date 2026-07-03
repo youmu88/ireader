@@ -13,5 +13,7 @@
  * 1.13.0 (2026-07-03): 自动更新部署 — triggered-deploy.sh + Git hooks 自动化部署
  * 1.14.0 (2026-07-03): iOS 风格深度美化 — 毛玻璃导航栏、iOS 卡片式书架/设置/登录页、SF Symbols 图标体系、弹性动效
  */
+ * 1.14.1 (2026-07-03): [BUGFIX] 修复设置面板不可见（loading条件反置）+ 部署延迟60s→10s
+ */
 
-export const APP_VERSION = '1.14.0';
+export const APP_VERSION = '1.14.1';

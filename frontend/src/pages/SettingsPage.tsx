@@ -225,6 +225,17 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10 animate-fade-in flex items-center justify-center min-h-[50vh]">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 rounded-full border-2 animate-spin"
+          style={{ borderColor: 'var(--color-border)', borderTopColor: 'var(--color-primary)' }} />
+        <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>加载中...</span>
+      </div>
+    </div>
+  );
+  }
+
+  return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10 animate-fade-in">
       <h1 className="text-[28px] sm:text-[34px] font-bold tracking-tight mb-6 sm:mb-8"
         style={{ color: 'var(--color-text)' }}>
@@ -389,5 +400,4 @@ export default function SettingsPage() {
       <div className="h-12" />
     </div>
   );
-  }
 }
