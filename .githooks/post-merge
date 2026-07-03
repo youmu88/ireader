@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#
+# Git post-merge hook — iReader 自动更新部署
+# =============================================
+# 执行 `git pull` 成功合并后，自动触发后台部署。
+# 仅在 main 分支生效（避免开发分支误触）。
+# 独立后台进程（防自杀），不阻塞 git pull。
+#
+# 注意：此文件位于 .githooks/ 目录（可版本控制），
+# 通过 `git config core.hooksPath .githooks` 启用。
+#
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+TRIGGER_SCRIPT="${PROJECT_DIR}/scripts/triggered-deploy.sh"
+LOG_DIR="${PROJECT_DIR}/logs/triggered-deploy"
+
+# 检查当前分支
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
+if [ "${CURRENT_BRANCH}" != "main" ]; then
+  # 非 main 分支，不触发自动部署
+  exit 0
+fi
+
+# 检查部署脚本是否存在
+if [ ! -f "${TRIGGER_SCRIPT}" ]; then
+  echo "[post-merge] ⚠️  triggered-deploy.sh 不存在，跳过自动部署"
+  exit 0
+fi
+
+# 检查是否有实际变更被合并
+BEFORE_MERGE="$(git rev-parse HEAD^1 2>/dev/null || true)"
+AFTER_MERGE="$(git rev-parse HEAD 2>/dev/null || true)"
+if [ "${BEFORE_MERGE}" = "${AFTER_MERGE}" ]; then
+  # 无变更，不触发
+  exit 0
+fi
+
+echo ""
+echo "📚 [post-merge] iReader 自动更新部署已触发（main 分支更新）"
+
+# 后台启动部署（10秒延迟，给 git push 留出时间）
+nohup bash "${TRIGGER_SCRIPT}" 10 > /dev/null 2>&1 &
+disown $! 2>/dev/null || true
+
+echo "📚 [post-merge] 部署将在 10 秒后开始（PID: $!）"
+echo "📚 [post-merge] 查看日志: tail -f ${LOG_DIR}/"
+echo ""

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# Git post-commit hook — iReader 自动更新部署
+# ==============================================
+# 在 main 分支上执行 git commit 后，自动触发后台部署。
+# 独立后台进程（防自杀），不阻塞 git commit。
+#
+# 注意：此文件位于 .githooks/ 目录（可版本控制），
+# 通过 `git config core.hooksPath .githooks` 启用。
+#
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+TRIGGER_SCRIPT="${PROJECT_DIR}/scripts/triggered-deploy.sh"
+LOG_DIR="${PROJECT_DIR}/logs/triggered-deploy"
+
+# 检查当前分支
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
+if [ "${CURRENT_BRANCH}" != "main" ]; then
+  exit 0
+fi
+
+# 检查部署脚本是否存在
+if [ ! -f "${TRIGGER_SCRIPT}" ]; then
+  exit 0
+fi
+
+# 后台启动部署（延迟 10 秒）
+# 用 PID 文件防止重复触发
+PID_FILE="${PROJECT_DIR}/logs/triggered-deploy/.pending-deploy.pid"
+
+# 如果已有等待中的部署进程，跳过（避免重复）
+if [ -f "${PID_FILE}" ]; then
+  EXISTING_PID="$(cat "${PID_FILE}" 2>/dev/null || echo '')"
+  if [ -n "${EXISTING_PID}" ] && kill -0 "${EXISTING_PID}" 2>/dev/null; then
+    # 已有部署进程在等待，跳过本次触发
+    exit 0
+  fi
+fi
+
+nohup bash "${TRIGGER_SCRIPT}" 10 > /dev/null 2>&1 &
+TRIGGER_PID=$!
+disown "${TRIGGER_PID}" 2>/dev/null || true
+
+# 记录 PID
+mkdir -p "$(dirname "${PID_FILE}")"
+echo "${TRIGGER_PID}" > "${PID_FILE}"
+
+echo ""
+echo "📚 [post-commit] iReader 自动更新部署已排队（10 秒延迟，PID: ${TRIGGER_PID}）"
+echo "📚 [post-commit] 如需取消: kill ${TRIGGER_PID}"
+echo ""
