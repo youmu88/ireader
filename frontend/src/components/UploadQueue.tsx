@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import axios from 'axios';
 
 /* ───────── Types ───────── */
@@ -13,9 +13,21 @@ interface UploadTask {
   addedAt: string;        // ISO string
 }
 
+export interface UploadQueueStats {
+  total: number;
+  active: number;   // pending + uploading
+  completed: number;
+  failed: number;
+}
+
+export interface UploadQueueHandle {
+  show: () => void;
+}
+
 interface UploadQueueProps {
   onComplete: () => void;   // 重新加载书架
   onClose: () => void;
+  onStatsChange?: (stats: UploadQueueStats) => void;
 }
 
 /* ───────── Persistence keys ───────── */
@@ -34,7 +46,7 @@ function generateId(): string {
 }
 
 /* ───────── Component ───────── */
-export default function UploadQueue({ onComplete, onClose }: UploadQueueProps) {
+const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplete, onClose, onStatsChange }, ref) => {
   /* 队列状态 —— 持久化到 localStorage */
   const [tasks, setTasks] = useState<UploadTask[]>(() => {
     try {
@@ -167,6 +179,24 @@ export default function UploadQueue({ onComplete, onClose }: UploadQueueProps) {
   /* ── 文件变更处理（从 file input 选择文件） ── */
   const fileMapRef = useRef<Map<string, File>>(new Map());
 
+  /* ── 最小化模式（关闭弹窗但后台继续上传） ── */
+  const [minimized, setMinimized] = useState(true);
+
+  /* ── 暴露给父组件的方法 ── */
+  useImperativeHandle(ref, () => ({
+    show: () => setMinimized(false),
+  }));
+
+  /* ── 统计变化通知父组件 ── */
+  useEffect(() => {
+    onStatsChange?.({
+      total: tasks.length,
+      active: tasks.filter(t => t.status === 'pending' || t.status === 'uploading').length,
+      completed: tasks.filter(t => t.status === 'success').length,
+      failed: tasks.filter(t => t.status === 'failed').length,
+    });
+  }, [tasks, onStatsChange]);
+
   const handleFilesSelected = useCallback((fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
 
@@ -249,30 +279,16 @@ export default function UploadQueue({ onComplete, onClose }: UploadQueueProps) {
     setTasks(prev => prev.filter(t => t.status !== 'success'));
   };
 
-  /* ── 关闭 —— 如果全部完成则回调 ── */
-  const handleClose = () => {
-    const hasFailed = tasks.some(t => t.status === 'failed' || t.status === 'pending' || t.status === 'uploading');
-    if (hasFailed) {
-      if (!window.confirm('有未完成的上传任务，关闭后任务将保留，下次可继续。确定关闭吗？')) return;
-    }
-    // 取消所有进行中的上传
-    abortMapRef.current.forEach((ctrl) => ctrl.abort());
-    abortMapRef.current.clear();
-    runningRef.current = 0;
+  /* ── 最小化（后台继续上传） ── */
+  const handleMinimize = () => {
+    setMinimized(true);
     onClose();
   };
 
-  /* ── 确定并关闭（完成） ── */
+  /* ── 完成并最小化 ── */
   const handleFinish = () => {
-    const uploading = tasks.some(t => t.status === 'uploading');
-    if (uploading) {
-      if (!window.confirm('还有文件正在上传，关闭后未完成的任务将保留。确定吗？')) return;
-    }
-    // 取消进行中的
-    abortMapRef.current.forEach((ctrl) => ctrl.abort());
-    abortMapRef.current.clear();
-    runningRef.current = 0;
     onComplete();
+    setMinimized(true);
     onClose();
   };
 
@@ -288,6 +304,10 @@ export default function UploadQueue({ onComplete, onClose }: UploadQueueProps) {
 
   const hasCompleted = successCount > 0 || failedCount > 0;
 
+  /* ── 最小化时不渲染 UI，上传继续 ── */
+  if (minimized) return null;
+
+  
   /* ═════════════════════════ Render ═════════════════════════ */
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -302,11 +322,11 @@ export default function UploadQueue({ onComplete, onClose }: UploadQueueProps) {
             {total > 0 && <span className="text-sm font-normal text-gray-500 ml-2">({total} 本)</span>}
           </h2>
           <button
-            onClick={handleClose}
+            onClick={handleMinimize}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
-            title="关闭"
+            title="最小化（后台继续上传）"
           >
-            ✕
+            ⛅
           </button>
         </div>
 
@@ -481,10 +501,10 @@ export default function UploadQueue({ onComplete, onClose }: UploadQueueProps) {
           </div>
           <div className="flex gap-2">
             <button
-              onClick={handleClose}
+              onClick={handleMinimize}
               className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
             >
-              取消
+              后台运行
             </button>
             <button
               onClick={handleFinish}
@@ -496,5 +516,8 @@ export default function UploadQueue({ onComplete, onClose }: UploadQueueProps) {
         </div>
       </div>
     </div>
-  );
-}
+    );
+});
+
+export default UploadQueue;
+

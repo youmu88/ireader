@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
 import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, type PlayerState } from '../services/ttsPlayer';
-import UploadQueue from '../components/UploadQueue';
+import UploadQueue, { type UploadQueueStats, type UploadQueueHandle } from '../components/UploadQueue';
 
 interface TTSJob {
   id: string;
@@ -53,7 +53,8 @@ function BookshelfPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [showUpload, setShowUpload] = useState(false);
+  const [uploadStats, setUploadStats] = useState<UploadQueueStats>({ total: 0, active: 0, completed: 0, failed: 0 });
+  const uploadQueueRef = useRef<UploadQueueHandle>(null);
 const [bookStats, setBookStats] = useState<Record<string, BookStats>>({});
 // 加载书籍统计信息
 const loadBookStats = useCallback(async (bookId: string) => {
@@ -434,21 +435,36 @@ useEffect(() => {
             ☐ 批量选择
           </button>
           <button
-            onClick={() => setShowUpload(true)}
+            onClick={() => uploadQueueRef.current?.show()}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
           >
             + 上传图书
           </button>
+          {/* 上传队列图标（带角标）— 队列有任务时动态显示 */}
+          {uploadStats.total > 0 && (
+            <button
+              onClick={() => uploadQueueRef.current?.show()}
+              className="relative px-2 sm:px-3 py-1 rounded text-xs sm:text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title={`上传队列：${uploadStats.active} 个进行中，${uploadStats.completed} 个完成`}
+            >
+              📤
+              {uploadStats.active > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 text-[10px] sm:text-xs font-bold text-white bg-red-500 rounded-full">
+                  {uploadStats.active > 99 ? '99+' : uploadStats.active}
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Upload Queue Modal */}
-      {showUpload && (
-        <UploadQueue
-          onComplete={() => { loadData(); }}
-          onClose={() => setShowUpload(false)}
-        />
-      )}
+      {/* Upload Queue Modal — 始终渲染以支持后台运行 */}
+      <UploadQueue
+        ref={uploadQueueRef}
+        onComplete={() => { loadData(); }}
+        onClose={() => {}}
+        onStatsChange={setUploadStats}
+      />
 
       {/* Sidebar + Content */}
       {/* Edit Modal */}
