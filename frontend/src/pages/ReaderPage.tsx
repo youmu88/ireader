@@ -1391,7 +1391,7 @@ function ReaderPage() {
     }
     await goToPrevChapter();
     // 自动播放上一章
-    setTimeout(() => handleStartTTS(), 300);
+    setTimeout(() => handleStartTTS(), 100);
   }, [currentChapter, chapters, goToPrevChapter, handleStartTTS]);
 
   /** 下一章切换（用于播放器控制） */
@@ -1410,7 +1410,7 @@ function ReaderPage() {
     }
     await goToNextChapter();
     // 自动播放下一章
-    setTimeout(() => handleStartTTS(), 300);
+    setTimeout(() => handleStartTTS(), 100);
   }, [currentChapter, chapters, goToNextChapter, handleStartTTS]);
 
   /** 暂停 TTS */
