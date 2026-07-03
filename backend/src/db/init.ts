@@ -201,9 +201,7 @@ migrateOldTables(sqlite);
     console.error('[迁移] books 列补充失败:', (err as Error).message);
   }
 
-  // ── 旧表迁移：检查是否需要从旧版升级 ──
 
-  // ── 旧表迁移：检查是否需要从旧版升级 ──
   const userCount = sqlite.prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number };
   if (userCount.cnt === 0) {
     // 创建默认管理员用户（密码：admin123）
