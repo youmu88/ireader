@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import axios from 'axios';
-import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, type PlayerState } from '../services/ttsPlayer';
+import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, getLastPlaybackFromLocalStorage, type PlayerState } from '../services/ttsPlayer';
 import UploadQueue, { type UploadQueueStats, type UploadQueueHandle } from '../components/UploadQueue';
 import { APP_VERSION } from '../version';
 
@@ -319,8 +319,24 @@ useEffect(() => {
     state: PlayerState;
     bookId?: string;
     bookTitle?: string;
+    chapterTitle?: string;
     progress: number;
-  } | null>(() => getGlobalPlayerSnapshot());
+  } | null>(() => {
+    // 优先使用实时播放器状态，空闲时从 localStorage 恢复上次播放记录
+    const snapshot = getGlobalPlayerSnapshot();
+    if (snapshot) return snapshot;
+    const lastPlayback = getLastPlaybackFromLocalStorage();
+    if (lastPlayback) {
+      return {
+        state: 'paused' as PlayerState,
+        bookId: lastPlayback.bookId,
+        bookTitle: lastPlayback.bookTitle,
+        chapterTitle: lastPlayback.chapterTitle,
+        progress: lastPlayback.progress,
+      };
+    }
+    return null;
+  });
 
   useEffect(() => {
     const unsub = subscribeGlobalPlayer((info) => setGlobalTtsInfo(info));
@@ -944,7 +960,7 @@ useEffect(() => {
         </div>
       )}
 
-      {globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId && (
+      {globalTtsInfo?.bookId && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-2xl">
           {/* 进度条与书架整排宽度一致 */}
           <div className="max-w-7xl mx-auto">
@@ -956,7 +972,7 @@ useEffect(() => {
             </div>
           </div>
           <a
-            href={`/reader/${globalTtsInfo.bookId}`}
+            href={`/reader/${globalTtsInfo.bookId}${globalTtsInfo.state === 'paused' ? '?autoPlayTts=1' : ''}`}
             className="flex items-center gap-3 px-4 py-3 max-w-7xl mx-auto"
           >
             <div className="flex-1 min-w-0">
@@ -965,7 +981,7 @@ useEffect(() => {
               </p>
               <div className="flex items-center gap-2 mt-0.5">
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {globalTtsInfo.state === 'playing' ? '播放中' : '已暂停'}
+                  {globalTtsInfo.state === 'playing' ? '播放中' : globalTtsInfo.state === 'paused' ? '已暂停' : '上次听到'}
                 </span>
                 <span className="text-xs text-blue-500 font-medium">
                   {Math.round(globalTtsInfo.progress * 100)}%
@@ -977,8 +993,13 @@ useEffect(() => {
                 e.preventDefault();
                 e.stopPropagation();
                 const player = getDefaultPlayer();
-                if (globalTtsInfo.state === 'playing') player.pause();
-                else if (globalTtsInfo.state === 'paused') player.resume();
+                if (player.currentBookId === globalTtsInfo.bookId) {
+                  if (globalTtsInfo.state === 'playing') player.pause();
+                  else if (globalTtsInfo.state === 'paused') player.resume();
+                } else {
+                  // 从 localStorage 恢复：跳转到阅读页面并自动续播
+                  window.location.href = `/reader/${globalTtsInfo.bookId}?autoPlayTts=1`;
+                }
               }}
               className="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 transition-colors shrink-0 shadow-lg"
             >

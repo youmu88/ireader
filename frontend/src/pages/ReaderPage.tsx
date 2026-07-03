@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   cacheBookChapters,
   cacheSingleChapter,
@@ -328,6 +328,22 @@ function ReaderPage() {
     loadEpub(book);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book]);
+
+  // ⭐ autoPlayTts=1：从书架底部栏续播时自动启动 TTS
+  const [searchParams] = useSearchParams();
+  const autoPlayTtsTriggered = useRef(false);
+  useEffect(() => {
+    if (autoPlayTtsTriggered.current) return;
+    if (!currentChapter || !book) return;
+    if (searchParams.get('autoPlayTts') !== '1') return;
+    autoPlayTtsTriggered.current = true;
+    // 等待内容渲染完成后启动 TTS
+    const timer = setTimeout(() => {
+      handleStartTTS();
+    }, 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChapter, book, searchParams]);
 
   const loadBook = async () => {
     // ⭐ 记录触发时的书籍 ID，异步完成后校验是否仍为同一本书
@@ -1054,8 +1070,9 @@ function ReaderPage() {
         player.stop();
       }
 
-      // 设置当前播放的书籍信息（供全局状态订阅使用）
+      // 设置当前播放的书籍信息（供全局状态订阅 + localStorage 持久化使用）
       player.chapterTitle = currentChapter?.title || '';
+      player.chapterId = currentChapter?.id || '';
       (player as any).bookTitle = book?.title || '';
 
       // ⭐ 设置音色
@@ -1180,7 +1197,7 @@ function ReaderPage() {
 
       // ⭐ 恢复 TTS 位置：play() 完成后跳转到上次保存的分段
       const savedPos = savedTtsProgressRef.current;
-      if (savedPos && savedPos.chapterId === currentChapter?.id && savedPos.segmentIndex > 0) {
+      if (savedPos && savedPos.chapterId === currentChapter?.id && savedPos.segmentIndex >= 0) {
         await player.jumpToSegment(savedPos.segmentIndex);
       }
     } catch (err) {
@@ -1211,7 +1228,9 @@ function ReaderPage() {
       }
     }
     // ⭐ 清除 localStorage 播放持久化记录（用户主动停止，不再需要恢复）
-    clearPlaybackFromLocalStorage();
+    try {
+      localStorage.removeItem('ireader_last_playback');
+    } catch { /* 静默 */ }
     if (ttsProgressSaveTimer.current) {
       clearInterval(ttsProgressSaveTimer.current);
       ttsProgressSaveTimer.current = null;

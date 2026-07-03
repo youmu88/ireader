@@ -260,6 +260,12 @@ export class TTSPlayer {
   public chapterTitle: string = '';
 
   /** 获取当前音色 */
+  /** 当前章节 ID（由 ReaderPage 设置，供持久化恢复用） */
+  public chapterId: string = '';
+  /** 心跳检测定时器：检测音频被浏览器静默暂停后自动恢复 */
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** 获取当前音色 */
   getVoice(): string { return this.voice; }
   /** 设置音色 */
   setVoice(v: string): void { this.voice = v; }
@@ -356,12 +362,18 @@ export class TTSPlayer {
   }
 
 
+  /** 获取当前章节ID */
+  getChapterId(): string { return this.chapterId; }
+  /** 获取书籍标题 */
+  getBookTitle(): string { return this.bookTitle; }
+
+
   /**
    * 跳转到指定分段索引后开始播放
    * 预生成目标分段之前的所有音频，再从目标分段开始播放
    */
   async jumpToSegment(index: number): Promise<void> {
-    if (this.isDestroyed || index <= 0 || index >= this.chunks.length) return;
+    if (this.isDestroyed || index < 0 || index >= this.chunks.length) return;
 
     // 拼接模式：直接设置 audioElement.currentTime 到目标 chunk 的起始时间
     if (this.isConcatMode && this.audioElement && this.chunkTimeSlots.length > 0) {
@@ -384,8 +396,32 @@ export class TTSPlayer {
     }
     await Promise.all(promises);
 
-    this.currentIndex = index - 1; // playNext 会递增到 index
+    // ⭐ 停止当前播放，跳到目标分段
+    if (this.audioElement) {
+      this.audioElement.pause();
+      this.audioElement.removeAttribute('src');
+      try { this.audioElement.load(); } catch { /* ignore */ }
+    }
+
+    this.currentIndex = Math.max(0, index - 1); // playNext 会递增到 index
     this.currentSegmentText = this.chunks[index]?.text || '';
+
+    // 释放目标索引之前分段的 Blob URL
+    for (let i = 0; i < index; i++) {
+      const chunk = this.chunks[i];
+      if (chunk.audioBlobUrl) {
+        const urlIdx = this.allBlobUrls.indexOf(chunk.audioBlobUrl);
+        if (urlIdx >= 0) {
+          try { URL.revokeObjectURL(chunk.audioBlobUrl); } catch { /* ignore */ }
+          this.allBlobUrls.splice(urlIdx, 1);
+        }
+        chunk.audioBlobUrl = undefined;
+        chunk.status = 'played';
+      }
+    }
+
+    // 立即从目标分段开始播放
+    this.playNext();
   }
 
   /**
@@ -523,6 +559,8 @@ export class TTSPlayer {
       }
       this.updateMediaSessionState('playing');
       this.setState('playing');
+      // ⭐ 恢复播放后启动心跳检测
+      this.startHeartbeat();
       return;
     }
 
@@ -542,6 +580,7 @@ export class TTSPlayer {
     this.audioElement?.pause();
     this.updateMediaSessionState('paused');
     this.setState('paused');
+    this.clearHeartbeat();
   }
 
   resume(): void {
@@ -580,6 +619,7 @@ export class TTSPlayer {
 
   destroy(): void {
     this.isDestroyed = true;
+    this.clearHeartbeat();
     this.stopInternal();
     this.callbacks = {};
 
@@ -1416,7 +1456,99 @@ export class TTSPlayer {
     for (const listener of globalListeners) {
       try { listener(info); } catch { /* ignore */ }
     }
+    // ⭐ 每次通知时自动持久化到 localStorage（供退出重进后恢复使用）
+    if (this.state !== 'idle' && this.currentBookId) {
+      try {
+        localStorage.setItem('ireader_last_playback', JSON.stringify({
+          bookId: this.currentBookId,
+          bookTitle: this.bookTitle,
+          chapterId: this.chapterId,
+          chapterTitle: this.chapterTitle,
+          progress: info.progress,
+          currentIndex: this.currentIndex,
+          totalChunks: this.chunks.length,
+          timestamp: Date.now(),
+        }));
+      } catch { /* localStorage 不可用时静默失败 */ }
+    }
   }
+
+  /**
+   * 启动心跳检测：定期检查 <audio> 是否被浏览器静默暂停
+   * 如果状态为 playing 但音频意外暂停，自动恢复播放
+   */
+  private startHeartbeat(): void {
+    this.clearHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.state !== 'playing' || !this.audioElement || this.isDestroyed) return;
+      try {
+        // 检测音频是否被浏览器意外暂停（如另一个 PWA 关闭时触发音频焦点回收）
+        if (this.audioElement.paused && !this.audioElement.ended) {
+          const dur = this.audioElement.duration;
+          const ct = this.audioElement.currentTime;
+          const naturallyEnding = dur > 0 && ct > 0 && ct >= dur - 0.5;
+          if (!naturallyEnding) {
+            // 尝试恢复播放
+            this.audioElement.play().catch(() => {
+              // 恢复失败不处理，可能正在切换 chunk
+            });
+          }
+        }
+      } catch { /* 静默 */ }
+    }, 8000);
+  }
+
+  /** 清除心跳检测定时器 */
+  private clearHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+}
+
+/** localStorage key：最后播放记录 */
+const LS_LAST_PLAYBACK = 'ireader_last_playback';
+
+export interface LastPlaybackInfo {
+  bookId: string;
+  bookTitle: string;
+  chapterId: string;
+  chapterTitle: string;
+  progress: number;
+  currentIndex: number;
+  totalChunks: number;
+  timestamp: number;
+}
+
+/**
+ * 保存最后播放记录到 localStorage
+ * 供书架底部栏在播放器空闲时显示状态
+ */
+export function savePlaybackToLocalStorage(info: LastPlaybackInfo): void {
+  try {
+    localStorage.setItem(LS_LAST_PLAYBACK, JSON.stringify({ ...info, timestamp: Date.now() }));
+  } catch { /* 静默 */ }
+}
+
+/**
+ * 从 localStorage 读取最后播放记录
+ */
+export function getLastPlaybackFromLocalStorage(): LastPlaybackInfo | null {
+  try {
+    const raw = localStorage.getItem(LS_LAST_PLAYBACK);
+    if (!raw) return null;
+    return JSON.parse(raw) as LastPlaybackInfo;
+  } catch { return null; }
+}
+
+/**
+ * 清除最后播放记录（用户在 ReaderPage 主动停止时调用）
+ */
+export function clearPlaybackFromLocalStorage(): void {
+  try {
+    localStorage.removeItem(LS_LAST_PLAYBACK);
+  } catch { /* 静默 */ }
 }
 
 // ===== 辅助：创建默认播放器实例 =====
