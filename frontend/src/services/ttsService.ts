@@ -35,6 +35,7 @@ export interface TTSSettings {
   preGenerateConcurrency: number;
   firstChunkMaxSize: number;
   normalChunkMaxSize: number;
+  autoPreSynthesize?: boolean;
   updatedAt: string;
 }
 

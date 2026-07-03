@@ -13,6 +13,8 @@ import {
   type HealthResult,
 } from '../services/ttsService';
 
+import { APP_VERSION } from '../version';
+
 // 预设 TTS 服务的默认 URL
 const PRESET_DEFAULT_URLS: Record<string, string> = {
   kokoro: 'http://127.0.0.1:8880',
@@ -53,6 +55,9 @@ export default function SettingsPage() {
     try { localStorage.setItem(NO_CACHE_KEY, next ? 'true' : 'false'); } catch { /* ignore */ }
   };
 
+  // ── 自动预合成开关 ──
+  const [autoPreSynthesize, setAutoPreSynthesize] = useState(false);
+
   // 判断当前是否为自定义模式
   const isCustomSource = selectedSource === 'custom';
 
@@ -83,6 +88,8 @@ export default function SettingsPage() {
         setSpeed(settings.speed ?? 1.0);
         setApiUrl(settings.apiUrl || '');
         setApiKey(settings.apiKey || '');
+        setApiKey(settings.apiKey || '');
+        setAutoPreSynthesize(settings.autoPreSynthesize ?? false);
         try {
           const effectiveUrl = settings.apiUrl || PRESET_DEFAULT_URLS[settings.source || 'kokoro'];
           const voiceList = await fetchVoices(settings.source || 'kokoro', effectiveUrl, settings.apiKey || undefined);
@@ -165,6 +172,7 @@ export default function SettingsPage() {
         speed,
         apiUrl: isCustomSource ? (apiUrl || null) : null,
         apiKey: apiKey || null,
+        autoPreSynthesize,
       });
       setTtsSettings(updated);
       setSaveMessage('✓ 设置已保存');
@@ -394,6 +402,31 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            {/* 自动预合成开关 */}
+            <div className="flex items-center justify-between py-2">
+              <div>
+                <label className="text-sm font-medium">自动预合成</label>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  开启：打开书籍或切换章节时自动预合成后续内容的音频<br />
+                  关闭：仅播放当前章节，不触发后台预合成
+                </p>
+              </div>
+              <button
+                onClick={() => setAutoPreSynthesize(!autoPreSynthesize)}
+                className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${
+                  autoPreSynthesize ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    autoPreSynthesize ? 'translate-x-6' : 'translate-x-0.5'
+                  } flex items-center justify-center text-[10px]`}
+                >
+                  {autoPreSynthesize ? '✓' : '⏺'}
+                </span>
+              </button>
+            </div>
+
             {/* Connection Test & Cache Clear */}
             <div className="flex items-center gap-3 flex-wrap">
               <button onClick={handleTestConnection} disabled={testing}
@@ -437,7 +470,7 @@ export default function SettingsPage() {
         <section className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 sm:p-4">
           <h2 className="text-lg font-semibold mb-3">关于</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            iReader v0.1.0 — 图书阅读与听书服务端软件
+            iReader v{APP_VERSION} — 图书阅读与听书服务端软件
           </p>
           <p className="text-xs text-gray-400 mt-2">
             TTS 后端: {ttsSettings?.source || 'edgetts'} · 音色: {ttsSettings?.voiceId || 'zh-CN-XiaoxiaoNeural'}
