@@ -198,7 +198,20 @@ migrateOldTables(sqlite);
       console.log('[迁移] books file_hash 列补充完成 ✅');
     }
   } catch (err) {
-    console.error('[迁移] books 列补充失败:', (err as Error).message);
+    console.error('[迁移] books file_hash 列补充失败:', (err as Error).message);
+  }
+
+  // ── 迁移：books 表增加 pinned 列（置顶功能） ──
+  try {
+    const bookCols = sqlite.prepare("PRAGMA table_info('books')").all() as { name: string }[];
+    const hasPinned = bookCols.some(c => c.name === 'pinned');
+    if (!hasPinned) {
+      console.log('[迁移] books 缺少 pinned 列，正在补充...');
+      sqlite.exec(`ALTER TABLE books ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;`);
+      console.log('[迁移] books pinned 列补充完成 ✅');
+    }
+  } catch (err) {
+    console.error('[迁移] books pinned 列补充失败:', (err as Error).message);
   }
 
 

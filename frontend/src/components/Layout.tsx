@@ -98,22 +98,25 @@ function Layout() {
                   {user.displayName || user.username}
                 </span>
               )}
-              {/* 主题切换按钮（iOS 式按压） */}
-              <button
-                onClick={toggleTheme}
-                className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-600 tap-icon ripple-btn"
-                title={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}
-              >
-                {theme === 'dark' ? '☀️' : '🌙'}
-              </button>
-              {/* 退出登录 */}
-              <button
-                onClick={handleLogout}
-                className="p-1 sm:px-3 sm:py-1 rounded text-xs sm:text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 tap-active"
-                title="退出登录"
-              >
-                <span className="sm:hidden">🚪</span><span className="hidden sm:inline">退出</span>
-              </button>
+              {/* 桌面端工具栏：主题切换 + 退出登录（移动端隐藏，可在设置页操作） */}
+              <div className="hidden sm:flex items-center gap-1 sm:gap-3">
+                {/* 主题切换按钮（iOS 式按压） */}
+                <button
+                  onClick={toggleTheme}
+                  className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-600 tap-icon ripple-btn"
+                  title={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}
+                >
+                  {theme === 'dark' ? '☀️' : '🌙'}
+                </button>
+                {/* 退出登录 */}
+                <button
+                  onClick={handleLogout}
+                  className="p-1 sm:px-3 sm:py-1 rounded text-xs sm:text-sm bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 tap-active"
+                  title="退出登录"
+                >
+                  <span className="sm:hidden">🚪</span><span className="hidden sm:inline">退出</span>
+                </button>
+              </div>
             </nav>
           </div>
         </header>

@@ -470,25 +470,78 @@ useEffect(() => {
     <>
     <div className={`max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8 ${globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId ? 'pb-24' : ''}`}>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-           我的书架
-           <span className="text-xs text-gray-400 dark:text-gray-500 font-normal bg-gray-100 dark:bg-gray-700/50 px-1.5 py-0.5 rounded select-none">
-             v{APP_VERSION}
-           </span>
-            {/* 预合成活跃指示器（点击可跳转到队列面板） */}
-            {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
-              <button onClick={() => setShowTtsQueue(true)}
-                className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 ml-1 cursor-pointer hover:text-green-700 dark:hover:text-green-300 transition-colors"
-                title="点击查看 TTS 队列">
-                <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shadow-sm shadow-green-400/50" />
-                合成中
+      <div className="mb-6">
+        {/* Row 1: 标题行 + 桌面端操作栏 */}
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-bold flex items-center gap-2 shrink-0">
+             我的书架
+             <span className="text-xs text-gray-400 dark:text-gray-500 font-normal bg-gray-100 dark:bg-gray-700/50 px-1.5 py-0.5 rounded select-none">
+               v{APP_VERSION}
+             </span>
+              {/* 预合成活跃指示器（点击可跳转到队列面板） */}
+              {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
+                <button onClick={() => setShowTtsQueue(true)}
+                  className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 ml-1 cursor-pointer hover:text-green-700 dark:hover:text-green-300 transition-colors"
+                  title="点击查看 TTS 队列">
+                  <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shadow-sm shadow-green-400/50" />
+                  合成中
+                </button>
+              )}
+          </h1>
+          {/* 桌面端（sm+）：操作栏与标题同行 */}
+          <div className="hidden sm:flex items-center gap-2">
+            {/* 搜索框 */}
+            <div className="relative w-56">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="搜索书名或作者..."
+                className="w-full px-3 py-2 pl-9 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
+            </div>
+            <button
+              onClick={() => { setSelectionMode(true); setSelectedIds(new Set()); }}
+              className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 tap-active whitespace-nowrap"
+            >
+              ☐ 批量选择
+            </button>
+            <button
+              onClick={() => uploadQueueRef.current?.show()}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-200 ripple-btn whitespace-nowrap"
+            >
+              + 上传图书
+            </button>
+            {/* 书籍去重按钮 */}
+            <button
+              onClick={handleDedup}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 tap-active whitespace-nowrap"
+              title="扫描并删除书架上的重复书籍"
+            >
+              🔄 去重
+            </button>
+            {/* 上传队列图标（带角标）— 队列有任务时动态显示 */}
+            {uploadStats.total > 0 && (
+              <button
+                onClick={() => uploadQueueRef.current?.show()}
+                className="relative px-2 sm:px-3 py-1 rounded text-xs sm:text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title={`上传队列：${uploadStats.active} 个进行中，${uploadStats.completed} 个完成`}
+              >
+                📤
+                {uploadStats.active > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 text-[10px] sm:text-xs font-bold text-white bg-red-500 rounded-full">
+                    {uploadStats.active > 99 ? '99+' : uploadStats.active}
+                  </span>
+                )}
               </button>
             )}
-         </h1>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          {/* 搜索框 */}
-          <div className="relative flex-1 sm:w-56">
+          </div>
+        </div>
+        {/* 移动端（< sm）：搜索 + 操作分两行排列 */}
+        <div className="sm:hidden mt-3 space-y-2">
+          {/* 第1行：搜索框（全宽） */}
+          <div className="relative w-full">
             <input
               type="text"
               value={searchQuery}
@@ -498,41 +551,43 @@ useEffect(() => {
             />
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
           </div>
-          <button
-            onClick={() => { setSelectionMode(true); setSelectedIds(new Set()); }}
-            className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 tap-active whitespace-nowrap"
-          >
-            ☐ 批量选择
-          </button>
-          <button
-            onClick={() => uploadQueueRef.current?.show()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-200 ripple-btn whitespace-nowrap"
-          >
-            + 上传图书
-          </button>
-          {/* 书籍去重按钮 */}
-          <button
-            onClick={handleDedup}
-            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 tap-active whitespace-nowrap"
-            title="扫描并删除书架上的重复书籍"
-          >
-            🔄 去重
-          </button>
-          {/* 上传队列图标（带角标）— 队列有任务时动态显示 */}
-          {uploadStats.total > 0 && (
+          {/* 第2行：操作按钮组（可横向滚动） */}
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1 pb-0.5">
+            <button
+              onClick={() => { setSelectionMode(true); setSelectedIds(new Set()); }}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 tap-active whitespace-nowrap shrink-0"
+            >
+              ☐ 批量选择
+            </button>
             <button
               onClick={() => uploadQueueRef.current?.show()}
-              className="relative px-2 sm:px-3 py-1 rounded text-xs sm:text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title={`上传队列：${uploadStats.active} 个进行中，${uploadStats.completed} 个完成`}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-200 ripple-btn whitespace-nowrap shrink-0 shadow-sm"
             >
-              📤
-              {uploadStats.active > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 text-[10px] sm:text-xs font-bold text-white bg-red-500 rounded-full">
-                  {uploadStats.active > 99 ? '99+' : uploadStats.active}
-                </span>
-              )}
+              + 上传图书
             </button>
-          )}
+            <button
+              onClick={handleDedup}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 tap-active whitespace-nowrap shrink-0"
+              title="扫描并删除书架上的重复书籍"
+            >
+              🔄 去重
+            </button>
+            {/* 上传队列图标（带角标） */}
+            {uploadStats.total > 0 && (
+              <button
+                onClick={() => uploadQueueRef.current?.show()}
+                className="relative shrink-0 px-2 py-2 rounded text-xs hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title={`上传队列：${uploadStats.active} 个进行中，${uploadStats.completed} 个完成`}
+              >
+                📤
+                {uploadStats.active > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold text-white bg-red-500 rounded-full">
+                    {uploadStats.active > 99 ? '99+' : uploadStats.active}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
