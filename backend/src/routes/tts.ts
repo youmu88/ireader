@@ -10,7 +10,7 @@ import { getSources, getVoices, checkHealth, synthesize } from '../services/ttsP
 import { ttsSettings, ttsCache, ttsGenerationJobs, books } from '../db/schema.js';
 import { findCache, isCacheValid, saveToCache, clearAllCache, evictStaleCache } from '../services/ttsCacheService.js';
 import { requireAuth } from '../middleware/auth.js';
-import { regenerateAllForNewVoice, cancelJob, cancelJobs, cancelAllUserJobs, deleteJobs, clearTerminatedJobs } from '../services/ttsGenerationService.js';
+import { regenerateAllForNewVoice, createFullBookGenerationJob, cancelJob, cancelJobs, cancelAllUserJobs, deleteJobs, clearTerminatedJobs } from '../services/ttsGenerationService.js';
 
 export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').initDatabase>, dataDir?: string) {
   const router = Router();
@@ -125,6 +125,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           preGenerateConcurrency: 3,
           firstChunkMaxSize: 32,
           normalChunkMaxSize: 128,
+          autoPreSynthesize: false,
           updatedAt: new Date().toISOString(),
         };
         db.insert(ttsSettings).values(defaults).run();
@@ -138,10 +139,10 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
   });
 
   // ── TTS 设置保存（按用户隔离，支持 apiUrl/apiKey 持久化） ──
-  router.put('/settings', requireAuth, (req: Request, res: Response) => {
+  router.put('/settings', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.user!.userId;
-      const { enabled, source, voiceId, speed, apiUrl, apiKey, preGenerateConcurrency, firstChunkMaxSize, normalChunkMaxSize } = req.body;
+      const { enabled, source, voiceId, speed, apiUrl, apiKey, preGenerateConcurrency, firstChunkMaxSize, normalChunkMaxSize, autoPreSynthesize } = req.body;
       const now = new Date().toISOString();
       const existing = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
 
@@ -155,6 +156,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       if (preGenerateConcurrency !== undefined) updateData.preGenerateConcurrency = preGenerateConcurrency;
       if (firstChunkMaxSize !== undefined) updateData.firstChunkMaxSize = firstChunkMaxSize;
       if (normalChunkMaxSize !== undefined) updateData.normalChunkMaxSize = normalChunkMaxSize;
+      if (autoPreSynthesize !== undefined) updateData.autoPreSynthesize = autoPreSynthesize;
 
       if (existing) {
         db.update(ttsSettings).set(updateData).where(sql`user_id = ${userId}`).run();
@@ -170,6 +172,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           preGenerateConcurrency: preGenerateConcurrency ?? 3,
           firstChunkMaxSize: firstChunkMaxSize ?? 32,
           normalChunkMaxSize: normalChunkMaxSize ?? 128,
+          autoPreSynthesize: autoPreSynthesize ?? false,
           updatedAt: now,
         }).run();
       }
@@ -179,6 +182,18 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         try {
           regenerateAllForNewVoice(db, userId, voiceId, speed ?? existing.speed ?? 1.0, dataDir);
         } catch { /* 触发预生成失败不影响主流程 */ }
+      }
+
+      // 检测 autoPreSynthesize 是否开启，若开启则触发全量预生成
+      if (autoPreSynthesize === true && existing && !existing.autoPreSynthesize && dataDir) {
+        try {
+          const voice = voiceId || existing.voiceId || 'zh-CN-XiaoxiaoNeural';
+          const spd = speed ?? existing.speed ?? 1.0;
+          const userBooks = db.select().from(books).where(sql`user_id = ${userId}`).all();
+          for (const b of userBooks) {
+            createFullBookGenerationJob(db, b.id, userId, voice, spd, dataDir);
+          }
+        } catch { /* 全量预合成触发失败不影响主流程 */ }
       }
 
       const updated = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();

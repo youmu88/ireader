@@ -4,8 +4,10 @@ import {
   cacheBookChapters,
   cacheSingleChapter,
   getCachedChapterContent,
-  getBookCacheStatus,
+  getBookCacheDetailedStats,
   clearBookCache,
+  clearBookChapterCache,
+  clearBookTTSAudioCache,
 } from '../services/offlineCacheService';
 import axios from 'axios';
 import {
@@ -13,6 +15,7 @@ import {
   splitText,
   type PlayerState,
 } from '../services/ttsPlayer';
+import type { BookCacheDetailedStats } from '../services/offlineCacheService';
 
 interface Book {
   id: string;
@@ -34,6 +37,13 @@ interface Chapter {
 const PROGRESS_SAVE_DELAY = 800; // ms debounce for saving progress
 const TTS_PROGRESS_SAVE_INTERVAL = 3000; // ms interval for saving TTS playback position
 const TTS_PLAYBACK_KEY = 'ireader_tts_playback'; // localStorage key for TTS playback session (survives page refresh)
+
+/** 格式化字节数为人类可读 */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
 
 function ReaderPage() {
   const { bookId } = useParams<{ bookId: string }>();
@@ -98,7 +108,8 @@ function ReaderPage() {
   const [readingMode, setReadingMode] = useState<'scroll' | 'paginated'>(initialPrefs.readingMode ?? 'scroll');
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  const showEpubView = false; // 原版/文本切换按钮已移除，固定为文本视图
+  const showEpubView = false;
+  const [ttsVoice, setTtsVoice] = useState('zh-CN-XiaoxiaoNeural'); // 原版/文本切换按钮已移除，固定为文本视图
 
 
   // ── 悬浮UI控制（全屏阅读：点击屏幕显示/隐藏所有控件） ──
@@ -170,11 +181,7 @@ function ReaderPage() {
   /** Display chapter title — stays on original chapter during append mode */
   const [displayChapter, setDisplayChapter] = useState<Chapter | null>(null);
   // ── 客户端离线缓存 ──
-  const [cacheStatus, setCacheStatus] = useState<{
-    chapterCount: number;
-    totalChapters: number;
-    hasAudio: boolean;
-  } | null>(null);
+  const [cacheStatus, setCacheStatus] = useState<BookCacheDetailedStats | null>(null);
   const [cachingInProgress, setCachingInProgress] = useState(false);
 
   // ── 服务端统计信息（阅读进度 + 语音预合成 + 缓存概况） ──
@@ -193,16 +200,8 @@ function ReaderPage() {
   const checkCacheStatus = useCallback(async () => {
     if (!bookId) return;
     try {
-      const status = await getBookCacheStatus(bookId);
-      if (status) {
-        setCacheStatus({
-          chapterCount: status.cachedChapters,
-          totalChapters: status.totalChapters,
-          hasAudio: status.cachedAudioSegments > 0,
-        });
-      } else {
-        setCacheStatus(null);
-      }
+      const status = await getBookCacheDetailedStats(bookId);
+      setCacheStatus(status);
     } catch {
       setCacheStatus(null);
     }
@@ -242,7 +241,7 @@ function ReaderPage() {
     }
   }, [bookId, currentChapter, book, checkCacheStatus]);
 
-  /** 缓存全书到客户端 */
+  /** 缓存全书到客户端（文字 + 当前音色语音预合成） */
   const handleCacheFullBook = useCallback(async () => {
     if (!bookId || !book || !chapters.length) return;
     setCachingInProgress(true);
@@ -261,15 +260,46 @@ function ReaderPage() {
         });
       }
       await cacheBookChapters(bookId, book.title, chapterData);
+
+      // ⭐ 同步触发当前音色的后台预合成（静默，不阻塞 UI）
+      try {
+        await axios.post(`/api/books/${bookId}/tts-generate`, {
+          voice: ttsPlayerRef.current?.getVoice?.() || ttsVoice,
+          speed: ttsSpeed,
+        });
+      } catch { /* 预合成触发失败不影响主流程 */ }
+
       await checkCacheStatus();
     } catch (err) {
       console.warn('缓存全书失败:', err);
     } finally {
       setCachingInProgress(false);
     }
-  }, [bookId, book, chapters, checkCacheStatus]);
+  }, [bookId, book, chapters, checkCacheStatus, ttsSpeed, ttsVoice]);
 
-  /** 清除客户端缓存 */
+  /** 清除文字缓存 */
+  const handleClearTextCache = useCallback(async () => {
+    if (!bookId) return;
+    try {
+      await clearBookChapterCache(bookId);
+      await checkCacheStatus();
+    } catch (err) {
+      console.warn('清除文字缓存失败:', err);
+    }
+  }, [bookId, checkCacheStatus]);
+
+  /** 清除语音缓存 */
+  const handleClearAudioCache = useCallback(async () => {
+    if (!bookId) return;
+    try {
+      await clearBookTTSAudioCache(bookId);
+      await checkCacheStatus();
+    } catch (err) {
+      console.warn('清除语音缓存失败:', err);
+    }
+  }, [bookId, checkCacheStatus]);
+
+  /** 清除所有缓存 */
   const handleClearCache = useCallback(async () => {
     if (!bookId) return;
     try {
@@ -1041,6 +1071,27 @@ function ReaderPage() {
       player.chapterTitle = currentChapter?.title || '';
       (player as any).bookTitle = book?.title || '';
 
+      // ⭐ 设置音色
+      if (ttsVoice) player.setVoice(ttsVoice);
+
+      // ⭐ 触发后台预合成：当前章节 + 后续 10 章或 50%（低优先级、非阻塞）
+      try {
+        const totalCh = chapters.length;
+        const currentOrder = currentChapter?.order || 1;
+        const remaining = totalCh - currentOrder;
+        const chaptersToGen = Math.min(
+          Math.max(10, Math.ceil(remaining * 0.5)),
+          remaining,
+        );
+        if (chaptersToGen > 0) {
+          axios.post(`/api/books/${bookId}/tts-generate`, {
+            voice: ttsVoice,
+            speed: ttsSpeed,
+            chapterCount: chaptersToGen,
+          }).catch(() => {});
+        }
+      } catch { /* 预合成触发失败不影响主流程 */ }
+
       player.setCallbacks({
         onStateChange: (s) => {
           setTtsState(s);
@@ -1108,12 +1159,21 @@ function ReaderPage() {
         },
       });
 
+      // ⭐ 从 localStorage 读取语音设置
+      const savedVoice = (() => {
+        try { return localStorage.getItem('ireader_tts_voice'); } catch { return null; }
+      })();
+      if (savedVoice && savedVoice !== ttsVoice) {
+        setTtsVoice(savedVoice);
+        player.setVoice(savedVoice);
+      }
       // ⭐ 从 localStorage 读取"实时合成模式"开关（设置页可配置）
       const noCachePref = (() => {
         try { return localStorage.getItem('ireader_tts_noCache') === 'true'; } catch { return true; }
       })();
       await player.init({
         speed: ttsSpeed,
+        voice: ttsVoice,
         noCache: noCachePref,
         // ⭐ 传入书籍信息用于 Media Session 锁屏封面 + 全局播放状态
         bookId,
@@ -1798,21 +1858,45 @@ function ReaderPage() {
                         📦 全书缓存
                       </button>
                       {cacheStatus && cacheStatus.chapterCount > 0 && (
-                        <button
-                          onClick={handleClearCache}
-                          className="text-xs px-2 py-1.5 rounded-full text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-                        >
-                          ✕ 清缓存
-                        </button>
+                        <div className="flex flex-col gap-1.5">
+                          <div className="flex items-center gap-2 flex-wrap text-xs">
+                            <span className="text-green-600 dark:text-green-400" title="已缓存文字章节">
+                              📖 {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章 ({formatBytes(cacheStatus.chapterBytes)})
+                            </span>
+                            {cacheStatus.audioSegmentCount > 0 && (
+                              <span className="text-purple-600 dark:text-purple-400" title="已缓存语音段">
+                                🔊 {cacheStatus.audioSegmentCount}段 ({formatBytes(cacheStatus.audioBytes)})
+                              </span>
+                            )}
+                            <span className="text-gray-400">
+                              合计 {formatBytes(cacheStatus.totalBytes)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={handleClearTextCache}
+                              className="text-[10px] px-2 py-1 rounded-full text-orange-500 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors"
+                            >
+                              🗑 清除文字
+                            </button>
+                            {cacheStatus.audioSegmentCount > 0 && (
+                              <button
+                                onClick={handleClearAudioCache}
+                                className="text-[10px] px-2 py-1 rounded-full text-purple-500 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
+                              >
+                                🗑 清除语音
+                              </button>
+                            )}
+                            <button
+                              onClick={handleClearCache}
+                              className="text-[10px] px-2 py-1 rounded-full text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                            >
+                              ✕ 清除全部
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
-
-                    {/* 缓存状态 */}
-                    {cacheStatus && cacheStatus.chapterCount > 0 && (
-                      <div className="text-xs text-green-600 dark:text-green-400">
-                        📦 已离线缓存 {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章
-                      </div>
-                    )}
 
                     <div className="border-t border-gray-100 dark:border-gray-700" />
 
@@ -1879,6 +1963,27 @@ function ReaderPage() {
 
                   {ttsState !== 'idle' && (
                     <div className="space-y-2 pt-1">
+                      {/* ── 音色选择器 ── */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">音色</span>
+                        <select
+                          value={ttsVoice}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setTtsVoice(v);
+                            try { localStorage.setItem('ireader_tts_voice', v); } catch {}
+                            const player = ttsPlayerRef.current;
+                            if (player) player.setVoice(v);
+                          }}
+                          className="text-xs px-2 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 border-none cursor-pointer max-w-[180px]"
+                        >
+                          <option value="zh-CN-XiaoxiaoNeural">Xiaoxiao（女）</option>
+                          <option value="zh-CN-YunxiNeural">Yunxi（男）</option>
+                          <option value="zh-CN-YunyangNeural">Yunyang（男·新闻）</option>
+                          <option value="zh-CN-XiaochenNeural">Xiaochen（女·亲切）</option>
+                          <option value="zh-CN-XiaomengNeural">Xiaomeng（女·活泼）</option>
+                        </select>
+                      </div>
                       <div className="border-t border-gray-100 dark:border-gray-700" />
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">朗读控制</span>

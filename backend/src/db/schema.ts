@@ -122,6 +122,7 @@ export const ttsSettings = sqliteTable('tts_settings', {
   apiUrl: text('api_url'),
   apiKey: text('api_key'),
   preGenerateConcurrency: integer('pre_generate_concurrency').notNull().default(3),
+  autoPreSynthesize: integer('auto_pre_synthesize', { mode: 'boolean' }).notNull().default(false),
   firstChunkMaxSize: integer('first_chunk_max_size').notNull().default(32),
   normalChunkMaxSize: integer('normal_chunk_max_size').notNull().default(128),
   updatedAt: text('updated_at').notNull(),

@@ -426,6 +426,105 @@ export async function getAllCachedBookStatuses(): Promise<BookCacheStatus[]> {
 // ==========================
 
 /**
+ * 清除一本书的文字章节缓存（保留音频缓存）
+ */
+export async function clearBookChapterCache(bookId: string): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction(['bookChapters', 'cacheMeta'], 'readwrite');
+  const chapterStore = tx.objectStore('bookChapters');
+  const metaStore = tx.objectStore('cacheMeta');
+
+  const chapterKeys = await chapterStore.index('bookId').getAllKeys(bookId);
+  for (const key of chapterKeys) {
+    await chapterStore.delete(key);
+  }
+
+  // 更新元数据：重置章节缓存数
+  const existingMeta = await metaStore.get(bookId) as CacheMeta | undefined;
+  if (existingMeta) {
+    existingMeta.cachedChapters = 0;
+    existingMeta.lastCachedAt = Date.now();
+    await metaStore.put(existingMeta);
+  }
+
+  await tx.done;
+}
+
+/**
+ * 清除一本书的 TTS 音频缓存（保留文字缓存）
+ */
+export async function clearBookTTSAudioCache(bookId: string): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction(['ttsAudio', 'cacheMeta'], 'readwrite');
+  const audioStore = tx.objectStore('ttsAudio');
+  const metaStore = tx.objectStore('cacheMeta');
+
+  const audioKeys = await audioStore.index('bookId').getAllKeys(bookId);
+  for (const key of audioKeys) {
+    await audioStore.delete(key);
+  }
+
+  // 更新元数据：重置音频缓存数
+  const existingMeta = await metaStore.get(bookId) as CacheMeta | undefined;
+  if (existingMeta) {
+    existingMeta.cachedAudioSegments = 0;
+    existingMeta.lastCachedAt = Date.now();
+    await metaStore.put(existingMeta);
+  }
+
+  await tx.done;
+}
+
+export interface BookCacheDetailedStats {
+  bookId: string;
+  bookTitle: string;
+  /** 文字缓存 */
+  chapterCount: number;
+  totalChapters: number;
+  chapterBytes: number;
+  /** 语音缓存 */
+  audioSegmentCount: number;
+  audioBytes: number;
+  /** 汇总 */
+  totalBytes: number;
+  lastCachedAt: number | null;
+}
+
+/**
+ * 获取一本书的详细缓存统计（含占用空间）
+ */
+export async function getBookCacheDetailedStats(bookId: string): Promise<BookCacheDetailedStats | null> {
+  try {
+    const db = await getDB();
+    const meta = await db.get('cacheMeta', bookId) as CacheMeta | undefined;
+    if (!meta) return null;
+
+    const chapters = await db.getAll('bookChapters') as BookChapterCache[];
+    const audios = await db.getAll('ttsAudio') as TTSAudioCache[];
+    const bookChaptersList = chapters.filter(c => c.bookId === bookId);
+    const bookAudiosList = audios.filter(a => a.bookId === bookId);
+
+    const chapterBytes = bookChaptersList.reduce((sum, c) => sum + new Blob([c.content]).size, 0);
+    const audioBytes = bookAudiosList.reduce((sum, a) => sum + a.audioData.byteLength, 0);
+
+    return {
+      bookId: meta.bookId,
+      bookTitle: meta.bookTitle,
+      chapterCount: meta.cachedChapters,
+      totalChapters: meta.totalChapters,
+      chapterBytes,
+      audioSegmentCount: meta.cachedAudioSegments,
+      audioBytes,
+      totalBytes: chapterBytes + audioBytes,
+      lastCachedAt: meta.lastCachedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+/**
  * 清除一本书的所有缓存（章节内容 + TTS 音频 + 元数据）
  */
 export async function clearBookCache(bookId: string): Promise<void> {

@@ -162,6 +162,13 @@ migrateOldTables(sqlite);
       `);
       console.log('[迁移] tts_settings 列补充完成 ✅');
     }
+
+    const hasAutoPreSynth = ttsCols.some(c => c.name === 'auto_pre_synthesize');
+    if (!hasAutoPreSynth) {
+      console.log('[迁移] tts_settings 缺少 auto_pre_synthesize 列，正在补充...');
+      sqlite.exec(`ALTER TABLE tts_settings ADD COLUMN auto_pre_synthesize INTEGER NOT NULL DEFAULT 0;`);
+      console.log('[迁移] tts_settings auto_pre_synthesize 列补充完成 ✅');
+    }
   } catch (err) {
     console.error('[迁移] tts_settings 列补充失败:', (err as Error).message);
   }
@@ -206,7 +213,7 @@ migrateOldTables(sqlite);
           INSERT OR IGNORE INTO tts_cache (id, user_id, text_hash, voice, speed, audio_path, created_at)
           SELECT id, '${defaultUserId}', text_hash, voice, speed, audio_path, created_at FROM tts_cache;
 
-          INSERT OR IGNORE INTO tts_settings (user_id, enabled, source, voice_id, speed, api_url, api_key, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
+          INSERT OR IGNORE INTO tts_settings (user_id, enabled, source, voice_id, speed, api_url, api_key, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, auto_pre_synthesize, updated_at)
           SELECT '${defaultUserId}', enabled, source, voice_id, speed, api_url, api_key, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at FROM tts_settings;
         `);
       }

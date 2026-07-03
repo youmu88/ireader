@@ -16,6 +16,7 @@
 
 import { fetchTTSSettings } from './ttsService';
 import { getToken } from './authService';
+import { getCachedTTSAudio, cacheTTSAudio } from './offlineCacheService';
 
 // ===== 类型定义 =====
 
@@ -64,6 +65,8 @@ interface TTSChunk {
   /** Blob URL 指向合成的 WAV 音频数据 */
   audioBlobUrl?: string;
   error?: string;
+  /** 章节 ID（用于 IDB 缓存查找） */
+  chapterId?: string;
 }
 
 export interface TTSPlayerOptions {
@@ -256,6 +259,11 @@ export class TTSPlayer {
   public currentBookId: string = '';
   public chapterTitle: string = '';
 
+  /** 获取当前音色 */
+  getVoice(): string { return this.voice; }
+  /** 设置音色 */
+  setVoice(v: string): void { this.voice = v; }
+
   private prefetchedChunks: TTSChunk[] | null = null;
   /** 预取时的 generation 标记，loadFromPrefetched 据此校验一致性 */
   private prefetchedGeneration: number = 0;
@@ -413,7 +421,7 @@ export class TTSPlayer {
    * 追加下一章节的文本分段，实现章节间无缝衔接播放
    * 在朗读当前章节末段时调用，后台预生成下一章节音频
    */
-  appendSegments(segments: string[]): void {
+  appendSegments(segments: string[], chapterId?: string): void {
     if (this.isDestroyed || segments.length === 0) return;
     if (this.nextChapterAppended) return; // 防止重复追加
     this.nextChapterAppended = true;
@@ -427,6 +435,7 @@ export class TTSPlayer {
       index: startIdx + i,
       text,
       status: 'pending' as const,
+      chapterId,
     }));
     this.chunks.push(...newChunks);
 
@@ -454,7 +463,7 @@ export class TTSPlayer {
   /**
    * 加载要朗读的文本（纯文本或 HTML），准备播放
    */
-  async load(text: string, isHtml = false): Promise<void> {
+  async load(text: string, isHtml = false, chapterId?: string): Promise<void> {
     if (this.isDestroyed) return;
 
     // 停止当前播放并清理旧 Blob URL
@@ -474,6 +483,7 @@ export class TTSPlayer {
       index: i,
       text: seg,
       status: 'pending' as const,
+      chapterId,
     }));
 
     this.currentIndex = -1;
@@ -1160,7 +1170,7 @@ export class TTSPlayer {
    * 跨章节过渡时调用 loadFromPrefetched() 无需等待 TTS API 即可播放
    * @param segments 已经 splitText 分段后的文本数组
    */
-  async prefetchChapterSegments(segments: string[]): Promise<void> {
+  async prefetchChapterSegments(segments: string[], chapterId?: string): Promise<void> {
     if (this.isDestroyed || segments.length === 0) return;
 
     const gen = this.generation;
@@ -1168,6 +1178,7 @@ export class TTSPlayer {
       index: i,
       text,
       status: 'pending' as const,
+      chapterId,
     }));
 
     // 预取前 preGenCount 个分段（与标准 preGenRange 相同逻辑）
@@ -1276,6 +1287,20 @@ export class TTSPlayer {
     const gen = this.generation; // 记录当前的 generation
 
     try {
+      // ⭐ 优先从 IndexedDB 缓存读取
+      if (this.currentBookId && chunk.chapterId) {
+        const cachedAudio = await getCachedTTSAudio(this.currentBookId, chunk.chapterId, chunk.index);
+        if (cachedAudio) {
+          if (gen !== this.generation || this.isDestroyed) return;
+          const blob = new Blob([cachedAudio], { type: 'audio/wav' });
+          const url = URL.createObjectURL(blob);
+          this.allBlobUrls.push(url);
+          chunk.audioBlobUrl = url;
+          chunk.status = 'ready';
+          return;
+        }
+      }
+
       const arrayBuffer = await this.fetchTTSAudio(chunk.text);
 
       // generation 守卫：丢弃旧文本的异步 fetch 结果
@@ -1283,6 +1308,12 @@ export class TTSPlayer {
         return;
       }
 
+      // ⭐ 写入 IndexedDB 缓存（非阻塞、静默失败）
+      if (this.currentBookId && chunk.chapterId) {
+        cacheTTSAudio(this.currentBookId, chunk.chapterId, chunk.index, arrayBuffer).catch(() => {});
+      }
+
+      // 将服务端返回的 WAV ArrayBuffer 直接创建为 Blob URL
       // 将服务端返回的 WAV ArrayBuffer 直接创建为 Blob URL
       const blob = new Blob([arrayBuffer], { type: 'audio/wav' });
       const url = URL.createObjectURL(blob);
