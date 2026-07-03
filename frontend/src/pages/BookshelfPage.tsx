@@ -30,6 +30,8 @@ interface Book {
   status: 'processing' | 'ready' | 'failed';
   parseError: string | null;
   createdAt: string;
+  pinned: number;
+  lastReadAt: string | null;
 }
 
 interface BookStats {
@@ -388,6 +390,19 @@ useEffect(() => {
     setEditAuthor(book.author || '');
   };
 
+  // ── 置顶/取消置顶 ──
+  const handleTogglePin = useCallback(async (book: Book, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const newPinned = book.pinned ? 0 : 1;
+    try {
+      await axios.put(`/api/books/${book.id}`, { pinned: newPinned });
+      setBooks(prev => prev.map(b => b.id === book.id ? { ...b, pinned: newPinned } : b));
+    } catch (err: any) {
+      alert('操作失败：' + (err.response?.data?.error || err.message));
+    }
+  }, []);
+
   const handleSaveEdit = async () => {
     if (!editingBook) return;
     try {
@@ -415,6 +430,10 @@ useEffect(() => {
     }
     return true;
   });
+
+  // ── Split into pinned / others for two-section display ──
+  const pinnedBooks = filteredBooks.filter(b => b.pinned);
+  const otherBooks = filteredBooks.filter(b => !b.pinned);
 
   // Categorize books for sidebar count
   const categoryCount = new Map<string, number>();
@@ -613,9 +632,15 @@ useEffect(() => {
                 <p className="mt-2">点击上方「上传图书」开始添加</p>
               )}
             </div>
-          ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
-              {filteredBooks.map((book) => (
+          ) : (<div>
+              {/* ── 置顶区 ── */}
+              {pinnedBooks.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-1.5">
+                    <span>📌</span> 置顶
+                  </h3>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
+                    {pinnedBooks.map((book) => (
                 <div
                   key={book.id}
                   className="relative group"
@@ -720,7 +745,120 @@ useEffect(() => {
                 </div>
               ))}
             </div>
+          </div>
           )}
+          {/* ── 其它区 ── */}
+          {otherBooks.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-1.5">
+                <span>📚</span> 其它
+              </h3>
+              <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
+                {otherBooks.map((book) => (
+                  <div
+                    key={book.id}
+                    className="relative group"
+                    onTouchStart={() => {
+                      if (selectionMode) return;
+                      longPressTimerRef.current = setTimeout(() => {
+                        setSelectionMode(true);
+                        setSelectedIds(new Set([book.id]));
+                      }, 500);
+                    }}
+                    onTouchMove={() => { if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = undefined; } }}
+                    onTouchEnd={() => { if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = undefined; } }}
+                  >
+                    <Link
+                      to={selectionMode ? '#' : `/reader/${book.id}`}
+                      onClick={(e) => {
+                        if (selectionMode) {
+                          e.preventDefault();
+                          toggleSelection(book.id);
+                        }
+                      }}
+                      className={`block p-2 sm:p-3 border rounded-lg transition-shadow bg-white dark:bg-gray-800 ${
+                        selectionMode && selectedIds.has(book.id)
+                          ? 'border-blue-500 ring-2 ring-blue-300 dark:ring-blue-700'
+                          : 'border-gray-200 dark:border-gray-700 hover:shadow-md'
+                      }`}
+                    >
+                      <div className="aspect-[3/4] bg-gray-100 dark:bg-gray-700 rounded mb-2 flex items-center justify-center overflow-hidden relative">
+                        {selectionMode && (
+                          <div className="absolute top-1 left-1 z-20">
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shadow-sm ${
+                              selectedIds.has(book.id) ? 'bg-blue-500 border-blue-500' : 'bg-white/90 dark:bg-gray-700/90 border-gray-400'
+                            }`}>
+                              {selectedIds.has(book.id) && <span className="text-white text-[11px] font-bold">✓</span>}
+                            </div>
+                          </div>
+                        )}
+                        <img
+                          src={`/api/books/${book.id}/cover`}
+                          alt={book.title}
+                          className="w-full h-full object-cover rounded"
+                          loading="lazy"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                            (e.target as HTMLImageElement).parentElement!.innerHTML =
+                              `<span class="text-4xl">${book.format === 'epub' ? '📖' : '📄'}</span>`;
+                          }}
+                        />
+                      </div>
+                      <h3 className="font-medium text-sm truncate" title={book.title}>{book.title}</h3>
+                      {book.author && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{book.author}</p>
+                      )}
+                      <div className="mt-1 flex items-center gap-1">
+                        <span className="text-xs text-gray-400 uppercase">{book.format}</span>
+                        {book.status === 'processing' && (
+                          <span className="text-xs text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 px-1.5 py-0.5 rounded">解析中</span>
+                        )}
+                        {book.status === 'failed' && (
+                          <span className="text-xs text-red-600 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded" title={book.parseError || ''}>解析失败</span>
+                        )}
+                      </div>
+                      {book.status === 'ready' && bookStats[book.id] && (
+                        <div className="mt-2 space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-gray-500 dark:text-gray-400">阅读</span>
+                            <span className="text-gray-700 dark:text-gray-300 font-medium">
+                              {Math.round(bookStats[book.id].readingPercentage * 100)}%
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${Math.round(bookStats[book.id].readingPercentage * 100)}%` }} />
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-gray-500 dark:text-gray-400">语音</span>
+                            <span className="text-gray-700 dark:text-gray-300 font-medium">
+                              {bookStats[book.id].totalVoiceChunks > 0
+                                ? `${bookStats[book.id].completedVoiceChapters}/${bookStats[book.id].totalVoiceChunks}段`
+                                : `${Math.round((bookStats[book.id].voiceGenerationRate || 0) * bookStats[book.id].totalChapters)}/${bookStats[book.id].totalChapters}章`}
+                              {bookStats[book.id].ttsCacheCount ? ` · ${bookStats[book.id].ttsCacheCount}条` : ''}
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className="h-full bg-green-500 rounded-full transition-all duration-500" style={{ width: `${Math.round(bookStats[book.id].voiceGenerationRate * 100)}%` }} />
+                          </div>
+                        </div>
+                      )}
+                    </Link>
+                    <div className="hidden sm:flex absolute top-2 right-2 gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId === book.id && (
+                        <div className="absolute top-2 left-2 z-10">
+                          <span className="bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">🔊</span>
+                        </div>
+                      )}
+                      <button onClick={(e) => handleTogglePin(book, e)} className="w-7 h-7 bg-amber-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-amber-600" title={book.pinned ? '取消置顶' : '置顶'}>{book.pinned ? '📌' : '📍'}</button>
+                      <button onClick={(e) => handleEditBook(book, e)} className="w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-blue-600" title="编辑信息">✎</button>
+                      <button onClick={(e) => handleDelete(book, e)} className="w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-red-600" title="删除图书">✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          </div>)}
         </div>
       </div>
     </div>

@@ -310,12 +310,45 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       const userId = req.user!.userId;
       // Support category filter
       const categoryId = req.query.category_id as string | undefined;
+      
+      // 1. Fetch books with the new pinned field
       let query = db.select().from(books).where(sql`user_id = ${userId}`);
       if (categoryId) {
         query = query.where(sql`category_id = ${categoryId}`);
       }
-      const allBooks = query.all();
-      res.json({ success: true, data: allBooks });
+      const allBooks = query.all() as Array<any>;
+      
+      // 2. Fetch last read time per book from readingProgress (aggregate in SQL)
+      let lastReadMap = new Map<string, string>();
+      if (allBooks.length > 0) {
+        // Use drizzle's select with groupBy to get MAX(updated_at) per book
+        const lastReadRows = db.select({
+          bookId: readingProgress.bookId,
+          lastReadAt: sql<string>`MAX(${readingProgress.updatedAt})`.as('lastReadAt'),
+        })
+          .from(readingProgress)
+          .groupBy(readingProgress.bookId)
+          .all();
+        lastReadMap = new Map(lastReadRows.map((r: { bookId: string; lastReadAt: string }) => [r.bookId, r.lastReadAt]));
+      }
+      
+      // 3. Attach lastReadAt and sort: pinned DESC → lastReadAt DESC → createdAt DESC
+      const enriched = allBooks.map(b => ({
+        ...b,
+        lastReadAt: lastReadMap.get(b.id) || null,
+      }));
+      enriched.sort((a, b) => {
+        // pinned first
+        if ((a.pinned || 0) !== (b.pinned || 0)) {
+          return (b.pinned || 0) - (a.pinned || 0);
+        }
+        // then by lastReadAt DESC
+        const aTime = a.lastReadAt || a.createdAt;
+        const bTime = b.lastReadAt || b.createdAt;
+        return bTime.localeCompare(aTime);
+      });
+      
+      res.json({ success: true, data: enriched });
     } catch (err) {
       next(err);
     }
@@ -344,6 +377,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       if (req.body.title !== undefined) updateData.title = req.body.title;
       if (req.body.author !== undefined) updateData.author = req.body.author;
       if (req.body.categoryId !== undefined) updateData.categoryId = req.body.categoryId;
+      if (req.body.pinned !== undefined) updateData.pinned = req.body.pinned ? 1 : 0;
 
       db.update(books).set(updateData).where(sql`id = ${req.params.id} AND user_id = ${userId}`).run();
       const updated = db.select().from(books).where(sql`id = ${req.params.id}`).get();

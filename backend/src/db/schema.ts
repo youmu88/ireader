@@ -25,6 +25,7 @@ export const books = sqliteTable('books', {
   parseError: text('parse_error'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  pinned: integer('pinned').notNull().default(0),
 });
 
 export const categories = sqliteTable('categories', {
