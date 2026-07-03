@@ -179,6 +179,7 @@ function ReaderPage() {
   // ── 客户端离线缓存 ──
   const [cacheStatus, setCacheStatus] = useState<BookCacheDetailedStats | null>(null);
   const [cachingInProgress, setCachingInProgress] = useState(false);
+  const [cacheProgressText, setCacheProgressText] = useState('');
 
   /** 检查当前书籍的客户端缓存状态 */
   const checkCacheStatus = useCallback(async () => {
@@ -220,10 +221,14 @@ function ReaderPage() {
   const handleCacheFullBook = useCallback(async () => {
     if (!bookId || !book || !chapters.length) return;
     setCachingInProgress(true);
+    setCacheProgressText('');
     try {
       // 阶段1：批量获取并缓存所有章节文字内容
+      const totalCh = chapters.length;
       const chapterData: { chapterId: string; title: string; order: number; content: string }[] = [];
-      for (const ch of chapters) {
+      for (let ci = 0; ci < totalCh; ci++) {
+        const ch = chapters[ci];
+        setCacheProgressText(`获取章节 ${ci + 1}/${totalCh}`);
         const res = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`);
         const rawContent = res.data.data?.content || '';
         // 内联的 HTML 标签剥离函数（避免在 useCallback 前引用 stripHtml）
@@ -238,8 +243,8 @@ function ReaderPage() {
       }
       await cacheBookChapters(bookId, book.title, chapterData);
 
-      // 阶段2：逐章逐段合成语音并缓存到 IndexedDB
-      // 使用并发池限制并发（避免浏览器限流），每章串行，章内并行
+      // 阶段2：全局并发池逐段合成语音并缓存到 IndexedDB
+      // 将所有段落任务放入全局队列，跨章并发，充分利用并发能力
       const player = getDefaultPlayer();
       const effectiveVoice = (() => {
         try { return localStorage.getItem('ireader_tts_voice') || player.getVoice() || ttsVoice; } catch { return ttsVoice; }
@@ -256,57 +261,72 @@ function ReaderPage() {
 
       // 跳过实时合成模式
       if (!noCachePref) {
-        const MAX_CONCURRENT = 4; // 并发合成限制
+        const MAX_CONCURRENT = 6; // 全局并发池上限
         let totalCached = 0;
+        let completedSegments = 0;
+
+        // 收集所有章节的所有段落任务
+        interface CacheTask {
+          chapter: typeof chapters[0];
+          seg: string;
+          segIdx: number;
+        }
+        const allTasks: CacheTask[] = [];
         for (const ch of chapters) {
           const chData = chapterData.find(d => d.chapterId === ch.id);
           if (!chData || !chData.content) continue;
           const segments = splitText(chData.content);
-          if (segments.length === 0) continue;
+          segments.forEach((seg, segIdx) => {
+            allTasks.push({ chapter: ch, seg, segIdx });
+          });
+        }
+        const totalSegments = allTasks.length;
+        if (totalSegments > 0) {
+          setCacheProgressText(`合成语音 0/${totalSegments} 段`);
 
-          // 并行合成该章的各段落（限制并发数）
-          const tasks = segments.map((seg, segIdx) => (async () => {
-            try {
-              // 检查是否已缓存
-              const existing = await getCachedTTSAudio(bookId, ch.id, segIdx);
-              if (existing) return; // 已缓存，跳过
-
-              const res = await fetch('/api/tts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  input: seg,
-                  voice: effectiveVoice,
-                  speed: effectiveSpeed,
-                  response_format: 'wav',
-                  tts_source: 'kokoro',
-                  no_cache: false,
-                }),
-              });
-              if (!res.ok) return;
-              const arrayBuffer = await res.arrayBuffer();
-              await cacheTTSAudio(bookId, ch.id, segIdx, arrayBuffer);
-              totalCached++;
-            } catch { /* 单段合成失败不影响全书 */ }
-          })());
-
-          // 并发池限制
+          // 全局并发池 — 所有任务共享并发槽
           let i = 0;
           const next = async () => {
-            while (i < tasks.length) {
+            while (i < allTasks.length) {
               const idx = i++;
-              await tasks[idx];
+              const task = allTasks[idx];
+              try {
+                const existing = await getCachedTTSAudio(bookId, task.chapter.id, task.segIdx);
+                if (!existing) {
+                  const res = await fetch('/api/tts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      input: task.seg,
+                      voice: effectiveVoice,
+                      speed: effectiveSpeed,
+                      response_format: 'wav',
+                      tts_source: 'kokoro',
+                      no_cache: false,
+                    }),
+                  });
+                  if (res.ok) {
+                    const arrayBuffer = await res.arrayBuffer();
+                    await cacheTTSAudio(bookId, task.chapter.id, task.segIdx, arrayBuffer);
+                    totalCached++;
+                  }
+                }
+                completedSegments++;
+                setCacheProgressText(`合成语音 ${completedSegments}/${totalSegments} 段`);
+              } catch { /* 单段合成失败不影响全书 */ }
             }
           };
-          const workers = Array.from({ length: Math.min(MAX_CONCURRENT, tasks.length) }, () => next());
+          const workers = Array.from({ length: Math.min(MAX_CONCURRENT, totalSegments) }, () => next());
           await Promise.all(workers);
+          console.log(`全书缓存完成：共合成 ${totalCached} 段语音`);
         }
-        console.log(`全书缓存完成：共合成 ${totalCached} 段语音`);
       }
 
       await checkCacheStatus();
+      setCacheProgressText(''); // 缓存完成，清除进度文字
     } catch (err) {
       console.warn('缓存全书失败:', err);
+      setCacheProgressText('缓存失败');
     } finally {
       setCachingInProgress(false);
     }
@@ -2292,6 +2312,11 @@ function ReaderPage() {
                         </button>
                       )}
                     </div>
+                    {cachingInProgress && cacheProgressText && (
+                      <div className="flex items-center justify-center text-xs pt-1" style={{ color: 'var(--color-accent)' }}>
+                        {cacheProgressText}
+                      </div>
+                    )}
                     {cacheStatus && cacheStatus.chapterCount > 0 && (
                       <div className="flex items-center justify-center gap-3 text-xs pt-1" style={{ color: 'var(--color-text-muted)' }}>
                         <span title="已缓存文字章节" style={{ color: 'var(--color-accent-2)' }}>
