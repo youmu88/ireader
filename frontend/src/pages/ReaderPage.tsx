@@ -1881,8 +1881,8 @@ function ReaderPage() {
                     <div className="space-y-2 pt-1">
                       <div className="border-t border-gray-100 dark:border-gray-700" />
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-500 dark:text-gray-400">朗读控制</span>
-                        <div className="flex items-center gap-3">
+                        <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">朗读控制</span>
+                        <div className="flex items-center justify-evenly flex-1 gap-0.5">
                           {/* 播放控制 */}
                           <div className="flex items-center gap-1">
                             {ttsState === 'playing' ? (
@@ -1977,7 +1977,7 @@ function ReaderPage() {
                       <div className="flex items-center gap-3 flex-wrap text-xs text-gray-500 dark:text-gray-400">
                         <span>📖 阅读 {Math.round(serverStats.readingPercentage * 100)}%</span>
                         <span>📑 {currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1}/${serverStats.totalChapters}` : `共${serverStats.totalChapters}`}章</span>
-                        <span>🔊 预合成 {serverStats.completedVoiceChapters}/{serverStats.totalChapters}章</span>
+                        <span>🔊 预合成 {Math.round((serverStats.voiceGenerationRate || 0) * serverStats.totalChapters)}/{serverStats.totalChapters}章</span>
                         {serverStats.ttsCacheCount !== undefined && serverStats.ttsCacheCount > 0 && (
                           <span>🎙️ 语音缓存 {serverStats.ttsCacheCount}条</span>
                         )}
