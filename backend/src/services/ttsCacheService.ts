@@ -15,6 +15,8 @@ import { ttsCache } from '../db/schema.js';
 
 export interface CacheEntry {
   id: string;
+  bookId?: string | null;
+  chapterId?: string | null;
   textHash: string;
   voice: string;
   speed: number;
@@ -110,6 +112,8 @@ export function saveToCache(
   audioBuffer: Buffer,
   format: string = 'wav',
   userId?: string,
+  bookId?: string | null,
+  chapterId?: string | null,
 ): CacheEntry {
   const textHash = generateCacheKey(text, voice, speed);
   const cacheDir = getCacheDir(dataDir);
@@ -132,10 +136,10 @@ export function saveToCache(
   if (existing) {
     // 更新已有记录
     db.update(ttsCache)
-      .set({ audioPath, createdAt: now })
+      .set({ audioPath, createdAt: now, bookId: bookId ?? existing.bookId, chapterId: chapterId ?? existing.chapterId })
       .where(sql`id = ${existing.id}`)
       .run();
-    return { ...existing, audioPath, createdAt: now };
+    return { ...existing, audioPath, createdAt: now, bookId: bookId ?? existing.bookId, chapterId: chapterId ?? existing.chapterId };
   }
 
   // Insert new record
@@ -143,6 +147,8 @@ export function saveToCache(
   db.insert(ttsCache).values({
     id,
     userId: userId || 'default-user',
+    bookId: bookId || null,
+    chapterId: chapterId || null,
     textHash,
     voice,
     speed,

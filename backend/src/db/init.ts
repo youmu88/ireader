@@ -174,6 +174,20 @@ migrateOldTables(sqlite);
     console.error('[迁移] tts_settings 列补充失败:', (err as Error).message);
   }
 
+  // ── 迁移：tts_cache 表增加 book_id / chapter_id 列 ──
+  try {
+    const cacheCols = sqlite.prepare("PRAGMA table_info('tts_cache')").all() as { name: string }[];
+    const hasBookId = cacheCols.some(c => c.name === 'book_id');
+    if (!hasBookId) {
+      console.log('[迁移] tts_cache 缺少 book_id 列，正在补充...');
+      sqlite.exec(`ALTER TABLE tts_cache ADD COLUMN book_id TEXT REFERENCES books(id) ON DELETE CASCADE;`);
+      sqlite.exec(`ALTER TABLE tts_cache ADD COLUMN chapter_id TEXT;`);
+      console.log('[迁移] tts_cache book_id/chapter_id 列补充完成 ✅');
+    }
+  } catch (err) {
+    console.error('[迁移] tts_cache 列补充失败:', (err as Error).message);
+  }
+
   // ── 旧表迁移：检查是否需要从旧版升级 ──
 
   // ── 旧表迁移：检查是否需要从旧版升级 ──

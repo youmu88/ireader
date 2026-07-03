@@ -87,26 +87,13 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     const bookDir = path.join(booksDir, bookId);
     const targetPath = path.join(bookDir, `original${ext}`);
 
-    // 计算文件哈希，用于去重检测
-    const fileHash = await computeFileHash(file.path);
-
-    // 检查当前用户的书籍中是否已有相同哈希的书籍
-    const existing = db.select({ id: books.id, title: books.title }).from(books)
-      .where(sql`user_id = ${userId} AND file_hash = ${fileHash}`)
-      .get() as any;
-    if (existing) {
-      // 删除临时文件并抛出去重提示
-      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      throw new Error(`书籍去重：已存在《${existing.title}》，请勿重复上传`);
-    }
-
     // Create book directory
     fs.mkdirSync(bookDir, { recursive: true });
 
     // Move uploaded file to book directory
     fs.renameSync(file.path, targetPath);
 
-    // Create book record (processing) — 包含 file_hash
+    // 先创建记录（不含 fileHash），上传响应不阻塞哈希计算
     const bookRecord = {
       id: bookId,
       userId,
@@ -116,7 +103,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       categoryId: null,
       filePath: targetPath,
       coverPath: null,
-      fileHash,
+      fileHash: null,
       size: file.size,
       status: 'processing' as const,
       parseError: null,
@@ -125,6 +112,14 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     };
 
     db.insert(books).values(bookRecord).run();
+
+    // 异步计算文件哈希（大文件不阻塞上传响应）
+    computeFileHash(targetPath).then(hash => {
+      db.update(books).set({ fileHash: hash, updatedAt: new Date().toISOString() })
+        .where(sql`id = ${bookId}`).run();
+    }).catch(err => {
+      console.error(`[异步哈希] 计算失败 (book: ${bookId}):`, err.message);
+    });
 
     // Parse book (await since parseBook is async)
     try {

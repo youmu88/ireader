@@ -67,6 +67,8 @@ export const settings = sqliteTable('settings', {
 export const ttsCache = sqliteTable('tts_cache', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  bookId: text('book_id').references(() => books.id, { onDelete: 'cascade' }),
+  chapterId: text('chapter_id'),
   textHash: text('text_hash').notNull(),
   voice: text('voice').notNull(),
   speed: real('speed').notNull(),

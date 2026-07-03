@@ -37,6 +37,7 @@ interface BookStats {
   voiceGenerationRate: number;
   totalChapters: number;
   completedVoiceChapters: number;
+  totalVoiceChunks: number;
   cachedChapters: number;
   cacheType: string | null;
   ttsCacheCount?: number;
@@ -436,11 +437,18 @@ useEffect(() => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          我的书架
-          <span className="text-xs text-gray-400 dark:text-gray-500 font-normal bg-gray-100 dark:bg-gray-700/50 px-1.5 py-0.5 rounded select-none">
-            v{APP_VERSION}
-          </span>
-        </h1>
+           我的书架
+           <span className="text-xs text-gray-400 dark:text-gray-500 font-normal bg-gray-100 dark:bg-gray-700/50 px-1.5 py-0.5 rounded select-none">
+             v{APP_VERSION}
+           </span>
+           {/* 预合成活跃指示器 */}
+           {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
+             <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 ml-1">
+               <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shadow-sm shadow-green-400/50" />
+               合成中
+             </span>
+           )}
+         </h1>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           {/* 搜索框 */}
           <div className="relative flex-1 sm:w-56">
@@ -668,7 +676,9 @@ useEffect(() => {
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-gray-500 dark:text-gray-400">语音</span>
                           <span className="text-gray-700 dark:text-gray-300 font-medium">
-                            {Math.round((bookStats[book.id].voiceGenerationRate || 0) * bookStats[book.id].totalChapters)}/{bookStats[book.id].totalChapters}章
+                            {bookStats[book.id].totalVoiceChunks > 0
+                              ? `${bookStats[book.id].completedVoiceChapters}/${bookStats[book.id].totalVoiceChunks}段`
+                              : `${Math.round((bookStats[book.id].voiceGenerationRate || 0) * bookStats[book.id].totalChapters)}/${bookStats[book.id].totalChapters}章`}
                             {bookStats[book.id].ttsCacheCount ? ` · ${bookStats[book.id].ttsCacheCount}条` : ''}
                           </span>
                         </div>
@@ -731,6 +741,16 @@ useEffect(() => {
                   disabled: selectedIds.size === 0 || batchActionLoading === 'voice',
                   loading: batchActionLoading === 'voice',
                   onClick: handleBatchGenerateVoice,
+                },
+                {
+                  id: 'dedup',
+                  label: '去重',
+                  icon: '🔄',
+                  color: 'bg-purple-600',
+                  hoverColor: 'hover:bg-purple-700',
+                  disabled: deduping,
+                  loading: deduping,
+                  onClick: handleDedup,
                 },
               ] as BatchAction[]).map(action => (
                 <button
