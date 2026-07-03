@@ -673,6 +673,34 @@ function ReaderPage() {
     await Promise.all(preloadTasks);
   }, [chapters, bookId, book, stripHtml]);
 
+  /**
+   * 预取下一章节的 TTS 音频分段（后台跨章无缝过渡的关键）
+   * 在当前章节播放到 75% 时触发，提前合成下一章节音频
+   * 跨章节时 advanceToNextChapterTTS 通过 player.loadFromPrefetched() 直接使用
+   */
+  const triggerTtsPrefetch = useCallback(async (nextChapterIndex: number) => {
+    const nextCh = chapters[nextChapterIndex];
+    if (!nextCh || !bookId) return;
+    let content = '';
+    // 优先从预加载缓存取（preloadNextChapters 已缓存文本内容）
+    const preloaded = preloadedChaptersRef.current.get(nextCh.id);
+    if (preloaded) {
+      content = preloaded.content;
+    } else {
+      try {
+        const res = await axios.get(`/api/books/${bookId}/chapters/${nextCh.id}/content`);
+        const raw = res.data.data?.content || '';
+        content = book?.format === 'epub' ? stripHtml(raw) : raw;
+      } catch { return; }
+    }
+    if (!content) return;
+    const segments = splitText(content);
+    if (segments.length === 0) return;
+    // 推入播放器的预取缓冲区（不阻塞当前播放）
+    const player = getDefaultPlayer();
+    player.prefetchChapterSegments(segments).catch(() => {});
+  }, [chapters, bookId, book]);
+
   // Debounced progress save
   const debounceSaveProgress = useCallback((data: Record<string, any>) => {
     if (progressSaveTimer.current) clearTimeout(progressSaveTimer.current);
@@ -779,8 +807,12 @@ function ReaderPage() {
       // 重置滚动位置
       if (txtScrollRef.current) txtScrollRef.current.scrollTop = 0;
       if (epubTextScrollRef.current) epubTextScrollRef.current.scrollTop = 0;
-      // 加载下一章文本到播放器
-      await player.load(content, false);
+      // 加载下一章文本到播放器（优先使用预取缓存，后台跨章无需等待 TTS API）
+      const loadedFromPrefetch = await player.loadFromPrefetched();
+      if (!loadedFromPrefetch) {
+        // 无预取数据时回退到标准加载（初次启动或极快切换场景）
+        await player.load(content, false);
+      }
       setActiveSegmentIndex(0);
       setTtsProgress(0);
       // 重置进度保存定时器（新的 chapterId）
@@ -918,11 +950,13 @@ function ReaderPage() {
           }
         });
 
-        // ⭐ 播放到 75% 时预加载下一章内容
+        // ⭐ 播放到 75% 时预加载下一章内容 + 预取下章 TTS 音频
         if (total > 0 && i >= total * 0.75) {
           const ci = chapters.findIndex((c) => c.id === currentChapter?.id);
           if (ci >= 0 && ci < chapters.length - 1) {
             preloadNextChapters(currentChapter!.id);
+            // 预取下章 TTS 音频（后台模式跨章无需等待 TTS API）
+            triggerTtsPrefetch(ci + 1).catch(() => {});
           }
         }
       },
@@ -1032,11 +1066,13 @@ function ReaderPage() {
             }
           });
 
-          // ⭐ 播放到 75% 时预加载下一章内容（仅内容预加载，不追加到播放器）
+          // ⭐ 播放到 75% 时预加载下一章内容（仅内容预加载，不追加到播放器）+ 预取下章 TTS 音频
           if (_total > 0 && idx >= _total * 0.75) {
             const ci = chapters.findIndex((c) => c.id === currentChapter?.id);
             if (ci >= 0 && ci < chapters.length - 1) {
               preloadNextChapters(currentChapter!.id);
+              // 预取下章 TTS 音频（后台模式跨章无需等待 TTS API）
+              triggerTtsPrefetch(ci + 1).catch(() => {});
             }
           }
         },

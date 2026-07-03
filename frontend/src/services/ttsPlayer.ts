@@ -256,6 +256,10 @@ export class TTSPlayer {
   public currentBookId: string = '';
   public chapterTitle: string = '';
 
+  private prefetchedChunks: TTSChunk[] | null = null;
+  /** 预取时的 generation 标记，loadFromPrefetched 据此校验一致性 */
+  private prefetchedGeneration: number = 0;
+
 
   // ── 初始化 ──
 
@@ -1146,6 +1150,101 @@ export class TTSPlayer {
       this.isConcatMode = false;
     });
     this.updateMediaSessionState('playing');
+  }
+
+  // ── 跨章预取：提前合成下一章 TTS 音频，后台无缝过渡 ──
+
+  /**
+   * 预取下一章节的 TTS 音频分段
+   * 在当前章节播放到 75% 时调用，提前合成下一章节音频并缓存到内部缓冲区
+   * 跨章节过渡时调用 loadFromPrefetched() 无需等待 TTS API 即可播放
+   * @param segments 已经 splitText 分段后的文本数组
+   */
+  async prefetchChapterSegments(segments: string[]): Promise<void> {
+    if (this.isDestroyed || segments.length === 0) return;
+
+    const gen = this.generation;
+    const chunks: TTSChunk[] = segments.map((text, i) => ({
+      index: i,
+      text,
+      status: 'pending' as const,
+    }));
+
+    // 预取前 preGenCount 个分段（与标准 preGenRange 相同逻辑）
+    const end = Math.min(this.preGenCount - 1, chunks.length - 1);
+    const pending = chunks.slice(0, end + 1).filter(c => c.status === 'pending');
+
+    // 用并发池预取 TTS 音频（不阻塞当前播放）
+    await this.runWithConcurrency(
+      pending,
+      async (chunk) => {
+        if (gen !== this.generation || this.isDestroyed) return;
+        try {
+          const arrayBuffer = await this.fetchTTSAudio(chunk.text);
+          if (gen !== this.generation || this.isDestroyed) return;
+          const blob = new Blob([arrayBuffer], { type: 'audio/wav' });
+          const url = URL.createObjectURL(blob);
+          this.allBlobUrls.push(url);
+          chunk.audioBlobUrl = url;
+          chunk.status = 'ready';
+        } catch {
+          chunk.status = 'error';
+        }
+      },
+      TTSPlayer.MAX_CONCURRENT_FETCHES
+    );
+
+    // 存储预取结果（无论 fetch 成功与否，后续 loadFromPrefetched 会用已就绪的 chunk）
+    this.prefetchedChunks = chunks;
+    this.prefetchedGeneration = gen;
+  }
+
+  /**
+   * 从预取缓冲区加载章节内容（无需 TTS API 调用，播放立即开始）
+   * 在 advanceToNextChapterTTS 中优先调用，实现后台无缝跨章
+   * @returns 是否成功加载预取数据（false 时调用方应回退到标准 load）
+   */
+  async loadFromPrefetched(): Promise<boolean> {
+    if (!this.prefetchedChunks || this.prefetchedGeneration !== this.generation) {
+      this.prefetchedChunks = null;
+      return false;
+    }
+
+    const chunks = this.prefetchedChunks;
+    this.prefetchedChunks = null;
+
+    // 最小化停止：只暂停和清空 audio src，不清除 allBlobUrls（预取的 blob 在里面）
+    if (this.audioElement) {
+      this.audioElement.pause();
+      this.audioElement.removeAttribute('src');
+    }
+    if (this.currentBlobUrl) {
+      try { URL.revokeObjectURL(this.currentBlobUrl); } catch { /* ignore */ }
+      this.currentBlobUrl = null;
+    }
+    if (this.concatBlobUrl) {
+      try { URL.revokeObjectURL(this.concatBlobUrl); } catch { /* ignore */ }
+      this.concatBlobUrl = null;
+    }
+    this.chunkTimeSlots = [];
+    this.isConcatMode = false;
+    if (this.concatTimeupdater && this.audioElement) {
+      this.audioElement.removeEventListener('timeupdate', this.concatTimeupdater);
+      this.concatTimeupdater = null;
+    }
+
+    this.generation++;
+    this.chunks = chunks;
+    this.currentIndex = -1;
+    this.originalChunkCount = 0;
+    this.nextChapterAppended = false;
+
+    this.setState('loading');
+
+    // 后台预取剩余分段（已就绪的 chunk 直接可用，无需等待）
+    this.prefetchAllRemaining().catch(() => {});
+
+    return true;
   }
 
   private preGenAhead(currentIndex: number): void {
