@@ -15,6 +15,7 @@
  * 1.14.1 (2026-07-03): [BUGFIX] 修复设置面板不可见（loading条件反置）+ 部署延迟60s→10s
  * 1.15.0 (2026-07-03): Git hooks迁移到.githooks/（可版本控制）+ SettingsPage测试 + 自动部署默认工作流
  * 1.16.0 (2026-07-03): ReaderPage iOS风格改造 — 毛玻璃浮动面板、SF Symbols SVG图标替换emoji、iOS毛玻璃顶栏、CSS变量背景体系
+ * 1.17.0 (2026-07-03): TTS服务配置二级菜单 — 服务源选择、API地址/Key配置、缺省音色选择、语速调节、连接测试
  */
 
-export const APP_VERSION = '1.16.0';
+export const APP_VERSION = '1.17.0';

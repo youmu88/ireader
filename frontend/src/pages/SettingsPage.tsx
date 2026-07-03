@@ -54,6 +54,7 @@ export default function SettingsPage() {
   // @ts-ignore
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showTTSDetail, setShowTTSDetail] = useState(false);
   // @ts-ignore
   const [saveMessage, setSaveMessage] = useState('');
   // ── 实时合成（noCache）开关 ──
@@ -213,7 +214,6 @@ export default function SettingsPage() {
   // ── iOS 风格所需状态（由 iOS 美化新增） ──
   const [fontSize, setFontSize] = useState(18);
   const [readerBg, setReaderBg] = useState(() => document.documentElement.classList.contains('dark') ? '#1a1a2e' : '#ffffff');
-  const ttsEngine = 'auto';
   const BUILD_TIME = '2026-07-03';
   const RUNNING_ENV = typeof window !== 'undefined' && 'standalone' in window.navigator && (window.navigator as any).standalone ? 'PWA' : 'Web';
   const handleLogout = async () => {
@@ -222,6 +222,249 @@ export default function SettingsPage() {
     } catch {}
     window.location.href = '/';
   };
+
+  // ── TTS 二级菜单（iOS 风格 drill-down） ──
+  if (showTTSDetail) {
+    const sourceOptions = [
+      { id: 'kokoro', label: 'Kokoro' },
+      { id: 'megatts3', label: 'MegaTTS3' },
+      { id: 'edgetts', label: 'EdgeTTS' },
+      { id: 'custom', label: '自定义' },
+    ];
+    return (
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10 animate-fade-in">
+        {/* ── 导航栏 ── */}
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={() => setShowTTSDetail(false)}
+            className="w-8 h-8 rounded-full flex items-center justify-center tap-icon"
+            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-primary)' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+          <h1 className="text-[28px] sm:text-[34px] font-bold tracking-tight"
+            style={{ color: 'var(--color-text)' }}>
+            TTS 服务
+          </h1>
+        </div>
+
+        {/* ── 服务源 ── */}
+        <div className="mb-6">
+          <h2 className="text-xs font-semibold tracking-widest uppercase px-1 mb-2"
+            style={{ color: 'var(--color-text-muted)' }}>
+            服务源
+          </h2>
+          <div className="rounded-2xl overflow-hidden shadow-ios-sm"
+            style={{ background: 'var(--color-bg-card)' }}>
+            {/* TTS 引擎选择 */}
+            <div className="px-4 py-3.5"
+              style={{ borderBottom: '0.5px solid var(--color-border)' }}>
+              <span className="text-xs font-medium mb-2 block" style={{ color: 'var(--color-text-muted)' }}>
+                TTS 引擎
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {sourceOptions.map(s => (
+                  <button key={s.id} onClick={() => {
+                    setSelectedSource(s.id);
+                    if (s.id !== 'custom') setApiUrl(PRESET_DEFAULT_URLS[s.id] || '');
+                  }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all tap-icon"
+                    style={{
+                      background: selectedSource === s.id ? 'var(--color-primary)' : 'var(--color-bg-alt)',
+                      color: selectedSource === s.id ? '#fff' : 'var(--color-text-secondary)',
+                    }}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* API 地址 */}
+            <div className="px-4 py-3.5"
+              style={{ borderBottom: '0.5px solid var(--color-border)' }}>
+              <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--color-text-muted)' }}>
+                服务地址 {!isCustomSource && <span className="text-[10px] opacity-60">（预设）</span>}
+              </label>
+              <div className="flex items-center gap-2">
+                <input type="text" value={apiUrl}
+                  onChange={e => setApiUrl(e.target.value)}
+                  placeholder="http://127.0.0.1:8880"
+                  className="flex-1 px-3 py-2 rounded-xl text-sm bg-transparent border"
+                  style={{
+                    color: 'var(--color-text)',
+                    borderColor: 'var(--color-border)',
+                  }} />
+                <button onClick={handleTestConnection} disabled={testing}
+                  className="px-3 py-2 rounded-xl text-xs font-medium tap-icon whitespace-nowrap"
+                  style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>
+                  {testing ? '测试中…' : '测试'}
+                </button>
+              </div>
+              {connectionStatus && (
+                <div className="mt-2 text-xs px-2 py-1 rounded-lg"
+                  style={{
+                    background: connectionStatus.success ? 'rgba(52,199,89,0.12)' : 'rgba(255,59,48,0.12)',
+                    color: connectionStatus.success ? '#34c759' : '#ff3b30',
+                  }}>
+                  {connectionStatus.success
+                    ? `✓ 连接成功${connectionStatus.service ? ' · ' + connectionStatus.service : ''}`
+                    : `✗ ${connectionStatus.error || '连接失败'}`}
+                </div>
+              )}
+            </div>
+
+            {/* API Key */}
+            <div className="px-4 py-3.5"
+              style={{ borderBottom: '0.5px solid var(--color-border)' }}>
+              <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--color-text-muted)' }}>
+                API Key <span className="text-[10px] opacity-60">（可选）</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input type={showApiKey ? 'text' : 'password'} value={apiKey}
+                  onChange={e => setApiKey(e.target.value)}
+                  placeholder="sk-..."
+                  className="flex-1 px-3 py-2 rounded-xl text-sm bg-transparent border"
+                  style={{
+                    color: 'var(--color-text)',
+                    borderColor: 'var(--color-border)',
+                  }} />
+                <button onClick={() => setShowApiKey(!showApiKey)}
+                  className="px-2 py-2 rounded-xl text-xs tap-icon"
+                  style={{ color: 'var(--color-text-secondary)' }}>
+                  {showApiKey ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+
+            {/* 缺省音色 */}
+            <div className="px-4 py-3.5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>缺省音色</span>
+                <button onClick={handleFetchVoices} disabled={fetchingVoices}
+                  className="px-2.5 py-1 rounded-lg text-xs font-medium tap-icon"
+                  style={{ background: 'var(--color-bg-alt)', color: 'var(--color-primary)' }}>
+                  {fetchingVoices ? '加载中…' : '刷新'}
+                </button>
+              </div>
+              {voices.length > 0 ? (
+                <select value={selectedVoice} onChange={e => setSelectedVoice(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm bg-transparent border appearance-none"
+                  style={{
+                    color: 'var(--color-text)',
+                    borderColor: 'var(--color-border)',
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 10px center',
+                  }}>
+                  {voices.map(v => (
+                    <option key={v.id} value={v.id}>{v.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  {fetchingVoices ? '正在获取音色列表…' : '点击「刷新」获取可用音色'}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── 参数 ── */}
+        <div className="mb-6">
+          <h2 className="text-xs font-semibold tracking-widest uppercase px-1 mb-2"
+            style={{ color: 'var(--color-text-muted)' }}>
+            参数
+          </h2>
+          <div className="rounded-2xl overflow-hidden shadow-ios-sm"
+            style={{ background: 'var(--color-bg-card)' }}>
+            {/* 语速 */}
+            <div className="px-4 py-3.5"
+              style={{ borderBottom: '0.5px solid var(--color-border)' }}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>语速</span>
+                <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{speed.toFixed(1)}x</span>
+              </div>
+              <input type="range" min="0.5" max="2.0" step="0.1" value={speed}
+                onChange={e => setSpeed(parseFloat(e.target.value))}
+                className="w-full" style={{ accentColor: 'var(--color-primary)' }} />
+              <div className="flex justify-between text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+                <span>0.5x</span><span>2.0x</span>
+              </div>
+            </div>
+
+            {/* 自动预合成 */}
+            <div className="flex items-center justify-between px-4 py-3.5"
+              style={{ borderBottom: '0.5px solid var(--color-border)' }}>
+              <div>
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>自动预合成</span>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>阅读时自动提前合成语音</p>
+              </div>
+              <button onClick={() => setAutoPreSynthesize(!autoPreSynthesize)}
+                className={`relative w-[48px] h-[28px] rounded-full transition-all duration-200 ${autoPreSynthesize ? '' : 'opacity-50'}`}
+                style={{ background: autoPreSynthesize ? 'var(--color-primary)' : 'var(--color-border)' }}>
+                <div className={`absolute top-[3px] w-[22px] h-[22px] rounded-full bg-white shadow-sm transition-all duration-200 ${autoPreSynthesize ? 'left-[23px]' : 'left-[3px]'}`} />
+              </button>
+            </div>
+
+            {/* 实时合成 */}
+            <div className="flex items-center justify-between px-4 py-3.5">
+              <div>
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>实时合成</span>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>每次播放实时生成，不缓存</p>
+              </div>
+              <button onClick={handleToggleNoCache}
+                className={`relative w-[48px] h-[28px] rounded-full transition-all duration-200 ${noCache ? '' : 'opacity-50'}`}
+                style={{ background: noCache ? 'var(--color-primary)' : 'var(--color-border)' }}>
+                <div className={`absolute top-[3px] w-[22px] h-[22px] rounded-full bg-white shadow-sm transition-all duration-200 ${noCache ? 'left-[23px]' : 'left-[3px]'}`} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ── 操作 ── */}
+        <div className="mb-6">
+          <h2 className="text-xs font-semibold tracking-widest uppercase px-1 mb-2"
+            style={{ color: 'var(--color-text-muted)' }}>
+            操作
+          </h2>
+          <div className="rounded-2xl overflow-hidden shadow-ios-sm"
+            style={{ background: 'var(--color-bg-card)' }}>
+            <button onClick={handleClearCache} disabled={clearing}
+              className="w-full flex items-center justify-between px-4 py-3.5 tap-row"
+              style={{ borderBottom: '0.5px solid var(--color-border)' }}>
+              <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>清除音频缓存</span>
+              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                {clearing ? '清除中…' : clearMessage || ''}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* ── 保存反馈 ── */}
+        {saveMessage && (
+          <div className="mb-4 text-center text-xs py-2 px-4 rounded-xl"
+            style={{
+              background: saveMessage.startsWith('✓') ? 'rgba(52,199,89,0.12)' : 'rgba(255,59,48,0.12)',
+              color: saveMessage.startsWith('✓') ? '#34c759' : '#ff3b30',
+            }}>
+            {saveMessage}
+          </div>
+        )}
+
+        {/* ── 保存按钮 ── */}
+        <button onClick={handleSave} disabled={saving}
+          className="w-full py-3.5 rounded-2xl text-sm font-semibold text-center tap-active transition-all duration-200 shadow-ios-sm"
+          style={{
+            background: saving ? 'var(--color-bg-alt)' : 'var(--color-primary)',
+            color: saving ? 'var(--color-text-muted)' : '#fff',
+          }}>
+          {saving ? '保存中…' : '保存设置'}
+        </button>
+
+        <div className="h-12" />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -346,7 +589,8 @@ export default function SettingsPage() {
         </h2>
         <div className="rounded-2xl overflow-hidden shadow-ios-sm"
           style={{ background: 'var(--color-bg-card)' }}>
-          <div className="flex items-center justify-between px-4 py-3.5">
+          <button onClick={() => setShowTTSDetail(true)}
+            className="w-full flex items-center justify-between px-4 py-3.5 tap-row">
             <div className="flex items-center gap-3">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
                 style={{ color: 'var(--color-text-secondary)' }}>
@@ -354,12 +598,18 @@ export default function SettingsPage() {
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                 <line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" />
               </svg>
-              <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>TTS 引擎</span>
+              <div className="text-left">
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>TTS 服务</span>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
+                  {selectedSource} · {selectedVoice}
+                </p>
+              </div>
             </div>
-            <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              {ttsEngine === 'auto' ? '自动' : ttsEngine === 'openai' ? 'OpenAI' : 'Edge'}
-            </span>
-          </div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+              style={{ color: 'var(--color-text-tertiary)' }}>
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
         </div>
       </div>
 

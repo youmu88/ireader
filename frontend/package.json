@@ -1,6 +1,6 @@
 {
   "name": "ireader-frontend",
-  "version": "0.1.2",
+  "version": "1.17.0",
   "private": true,
   "type": "module",
   "scripts": {
