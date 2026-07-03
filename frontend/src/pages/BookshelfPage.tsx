@@ -793,10 +793,7 @@ useEffect(() => {
                         <div className="flex items-center justify-between text-xs">
                           <span style={{ color: 'var(--color-text-muted)' }}>语音</span>
                           <span className="text-gray-700 dark:text-gray-300 font-medium">
-                            {bookStats[book.id].totalVoiceChunks > 0
-                              ? `${bookStats[book.id].completedVoiceChapters}/${bookStats[book.id].totalVoiceChunks}段`
-                              : `${Math.round((bookStats[book.id].voiceGenerationRate || 0) * bookStats[book.id].totalChapters)}/${bookStats[book.id].totalChapters}章`}
-                            {bookStats[book.id].ttsCacheCount ? ` · ${bookStats[book.id].ttsCacheCount}条` : ''}
+                            ${Math.round((bookStats[book.id].voiceGenerationRate || 0) * bookStats[book.id].totalChapters)}/${bookStats[book.id].totalChapters}章
                           </span>
                         </div>
                         <div className="w-full h-1.5 rounded-full overflow-hidden"
@@ -914,10 +911,7 @@ useEffect(() => {
                           <div className="flex items-center justify-between text-xs">
                             <span style={{ color: 'var(--color-text-muted)' }}>语音</span>
                             <span className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-                              {bookStats[book.id].totalVoiceChunks > 0
-                                ? `${bookStats[book.id].completedVoiceChapters}/${bookStats[book.id].totalVoiceChunks}段`
-                                : `${Math.round((bookStats[book.id].voiceGenerationRate || 0) * bookStats[book.id].totalChapters)}/${bookStats[book.id].totalChapters}章`}
-                              {bookStats[book.id].ttsCacheCount ? ` · ${bookStats[book.id].ttsCacheCount}条` : ''}
+                              ${Math.round((bookStats[book.id].voiceGenerationRate || 0) * bookStats[book.id].totalChapters)}/${bookStats[book.id].totalChapters}章
                             </span>
                           </div>
                           <div className="w-full h-1.5 rounded-full overflow-hidden"

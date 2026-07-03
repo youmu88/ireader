@@ -263,7 +263,6 @@ function ReaderPage() {
       if (!noCachePref) {
         const MAX_CONCURRENT = 6; // 全局并发池上限
         let totalCached = 0;
-        let completedSegments = 0;
 
         // 收集所有章节的所有段落任务
         interface CacheTask {
@@ -272,17 +271,24 @@ function ReaderPage() {
           segIdx: number;
         }
         const allTasks: CacheTask[] = [];
+        // 记录每章含多少段、已完成几段（用于按章统计进度）
+        const chapterTotalSegments = new Map<string, number>();
+        const chapterCompletedSegments = new Map<string, number>();
         for (const ch of chapters) {
           const chData = chapterData.find(d => d.chapterId === ch.id);
           if (!chData || !chData.content) continue;
           const segments = splitText(chData.content);
+          chapterTotalSegments.set(ch.id, segments.length);
+          chapterCompletedSegments.set(ch.id, 0);
           segments.forEach((seg, segIdx) => {
             allTasks.push({ chapter: ch, seg, segIdx });
           });
         }
         const totalSegments = allTasks.length;
+        const totalChapterCount = chapterTotalSegments.size;
+        let completedChapterCount = 0; // 所有段都已完成缓存的章数
         if (totalSegments > 0) {
-          setCacheProgressText(`合成语音 0/${totalSegments} 段`);
+          setCacheProgressText(`合成语音 0/${totalChapterCount} 章`);
 
           // 全局并发池 — 所有任务共享并发槽
           let i = 0;
@@ -311,14 +317,19 @@ function ReaderPage() {
                     totalCached++;
                   }
                 }
-                completedSegments++;
-                setCacheProgressText(`合成语音 ${completedSegments}/${totalSegments} 段`);
+                // 检查该章是否全部完成
+                const chDone = (chapterCompletedSegments.get(task.chapter.id) || 0) + 1;
+                chapterCompletedSegments.set(task.chapter.id, chDone);
+                if (chDone >= (chapterTotalSegments.get(task.chapter.id) || 0)) {
+                  completedChapterCount++;
+                }
+                setCacheProgressText(`合成语音 ${completedChapterCount}/${totalChapterCount} 章`);
               } catch { /* 单段合成失败不影响全书 */ }
             }
           };
           const workers = Array.from({ length: Math.min(MAX_CONCURRENT, totalSegments) }, () => next());
           await Promise.all(workers);
-          console.log(`全书缓存完成：共合成 ${totalCached} 段语音`);
+          console.log(`全书缓存完成：共合成 ${totalCached} 段语音（${completedChapterCount}章）`);
         }
       }
 
@@ -2319,14 +2330,9 @@ function ReaderPage() {
                     )}
                     {cacheStatus && cacheStatus.chapterCount > 0 && (
                       <div className="flex items-center justify-center gap-3 text-xs pt-1" style={{ color: 'var(--color-text-muted)' }}>
-                        <span title="已缓存文字章节" style={{ color: 'var(--color-accent-2)' }}>
+                        <span title="已缓存章节" style={{ color: 'var(--color-accent-2)' }}>
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章
                         </span>
-                        {cacheStatus.audioSegmentCount > 0 && (
-                          <span title="已缓存语音段" style={{ color: '#AF52DE' }}>
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> {cacheStatus.audioSegmentCount}段
-                          </span>
-                        )}
                         <span>{formatBytes(cacheStatus.totalBytes)}</span>
                       </div>
                     )}
