@@ -1831,30 +1831,30 @@ function ReaderPage() {
 
             {/* 底部控制面板 — 阻止点击冒泡到外层遮罩，避免非关闭按钮意外关闭面板 */}
             <div className="relative z-10 pointer-events-none">
-              <div className="pointer-events-auto glass-bar rounded-t-2xl shadow-2xl max-h-[55vh] overflow-y-auto mx-auto max-w-3xl animate-slide-up" onClick={(e) => e.stopPropagation()}>
-                  <div className="p-4 space-y-3">
+              <div className="pointer-events-auto glass-bar rounded-2xl shadow-2xl mx-auto max-w-3xl animate-slide-up" onClick={(e) => e.stopPropagation()}>
+                  <div className="p-5 space-y-4">
                     {/* ── 第一行：返回 + 书名 + 目录 ── */}
                     <div className="flex items-center justify-between">
                       <button
                         onClick={() => navigate('/')}
-                        className="flex items-center gap-1 text-sm rounded-full px-3 py-1.5 transition-all duration-200 tap-active"
+                        className="flex items-center gap-1.5 text-base rounded-full px-4 py-2 transition-all duration-200 tap-active"
                       style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><polyline points="15 18 9 12 15 6"/></svg> 返回
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><polyline points="15 18 9 12 15 6"/></svg> 返回
                       </button>
-                      <h2 className="text-sm font-medium truncate max-w-[50%] text-center"
+                      <h2 className="text-base font-medium truncate max-w-[50%] text-center"
                         style={{ color: 'var(--color-text-secondary)' }}>
                         {book?.title || ''}
                       </h2>
                       <button
                         onClick={() => { setShowToc(v => !v); setShowUi(false); }}
-                        className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all duration-200 tap-active`}
+                        className={`text-sm px-4 py-2 rounded-full font-medium transition-all duration-200 tap-active`}
                         style={{
                           background: showToc ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)',
                           color: showToc ? 'var(--color-primary)' : 'var(--color-text-secondary)',
                         }}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                         目录
                       </button>
                     </div>
@@ -1865,33 +1865,33 @@ function ReaderPage() {
                       <button
                         onClick={ttsState !== 'idle' ? handleStopTTS : handleStartTTS}
                         disabled={ttsState === 'loading'}
-                        className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all duration-200 tap-active`}
+                        className={`text-sm px-4 py-2 rounded-full font-medium transition-all duration-200 tap-active`}
                         style={{
                           background: ttsState !== 'idle' ? 'var(--color-accent-2-subtle)' : 'var(--color-bg-alt)',
                           color: ttsState !== 'idle' ? 'var(--color-accent-2)' : 'var(--color-text-secondary)',
                         }}
                       >
-                        {ttsState === 'playing' ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 朗读中</> : ttsState === 'paused' ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> 已暂停</> : ttsState === 'loading' ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 animate-spin"><circle cx="12" cy="12" r="10" opacity="0.3"/><path d="M12 2a10 10 0 0 1 10 10"/></svg> 加载中</> : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 朗读</>}
+                        {ttsState === 'playing' ? <><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 朗读中</> : ttsState === 'paused' ? <><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> 已暂停</> : ttsState === 'loading' ? <><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 animate-spin"><circle cx="12" cy="12" r="10" opacity="0.3"/><path d="M12 2a10 10 0 0 1 10 10"/></svg> 加载中</> : <><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 朗读</>}
                       </button>
                       <button
                         onClick={handleCacheCurrentChapter}
                         disabled={cachingInProgress}
-                        className="text-xs px-3 py-1.5 rounded-full transition-all duration-200 tap-active"
+                        className="text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
                         style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 缓存本章
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 缓存本章
                       </button>
                       <button
                         onClick={handleCacheFullBook}
                         disabled={cachingInProgress}
-                        className="text-xs px-3 py-1.5 rounded-full transition-all duration-200 tap-active"
+                        className="text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
                         style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> 全书缓存
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> 全书缓存
                       </button>
                       {cacheStatus && cacheStatus.chapterCount > 0 && (
                         <div className="flex flex-col gap-1.5">
-                          <div className="flex items-center gap-2 flex-wrap text-xs">
+                          <div className="flex items-center gap-2 flex-wrap text-sm">
                                                           <span style={{ color: 'var(--color-accent-2)' }} title="已缓存文字章节">
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章 ({formatBytes(cacheStatus.chapterBytes)})
                             </span>
@@ -1908,23 +1908,23 @@ function ReaderPage() {
                           <div className="flex items-center gap-1.5">
                             <button
                               onClick={handleClearTextCache}
-                              className="text-[10px] px-2 py-1 rounded-full text-orange-500 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-all duration-150 tap-active"
+                              className="text-xs px-2.5 py-1.5 rounded-full text-orange-500 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-all duration-150 tap-active"
                             >
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 清除文字
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 清除文字
                             </button>
                             {cacheStatus.audioSegmentCount > 0 && (
                               <button
                                 onClick={handleClearAudioCache}
-                                className="text-[10px] px-2 py-1 rounded-full text-purple-500 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-all duration-150 tap-active"
-                              >
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 清除语音
+                              className="text-xs px-2.5 py-1.5 rounded-full text-purple-500 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-all duration-150 tap-active"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 清除语音
                               </button>
                             )}
                             <button
                               onClick={handleClearCache}
-                              className="text-[10px] px-2 py-1 rounded-full text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-all duration-150 tap-active"
+                              className="text-xs px-2.5 py-1.5 rounded-full text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-all duration-150 tap-active"
                             >
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 清除全部
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 清除全部
                             </button>
                           </div>
                         </div>
@@ -1934,75 +1934,75 @@ function ReaderPage() {
                     <div style={{ borderTop: '0.5px solid var(--color-border)' }} />
 
                     {/* ── 阅读设置（字号/行距/段距/首行缩进）紧凑 2×2 网格 ── */}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                       {/* 字号 */}
                       <div className="flex items-center justify-between">
-                        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>字号</span>
-                        <div className="flex items-center gap-1">
+                        <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>字号</span>
+                        <div className="flex items-center gap-1.5">
                           <button onClick={() => setFontSize(Math.max(12, fontSize - 2))}
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-all tap-icon"
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all tap-icon"
                             style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>A−</button>
-                          <span className="text-xs w-5 text-center font-medium" style={{ color: 'var(--color-text)' }}>{fontSize}</span>
+                          <span className="text-sm w-8 text-center font-medium" style={{ color: 'var(--color-text)' }}>{fontSize}</span>
                           <button onClick={() => setFontSize(Math.min(36, fontSize + 2))}
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-all tap-icon"
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all tap-icon"
                             style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>A+</button>
                         </div>
                       </div>
                       {/* 行距 */}
                       <div className="flex items-center justify-between">
-                        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>行距</span>
-                        <div className="flex items-center gap-1">
+                        <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>行距</span>
+                        <div className="flex items-center gap-1.5">
                           <button onClick={() => setLineHeight(Math.max(1.2, lineHeight - 0.2))} disabled={lineHeight <= 1.2}
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-sm disabled:opacity-40 transition-colors"
                             style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>−</button>
-                          <span className="text-xs w-5 text-center" style={{ color: 'var(--color-text-muted)' }}>{lineHeight.toFixed(1)}</span>
+                          <span className="text-sm w-8 text-center" style={{ color: 'var(--color-text-muted)' }}>{lineHeight.toFixed(1)}</span>
                           <button onClick={() => setLineHeight(Math.min(3.0, lineHeight + 0.2))} disabled={lineHeight >= 3.0}
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-sm disabled:opacity-40 transition-colors"
                             style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>+</button>
                         </div>
                       </div>
                       {/* 段距 */}
                       <div className="flex items-center justify-between">
-                        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>段距</span>
-                        <div className="flex items-center gap-1">
+                        <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>段距</span>
+                        <div className="flex items-center gap-1.5">
                           <button onClick={() => setParagraphSpacing(Math.max(0.2, +(paragraphSpacing - 0.1).toFixed(1)))} disabled={paragraphSpacing <= 0.2}
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-sm disabled:opacity-40 transition-colors"
                             style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>−</button>
-                          <span className="text-xs w-5 text-center" style={{ color: 'var(--color-text-muted)' }}>{paragraphSpacing.toFixed(1)}</span>
+                          <span className="text-sm w-8 text-center" style={{ color: 'var(--color-text-muted)' }}>{paragraphSpacing.toFixed(1)}</span>
                           <button onClick={() => setParagraphSpacing(Math.min(2.0, +(paragraphSpacing + 0.1).toFixed(1)))} disabled={paragraphSpacing >= 2.0}
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-sm disabled:opacity-40 transition-colors"
                             style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>+</button>
                         </div>
                       </div>
                       {/* 首行缩进 */}
                       <div className="flex items-center justify-between">
-                        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>首行缩进</span>
+                        <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>首行缩进</span>
                         <button onClick={() => setFirstLineIndent(!firstLineIndent)}
-                          className={`relative w-[36px] h-[20px] rounded-full transition-all ${firstLineIndent ? '' : 'opacity-50'}`}
+                          className={`relative w-[44px] h-[24px] rounded-full transition-all ${firstLineIndent ? '' : 'opacity-50'}`}
                           style={{ background: firstLineIndent ? 'var(--color-primary)' : 'var(--color-border)' }}>
-                          <div className={`absolute top-[1px] w-[18px] h-[18px] rounded-full bg-white shadow-sm transition-all ${firstLineIndent ? 'left-[17px]' : 'left-[1px]'}`} />
+                          <div className={`absolute top-[1px] w-[22px] h-[22px] rounded-full bg-white shadow-sm transition-all ${firstLineIndent ? 'left-[21px]' : 'left-[1px]'}`} />
                         </button>
                       </div>
                     </div>
 
                     {/* ── 样式（字体 + 阅读模式）─与上方网格共享间距，不额外加分隔线 ── */}
-                    <div className="flex items-center justify-between pt-0.5">
-                      <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>样式</span>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>样式</span>
                       <div className="flex items-center gap-2">
                         <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value as 'sans' | 'serif' | 'mono')}
-                          className="text-xs px-2 py-1 rounded-lg border-none cursor-pointer outline-none"
+                          className="text-sm px-3 py-1.5 rounded-lg border-none cursor-pointer outline-none"
                           style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>
                           <option value="sans">无衬线</option>
                           <option value="serif">衬线</option>
                           <option value="mono">等宽</option>
                         </select>
                         <button onClick={() => { setReadingMode(prev => prev === 'scroll' ? 'paginated' : 'scroll'); setPageIndex(0); }}
-                          className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all duration-200 tap-active`}
+                          className={`text-sm px-3 py-1.5 rounded-lg font-medium transition-all duration-200 tap-active`}
                           style={{
                             background: readingMode === 'paginated' ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)',
                             color: readingMode === 'paginated' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
                           }}>
-                          {readingMode === 'paginated' ? <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> 翻页</> : <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> 滚动</>}
+                          {readingMode === 'paginated' ? <><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> 翻页</> : <><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> 滚动</>}
                         </button>
                       </div>
                     </div>
@@ -2012,7 +2012,7 @@ function ReaderPage() {
                     <div className="space-y-2 pt-1">
                       {/* ── 音色选择器 ── */}
                       <div className="flex items-center justify-between">
-                        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>音色</span>
+                        <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>音色</span>
                         <select
                           value={ttsVoice}
                           onChange={(e) => {
@@ -2022,7 +2022,7 @@ function ReaderPage() {
                             const player = ttsPlayerRef.current;
                             if (player) player.setVoice(v);
                           }}
-                          className="text-xs px-2 py-1.5 rounded-lg border-none cursor-pointer max-w-[180px] outline-none"
+                          className="text-sm px-3 py-2 rounded-lg border-none cursor-pointer max-w-[200px] outline-none"
                           style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                         >
                           <option value="zh-CN-XiaoxiaoNeural">Xiaoxiao（女）</option>
@@ -2034,23 +2034,23 @@ function ReaderPage() {
                       </div>
                       <div className="border-t border-gray-100 dark:border-gray-700" />
                       <div className="flex items-center justify-between">
-                        <span className="text-xs shrink-0" style={{ color: 'var(--color-text-secondary)' }}>朗读控制</span>
-                        <div className="flex items-center justify-evenly flex-1 gap-0.5">
+                        <span className="text-sm shrink-0" style={{ color: 'var(--color-text-secondary)' }}>朗读控制</span>
+                        <div className="flex items-center justify-evenly flex-1 gap-1">
                           {/* 播放控制 */}
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5">
                             {ttsState === 'playing' ? (
-                              <button onClick={handlePauseTTS} className="w-8 h-8 rounded-full" style={{background: 'var(--color-primary)'}} title="暂停"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
+                              <button onClick={handlePauseTTS} className="w-10 h-10 rounded-full" style={{background: 'var(--color-primary)'}} title="暂停"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
                             ) : (
-                              <button onClick={ttsState === 'paused' ? handleResumeTTS : handleStartTTS} className="w-8 h-8 rounded-full" style={{background: 'var(--color-primary)'}} title={ttsState === 'paused' ? '继续' : '播放'}><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
+                              <button onClick={ttsState === 'paused' ? handleResumeTTS : handleStartTTS} className="w-10 h-10 rounded-full" style={{background: 'var(--color-primary)'}} title={ttsState === 'paused' ? '继续' : '播放'}><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
                             )}
-                            <button onClick={handleStopTTS} className="w-8 h-8 rounded-full" style={{background: 'var(--color-bg-alt)'}} title="停止"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
+                            <button onClick={handleStopTTS} className="w-10 h-10 rounded-full" style={{background: 'var(--color-bg-alt)'}} title="停止"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
                           </div>
                           {/* 进度 */}
-                          <span className="text-xs min-w-[2.5rem]" style={{ color: 'var(--color-text-muted)' }}>{Math.round(ttsProgress * 100)}%</span>
+                          <span className="text-sm min-w-[3rem]" style={{ color: 'var(--color-text-muted)' }}>{Math.round(ttsProgress * 100)}%</span>
                           {/* 快进/快退 */}
-                          <div className="flex items-center gap-1">
-                            <button onClick={handleSkipBackward} className="w-8 h-8 rounded-full" style={{background: 'var(--color-bg-alt)'}} title="后退10秒"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg></button>
-                            <button onClick={handleSkipForward} className="w-8 h-8 rounded-full" style={{background: 'var(--color-bg-alt)'}} title="快进10秒"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button>
+                          <div className="flex items-center gap-1.5">
+                            <button onClick={handleSkipBackward} className="w-10 h-10 rounded-full" style={{background: 'var(--color-bg-alt)'}} title="后退10秒"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg></button>
+                            <button onClick={handleSkipForward} className="w-10 h-10 rounded-full" style={{background: 'var(--color-bg-alt)'}} title="快进10秒"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button>
                           </div>
                           {/* 睡眠定时 */}
                           <button
@@ -2060,13 +2060,13 @@ function ReaderPage() {
                               const next = opts[(idx + 1) % opts.length];
                               handleSetSleepTimer(next);
                             }}
-                            className={`text-xs px-2 py-1 rounded transition-all duration-200 tap-active`}
+                            className={`text-sm px-3 py-1.5 rounded-lg transition-all duration-200 tap-active`}
                             style={{
                               background: sleepTimerMinutes ? 'var(--color-accent-2-subtle)' : 'var(--color-bg-alt)',
                               color: sleepTimerMinutes ? 'var(--color-accent-2)' : 'var(--color-text-secondary)',
                             }}
                           >
-                            {sleepTimerMinutes ? <span className="inline-flex items-center gap-1"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>{sleepTimerMinutes}分</span> : <span className="inline-flex items-center gap-1"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>定时</span>}
+                            {sleepTimerMinutes ? <span className="inline-flex items-center gap-1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>{sleepTimerMinutes}分</span> : <span className="inline-flex items-center gap-1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>定时</span>}
                           </button>
                         </div>
                       </div>
@@ -2098,7 +2098,7 @@ function ReaderPage() {
                   {/* ── 底部导航（仅保留章节进度信息，导航按钮移至浮动） ── */}
                   <div className="pt-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
                     <div className="flex items-center justify-center">
-                      <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                      <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
                         {currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1} / ${chapters.length}` : ''}
                       </span>
                     </div>
@@ -2107,16 +2107,16 @@ function ReaderPage() {
                           <button
                             onClick={() => { if (pageIndex > 0) setPageIndex(i => i - 1); else goToPrevChapter(); }}
                             disabled={pageIndex === 0 && chapters.findIndex(c => c.id === currentChapter?.id) === 0}
-                                                          className="text-xs px-3 py-1.5 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
+                                                          className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
                               style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                          ><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="15 18 9 12 15 6"/></svg> 上一页</button>
-                        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{pageIndex + 1} / {totalPages}</span>
+                          ><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="15 18 9 12 15 6"/></svg> 上一页</button>
+                        <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{pageIndex + 1} / {totalPages}</span>
                           <button
                             onClick={() => { if (pageIndex < totalPages - 1) setPageIndex(i => i + 1); else goToNextChapter(); }}
                             disabled={pageIndex >= totalPages - 1 && chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1}
-                            className="text-xs px-3 py-1.5 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
+                            className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
                             style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                          >下一页 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="9 18 15 12 9 6"/></svg></button>
+                          >下一页 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="9 18 15 12 9 6"/></svg></button>
                       </div>
                     )}
                   </div>
@@ -2124,7 +2124,7 @@ function ReaderPage() {
                   {/* ── 服务端统计 ── */}
                   {serverStats && (
                     <div className="pt-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
-                      <div className="flex items-center gap-3 flex-wrap text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                      <div className="flex items-center gap-3 flex-wrap text-sm" style={{ color: 'var(--color-text-muted)' }}>
                         <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> 阅读 {Math.round(serverStats.readingPercentage * 100)}%</span>
                         <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> {currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1}/${serverStats.totalChapters}` : `共${serverStats.totalChapters}`}章</span>
                         <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 预合成 {Math.round((serverStats.voiceGenerationRate || 0) * serverStats.totalChapters)}/{serverStats.totalChapters}章</span>
