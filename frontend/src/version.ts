@@ -11,6 +11,7 @@
  * 
  * 1.12.0 (2026-07-03): 书架页面图标布局优化，导航栏简化，操作栏按功能分行排列
  * 1.13.0 (2026-07-03): 自动更新部署 — triggered-deploy.sh + Git hooks 自动化部署
+ * 1.14.0 (2026-07-03): iOS 风格深度美化 — 毛玻璃导航栏、iOS 卡片式书架/设置/登录页、SF Symbols 图标体系、弹性动效
  */
 
-export const APP_VERSION = '1.13.0';
+export const APP_VERSION = '1.14.0';
