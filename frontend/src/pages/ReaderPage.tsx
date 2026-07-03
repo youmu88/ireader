@@ -1860,75 +1860,84 @@ function ReaderPage() {
                     </div>
                     <div style={{ borderTop: '0.5px solid var(--color-border)' }} />
                     
-                    {/* ── 朗读/缓存 ── */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        onClick={ttsState !== 'idle' ? handleStopTTS : handleStartTTS}
-                        disabled={ttsState === 'loading'}
-                        className={`text-sm px-4 py-2 rounded-full font-medium transition-all duration-200 tap-active`}
-                        style={{
-                          background: ttsState !== 'idle' ? 'var(--color-accent-2-subtle)' : 'var(--color-bg-alt)',
-                          color: ttsState !== 'idle' ? 'var(--color-accent-2)' : 'var(--color-text-secondary)',
+                    {/* ── 播放栏（始终显示） ── */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <button onClick={handleSkipBackward} className="w-10 h-10 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="后退10秒">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+                          </button>
+                          {ttsState === 'playing' ? (
+                            <button onClick={handlePauseTTS} className="w-11 h-11 rounded-full flex items-center justify-center" style={{background: 'var(--color-primary)'}} title="暂停">
+                              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                            </button>
+                          ) : (
+                            <button onClick={ttsState === 'paused' ? handleResumeTTS : handleStartTTS} className="w-11 h-11 rounded-full flex items-center justify-center" style={{background: 'var(--color-primary)'}} title={ttsState === 'paused' ? '继续' : '播放'}>
+                              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            </button>
+                          )}
+                          <button onClick={handleSkipForward} className="w-10 h-10 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="快进10秒">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+                          </button>
+                          <span className="text-sm min-w-[3rem]" style={{ color: 'var(--color-text-muted)' }}>{Math.round(ttsProgress * 100)}%</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const opts: (number | null)[] = [null, 15, 30, 60];
+                            const idx = opts.indexOf(sleepTimerMinutes);
+                            const next = opts[(idx + 1) % opts.length];
+                            handleSetSleepTimer(next);
+                          }}
+                          className={`text-sm px-3 py-1.5 rounded-lg transition-all duration-200 tap-active`}
+                          style={{
+                            background: sleepTimerMinutes ? 'var(--color-accent-2-subtle)' : 'var(--color-bg-alt)',
+                            color: sleepTimerMinutes ? 'var(--color-accent-2)' : 'var(--color-text-secondary)',
+                          }}
+                        >
+                          {sleepTimerMinutes ? <span className="inline-flex items-center gap-1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>{sleepTimerMinutes}分</span> : <span className="inline-flex items-center gap-1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>定时</span>}
+                        </button>
+                      </div>
+                      <div
+                        ref={progressBarRef}
+                        className="rounded-full h-3 cursor-pointer relative group"
+                        style={{ background: 'var(--color-border)' }}
+                        onMouseDown={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                          isDraggingRef.current = true;
+                          handleTTSSeek(pct);
                         }}
                       >
-                        {ttsState === 'playing' ? <><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 朗读中</> : ttsState === 'paused' ? <><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> 已暂停</> : ttsState === 'loading' ? <><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 animate-spin"><circle cx="12" cy="12" r="10" opacity="0.3"/><path d="M12 2a10 10 0 0 1 10 10"/></svg> 加载中</> : <><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 朗读</>}
-                      </button>
-                      <button
-                        onClick={handleCacheCurrentChapter}
-                        disabled={cachingInProgress}
-                        className="text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
-                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 缓存本章
-                      </button>
-                      <button
-                        onClick={handleCacheFullBook}
-                        disabled={cachingInProgress}
-                        className="text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
-                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> 全书缓存
-                      </button>
-                      {cacheStatus && cacheStatus.chapterCount > 0 && (
-                        <div className="flex flex-col gap-1.5">
-                          <div className="flex items-center gap-2 flex-wrap text-sm">
-                                                          <span style={{ color: 'var(--color-accent-2)' }} title="已缓存文字章节">
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章 ({formatBytes(cacheStatus.chapterBytes)})
-                            </span>
-                            {cacheStatus.audioSegmentCount > 0 && (
-                              <span className="" title="已缓存语音段"
-                                style={{ color: '#AF52DE' }}>
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> {cacheStatus.audioSegmentCount}段 ({formatBytes(cacheStatus.audioBytes)})
-                              </span>
-                            )}
-                              <span style={{ color: 'var(--color-text-muted)' }}>
-                                合计 {formatBytes(cacheStatus.totalBytes)}
-                              </span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={handleClearTextCache}
-                              className="text-xs px-2.5 py-1.5 rounded-full text-orange-500 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-all duration-150 tap-active"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 清除文字
-                            </button>
-                            {cacheStatus.audioSegmentCount > 0 && (
-                              <button
-                                onClick={handleClearAudioCache}
-                              className="text-xs px-2.5 py-1.5 rounded-full text-purple-500 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-all duration-150 tap-active"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 清除语音
-                              </button>
-                            )}
-                            <button
-                              onClick={handleClearCache}
-                              className="text-xs px-2.5 py-1.5 rounded-full text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-all duration-150 tap-active"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 清除全部
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                        <div
+                          className="h-full rounded-full transition-none"
+                          style={{ width: `${Math.round(ttsProgress * 100)}%`, background: 'var(--color-primary)' }}
+                        />
+                        <div
+                          className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-blue-500 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+                          style={{ left: `calc(${Math.round(ttsProgress * 100)}% - 8px)` }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>音色</span>
+                        <select
+                          value={ttsVoice}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setTtsVoice(v);
+                            try { localStorage.setItem('ireader_tts_voice', v); } catch {}
+                            const player = ttsPlayerRef.current;
+                            if (player) player.setVoice(v);
+                          }}
+                          className="text-sm px-3 py-2 rounded-lg border-none cursor-pointer max-w-[200px] outline-none"
+                          style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                        >
+                          <option value="zh-CN-XiaoxiaoNeural">Xiaoxiao（女）</option>
+                          <option value="zh-CN-YunxiNeural">Yunxi（男）</option>
+                          <option value="zh-CN-YunyangNeural">Yunyang（男·新闻）</option>
+                          <option value="zh-CN-XiaochenNeural">Xiaochen（女·亲切）</option>
+                          <option value="zh-CN-XiaomengNeural">Xiaomeng（女·活泼）</option>
+                        </select>
+                      </div>
                     </div>
 
                     <div style={{ borderTop: '0.5px solid var(--color-border)' }} />
@@ -2008,92 +2017,7 @@ function ReaderPage() {
                     </div>
 
 
-                  {ttsState !== 'idle' && (
-                    <div className="space-y-2 pt-1">
-                      {/* ── 音色选择器 ── */}
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>音色</span>
-                        <select
-                          value={ttsVoice}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setTtsVoice(v);
-                            try { localStorage.setItem('ireader_tts_voice', v); } catch {}
-                            const player = ttsPlayerRef.current;
-                            if (player) player.setVoice(v);
-                          }}
-                          className="text-sm px-3 py-2 rounded-lg border-none cursor-pointer max-w-[200px] outline-none"
-                          style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                        >
-                          <option value="zh-CN-XiaoxiaoNeural">Xiaoxiao（女）</option>
-                          <option value="zh-CN-YunxiNeural">Yunxi（男）</option>
-                          <option value="zh-CN-YunyangNeural">Yunyang（男·新闻）</option>
-                          <option value="zh-CN-XiaochenNeural">Xiaochen（女·亲切）</option>
-                          <option value="zh-CN-XiaomengNeural">Xiaomeng（女·活泼）</option>
-                        </select>
-                      </div>
-                      <div className="border-t border-gray-100 dark:border-gray-700" />
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm shrink-0" style={{ color: 'var(--color-text-secondary)' }}>朗读控制</span>
-                        <div className="flex items-center justify-evenly flex-1 gap-1">
-                          {/* 播放控制 */}
-                          <div className="flex items-center gap-1.5">
-                            {ttsState === 'playing' ? (
-                              <button onClick={handlePauseTTS} className="w-10 h-10 rounded-full" style={{background: 'var(--color-primary)'}} title="暂停"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
-                            ) : (
-                              <button onClick={ttsState === 'paused' ? handleResumeTTS : handleStartTTS} className="w-10 h-10 rounded-full" style={{background: 'var(--color-primary)'}} title={ttsState === 'paused' ? '继续' : '播放'}><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
-                            )}
-                            <button onClick={handleStopTTS} className="w-10 h-10 rounded-full" style={{background: 'var(--color-bg-alt)'}} title="停止"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
-                          </div>
-                          {/* 进度 */}
-                          <span className="text-sm min-w-[3rem]" style={{ color: 'var(--color-text-muted)' }}>{Math.round(ttsProgress * 100)}%</span>
-                          {/* 快进/快退 */}
-                          <div className="flex items-center gap-1.5">
-                            <button onClick={handleSkipBackward} className="w-10 h-10 rounded-full" style={{background: 'var(--color-bg-alt)'}} title="后退10秒"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg></button>
-                            <button onClick={handleSkipForward} className="w-10 h-10 rounded-full" style={{background: 'var(--color-bg-alt)'}} title="快进10秒"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button>
-                          </div>
-                          {/* 睡眠定时 */}
-                          <button
-                            onClick={() => {
-                              const opts: (number | null)[] = [null, 15, 30, 60];
-                              const idx = opts.indexOf(sleepTimerMinutes);
-                              const next = opts[(idx + 1) % opts.length];
-                              handleSetSleepTimer(next);
-                            }}
-                            className={`text-sm px-3 py-1.5 rounded-lg transition-all duration-200 tap-active`}
-                            style={{
-                              background: sleepTimerMinutes ? 'var(--color-accent-2-subtle)' : 'var(--color-bg-alt)',
-                              color: sleepTimerMinutes ? 'var(--color-accent-2)' : 'var(--color-text-secondary)',
-                            }}
-                          >
-                            {sleepTimerMinutes ? <span className="inline-flex items-center gap-1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>{sleepTimerMinutes}分</span> : <span className="inline-flex items-center gap-1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>定时</span>}
-                          </button>
-                        </div>
-                      </div>
-                      {/* 进度条 — 可点击/拖拽 seek */}
-                      <div
-                        ref={progressBarRef}
-                        className="rounded-full h-3 cursor-pointer relative group"
-                        style={{ background: 'var(--color-border)' }}
-                        onMouseDown={(e) => {
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                          isDraggingRef.current = true;
-                          handleTTSSeek(pct);
-                        }}
-                      >
-                        <div
-                          className="h-full rounded-full transition-none"
-                          style={{ width: `${Math.round(ttsProgress * 100)}%`, background: 'var(--color-primary)' }}
-                        />
-                        {/* 拖拽手柄 */}
-                        <div
-                          className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-blue-500 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
-                          style={{ left: `calc(${Math.round(ttsProgress * 100)}% - 8px)` }}
-                        />
-                      </div>
-                    </div>
-                  )}
+
 
                   {/* ── 底部导航（仅保留章节进度信息，导航按钮移至浮动） ── */}
                   <div className="pt-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
@@ -2120,6 +2044,71 @@ function ReaderPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* ── 缓存管理 ── */}
+                  <div className="pt-2 space-y-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={handleCacheCurrentChapter}
+                        disabled={cachingInProgress}
+                        className="text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
+                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 缓存本章
+                      </button>
+                      <button
+                        onClick={handleCacheFullBook}
+                        disabled={cachingInProgress}
+                        className="text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
+                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> 全书缓存
+                      </button>
+                    </div>
+                    {cacheStatus && cacheStatus.chapterCount > 0 && (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2 flex-wrap text-sm">
+                          <span style={{ color: 'var(--color-accent-2)' }} title="已缓存文字章节">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章 ({formatBytes(cacheStatus.chapterBytes)})
+                          </span>
+                          {cacheStatus.audioSegmentCount > 0 && (
+                            <span title="已缓存语音段" style={{ color: '#AF52DE' }}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> {cacheStatus.audioSegmentCount}段 ({formatBytes(cacheStatus.audioBytes)})
+                            </span>
+                          )}
+                          <span style={{ color: 'var(--color-text-muted)' }}>
+                            合计 {formatBytes(cacheStatus.totalBytes)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={handleClearTextCache}
+                            className="text-xs px-3 py-1.5 rounded-full transition-all duration-150 tap-active"
+                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 清除文字
+                          </button>
+                          {cacheStatus.audioSegmentCount > 0 && (
+                            <button
+                              onClick={handleClearAudioCache}
+                              className="text-xs px-3 py-1.5 rounded-full transition-all duration-150 tap-active"
+                              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 清除语音
+                            </button>
+                          )}
+                          <button
+                            onClick={handleClearCache}
+                            className="text-xs px-3 py-1.5 rounded-full transition-all duration-150 tap-active"
+                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 清除全部
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
 
                   {/* ── 服务端统计 ── */}
                   {serverStats && (
