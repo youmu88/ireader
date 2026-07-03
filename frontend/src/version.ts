@@ -18,6 +18,7 @@
  * 1.17.0 (2026-07-03): TTS服务配置二级菜单 — 服务源选择、API地址/Key配置、缺省音色选择、语速调节、连接测试
  * 1.18.0 (2026-07-03): ReaderPage iOS阅读排版升级 — 字间距、段落间距控制、iOS字体栈、设置页偏好同步
  * 1.19.0 (2026-07-03): 全界面iOS风格统一完善 — LoginPage iOS化重写、BookshelfPage/ReaderPage Tailwind→CSS变量全替换、首行缩进开关、SettingsPage阅读偏好同步
+ * 1.19.1 (2026-07-03): [BUGFIX] 移动端导航栏补充设置按钮（sm:hidden 导致移动端无设置入口）
  */
 
-export const APP_VERSION = '1.19.0';
+export const APP_VERSION = '1.19.1';
