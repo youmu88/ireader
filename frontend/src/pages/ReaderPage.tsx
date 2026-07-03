@@ -5,7 +5,6 @@ import {
   cacheSingleChapter,
   getCachedChapterContent,
   getBookCacheDetailedStats,
-  clearBookCache,
   clearBookChapterCache,
   clearBookTTSAudioCache,
 } from '../services/offlineCacheService';
@@ -172,18 +171,6 @@ function ReaderPage() {
   const [cacheStatus, setCacheStatus] = useState<BookCacheDetailedStats | null>(null);
   const [cachingInProgress, setCachingInProgress] = useState(false);
 
-  // ── 服务端统计信息（阅读进度 + 语音预合成 + 缓存概况） ──
-  interface ServerBookStats {
-    readingPercentage: number;
-    voiceGenerationRate: number;
-    totalChapters: number;
-    completedVoiceChapters: number;
-    ttsCacheCount: number;
-    cachedChapters: number;
-    cacheType: string | null;
-  }
-  const [serverStats, setServerStats] = useState<ServerBookStats | null>(null);
-
   /** 检查当前书籍的客户端缓存状态 */
   const checkCacheStatus = useCallback(async () => {
     if (!bookId) return;
@@ -193,17 +180,6 @@ function ReaderPage() {
     } catch {
       setCacheStatus(null);
     }
-  }, [bookId]);
-
-  /** 加载服务端统计信息（阅读进度 + 语音预合成 + 缓存概况） */
-  const loadServerStats = useCallback(async () => {
-    if (!bookId) return;
-    try {
-      const res = await axios.get(`/api/books/${bookId}/stats`);
-      if (res.data.success) {
-        setServerStats(res.data.data);
-      }
-    } catch { /* 静默失败 */ }
   }, [bookId]);
 
   /** 缓存当前章节到客户端 */
@@ -258,13 +234,12 @@ function ReaderPage() {
       } catch { /* 预合成触发失败不影响主流程 */ }
 
       await checkCacheStatus();
-      await loadServerStats();
     } catch (err) {
       console.warn('缓存全书失败:', err);
     } finally {
       setCachingInProgress(false);
     }
-  }, [bookId, book, chapters, checkCacheStatus, loadServerStats, ttsSpeed, ttsVoice]);
+  }, [bookId, book, chapters, checkCacheStatus, ttsSpeed, ttsVoice]);
 
   /** 清除文字缓存 */
   const handleClearTextCache = useCallback(async () => {
@@ -288,16 +263,7 @@ function ReaderPage() {
     }
   }, [bookId, checkCacheStatus]);
 
-  /** 清除所有缓存 */
-  const handleClearCache = useCallback(async () => {
-    if (!bookId) return;
-    try {
-      await clearBookCache(bookId);
-      setCacheStatus(null);
-    } catch (err) {
-      console.warn('清除缓存失败:', err);
-    }
-  }, [bookId]);
+
 
   // Load book and chapters — 进入书籍完全不碰 TTS 播放器（播放控制只在用户点击按钮时处理）
   useEffect(() => {
@@ -420,9 +386,8 @@ function ReaderPage() {
         preloadNextChapters(targetChapter.id);
       }
 
-      // 检查客户端缓存状态 + 加载服务端统计
+      // 检查客户端缓存状态
       checkCacheStatus();
-      loadServerStats();
     } catch (err: any) {
       setError(err.response?.data?.error || '加载图书失败');
     } finally {
@@ -1858,16 +1823,7 @@ function ReaderPage() {
                         目录
                       </button>
                     </div>
-                    <div style={{ borderTop: '0.5px solid var(--color-border)' }} />
-                    {/* ── 阅读进度（预读x% · 章节位置） ── */}
-                    {serverStats && (
-                      <div className="flex items-center justify-center text-xs -mt-2" style={{ color: 'var(--color-text-muted)' }}>
-                        <span>预读 {Math.round(serverStats.readingPercentage * 100)}%</span>
-                        <span className="mx-1">·</span>
-                        <span>{currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1}/${serverStats.totalChapters}` : `共${serverStats.totalChapters}`}章</span>
-                      </div>
-                    )}
-                    
+
                     {/* ── 播放栏（始终显示） ── */}
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
@@ -2034,85 +1990,73 @@ function ReaderPage() {
                   </div>
 
                   {/* ── 缓存管理 ── */}
-                  <div className="pt-2 space-y-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
-                    <div className="flex items-center gap-2 flex-wrap">
+                  <div className="pt-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
+                    <div className="flex items-center justify-center gap-3">
                       <button
                         onClick={handleCacheCurrentChapter}
                         disabled={cachingInProgress}
-                        className="text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
+                        className="w-12 h-12 rounded-full flex items-center justify-center text-[10px] transition-all duration-200 tap-active"
                         style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                        title="缓存本章"
                       >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 本章
+                        <span className="flex flex-col items-center gap-0.5">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                          <span>本章</span>
+                        </span>
                       </button>
                       <button
                         onClick={handleCacheFullBook}
                         disabled={cachingInProgress}
-                        className="text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
+                        className="w-12 h-12 rounded-full flex items-center justify-center text-[10px] transition-all duration-200 tap-active"
                         style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                        title="缓存全书"
                       >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> 全书
+                        <span className="flex flex-col items-center gap-0.5">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                          <span>全书</span>
+                        </span>
                       </button>
+                      <button
+                        onClick={handleClearTextCache}
+                        className="w-12 h-12 rounded-full flex items-center justify-center text-[10px] transition-all duration-150 tap-active"
+                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                        title="清除文字缓存"
+                      >
+                        <span className="flex flex-col items-center gap-0.5">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                          <span>文字</span>
+                        </span>
+                      </button>
+                      {(cacheStatus?.audioSegmentCount ?? 0) > 0 && (
+                        <button
+                          onClick={handleClearAudioCache}
+                          className="w-12 h-12 rounded-full flex items-center justify-center text-[10px] transition-all duration-150 tap-active"
+                          style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                          title="清除语音缓存"
+                        >
+                          <span className="flex flex-col items-center gap-0.5">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                            <span>语音</span>
+                          </span>
+                        </button>
+                      )}
                     </div>
                     {cacheStatus && cacheStatus.chapterCount > 0 && (
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-center gap-2 flex-wrap text-sm">
-                          <span style={{ color: 'var(--color-accent-2)' }} title="已缓存文字章节">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章 ({formatBytes(cacheStatus.chapterBytes)})
+                      <div className="flex items-center justify-center gap-3 text-xs pt-1" style={{ color: 'var(--color-text-muted)' }}>
+                        <span title="已缓存文字章节" style={{ color: 'var(--color-accent-2)' }}>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章
+                        </span>
+                        {cacheStatus.audioSegmentCount > 0 && (
+                          <span title="已缓存语音段" style={{ color: '#AF52DE' }}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> {cacheStatus.audioSegmentCount}段
                           </span>
-                          {cacheStatus.audioSegmentCount > 0 && (
-                            <span title="已缓存语音段" style={{ color: '#AF52DE' }}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> {cacheStatus.audioSegmentCount}段 ({formatBytes(cacheStatus.audioBytes)})
-                            </span>
-                          )}
-                          <span style={{ color: 'var(--color-text-muted)' }}>
-                            合计 {formatBytes(cacheStatus.totalBytes)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={handleClearTextCache}
-                            className="text-xs px-3 py-1.5 rounded-full transition-all duration-150 tap-active"
-                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 文字
-                          </button>
-                          {cacheStatus.audioSegmentCount > 0 && (
-                            <button
-                              onClick={handleClearAudioCache}
-                              className="text-xs px-3 py-1.5 rounded-full transition-all duration-150 tap-active"
-                              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 语音
-                            </button>
-                          )}
-                          <button
-                            onClick={handleClearCache}
-                            className="text-xs px-3 py-1.5 rounded-full transition-all duration-150 tap-active"
-                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 全部
-                          </button>
-                        </div>
+                        )}
+                        <span>{formatBytes(cacheStatus.totalBytes)}</span>
                       </div>
                     )}
                   </div>
 
 
-                  {/* ── 服务端统计 ── */}
-                  {serverStats && (
-                    <div className="pt-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
-                      <div className="flex items-center gap-3 flex-wrap text-sm" style={{ color: 'var(--color-text-muted)' }}>
-
-                        <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 预合成 {Math.round((serverStats.voiceGenerationRate || 0) * serverStats.totalChapters)}/{serverStats.totalChapters}章</span>
-                        {serverStats.ttsCacheCount !== undefined && serverStats.ttsCacheCount > 0 && (
-                          <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> 语音缓存 {serverStats.ttsCacheCount}条</span>
-                        )}
-                        {serverStats.cachedChapters > 0 && (
-                          <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 内容缓存 {serverStats.cachedChapters}章{serverStats.cacheType ? `（${serverStats.cacheType === 'full_book' ? '全书' : '部分'}）` : ''}</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
