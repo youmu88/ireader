@@ -1933,104 +1933,79 @@ function ReaderPage() {
 
                     <div style={{ borderTop: '0.5px solid var(--color-border)' }} />
 
-                    {/* ── 字号 ── */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>字号</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setFontSize(Math.max(12, fontSize - 2))}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all duration-150 tap-icon"
-                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                      >A-</button>
-                      <span className="text-sm w-8 text-center font-medium" style={{ color: 'var(--color-text)' }}>{fontSize}</span>
-                      <button
-                        onClick={() => setFontSize(Math.min(36, fontSize + 2))}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all duration-150 tap-icon"
-                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                      >A+</button>
+                    {/* ── 阅读设置（字号/行距/段距/首行缩进）紧凑 2×2 网格 ── */}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                      {/* 字号 */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>字号</span>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => setFontSize(Math.max(12, fontSize - 2))}
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-all tap-icon"
+                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>A−</button>
+                          <span className="text-xs w-5 text-center font-medium" style={{ color: 'var(--color-text)' }}>{fontSize}</span>
+                          <button onClick={() => setFontSize(Math.min(36, fontSize + 2))}
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-all tap-icon"
+                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>A+</button>
+                        </div>
+                      </div>
+                      {/* 行距 */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>行距</span>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => setLineHeight(Math.max(1.2, lineHeight - 0.2))} disabled={lineHeight <= 1.2}
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
+                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>−</button>
+                          <span className="text-xs w-5 text-center" style={{ color: 'var(--color-text-muted)' }}>{lineHeight.toFixed(1)}</span>
+                          <button onClick={() => setLineHeight(Math.min(3.0, lineHeight + 0.2))} disabled={lineHeight >= 3.0}
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
+                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>+</button>
+                        </div>
+                      </div>
+                      {/* 段距 */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>段距</span>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => setParagraphSpacing(Math.max(0.2, +(paragraphSpacing - 0.1).toFixed(1)))} disabled={paragraphSpacing <= 0.2}
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
+                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>−</button>
+                          <span className="text-xs w-5 text-center" style={{ color: 'var(--color-text-muted)' }}>{paragraphSpacing.toFixed(1)}</span>
+                          <button onClick={() => setParagraphSpacing(Math.min(2.0, +(paragraphSpacing + 0.1).toFixed(1)))} disabled={paragraphSpacing >= 2.0}
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
+                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>+</button>
+                        </div>
+                      </div>
+                      {/* 首行缩进 */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>首行缩进</span>
+                        <button onClick={() => setFirstLineIndent(!firstLineIndent)}
+                          className={`relative w-[36px] h-[20px] rounded-full transition-all ${firstLineIndent ? '' : 'opacity-50'}`}
+                          style={{ background: firstLineIndent ? 'var(--color-primary)' : 'var(--color-border)' }}>
+                          <div className={`absolute top-[1px] w-[18px] h-[18px] rounded-full bg-white shadow-sm transition-all ${firstLineIndent ? 'left-[17px]' : 'left-[1px]'}`} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* ── 行距 ── */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>行距</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setLineHeight(Math.max(1.2, lineHeight - 0.2))}
-                        disabled={lineHeight <= 1.2}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
-                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                      >行-</button>
-                      <span className="text-xs w-8 text-center" style={{ color: 'var(--color-text-muted)' }}>{lineHeight.toFixed(1)}</span>
-                      <button
-                        onClick={() => setLineHeight(Math.min(3.0, lineHeight + 0.2))}
-                        disabled={lineHeight >= 3.0}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
-                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                      >行+</button>
+                    {/* ── 样式（字体 + 阅读模式）─与上方网格共享间距，不额外加分隔线 ── */}
+                    <div className="flex items-center justify-between pt-0.5">
+                      <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>样式</span>
+                      <div className="flex items-center gap-2">
+                        <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value as 'sans' | 'serif' | 'mono')}
+                          className="text-xs px-2 py-1 rounded-lg border-none cursor-pointer outline-none"
+                          style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>
+                          <option value="sans">无衬线</option>
+                          <option value="serif">衬线</option>
+                          <option value="mono">等宽</option>
+                        </select>
+                        <button onClick={() => { setReadingMode(prev => prev === 'scroll' ? 'paginated' : 'scroll'); setPageIndex(0); }}
+                          className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all duration-200 tap-active`}
+                          style={{
+                            background: readingMode === 'paginated' ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)',
+                            color: readingMode === 'paginated' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                          }}>
+                          {readingMode === 'paginated' ? <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> 翻页</> : <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> 滚动</>}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-
-                  {/* ── 段落间距 ── */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>段距</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setParagraphSpacing(Math.max(0.2, +(paragraphSpacing - 0.1).toFixed(1)))}
-                        disabled={paragraphSpacing <= 0.2}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
-                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                      >段-</button>
-                      <span className="text-xs w-8 text-center" style={{ color: 'var(--color-text-muted)' }}>{paragraphSpacing.toFixed(1)}</span>
-                      <button
-                        onClick={() => setParagraphSpacing(Math.min(2.0, +(paragraphSpacing + 0.1).toFixed(1)))}
-                        disabled={paragraphSpacing >= 2.0}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-xs disabled:opacity-40 transition-colors"
-                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                      >段+</button>
-                    </div>
-                  </div>
-
-                  {/* ── 首行缩进 ── */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>首行缩进</span>
-                    <button
-                      onClick={() => setFirstLineIndent(!firstLineIndent)}
-                      className={`relative w-[42px] h-[24px] rounded-full transition-all duration-200 ${firstLineIndent ? '' : 'opacity-50'}`}
-                      style={{ background: firstLineIndent ? 'var(--color-primary)' : 'var(--color-border)' }}
-                    >
-                      <div className={`absolute top-[2px] w-[20px] h-[20px] rounded-full bg-white shadow-sm transition-all duration-200 ${firstLineIndent ? 'left-[20px]' : 'left-[2px]'}`} />
-                    </button>
-                  </div>
-
-                  <div style={{ borderTop: '0.5px solid var(--color-border)' }} />
-
-                  {/* ── 字体 + 模式 ── */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>样式</span>
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={fontFamily}
-                        onChange={(e) => setFontFamily(e.target.value as 'sans' | 'serif' | 'mono')}
-                        className="text-xs px-2 py-1.5 rounded-lg border-none cursor-pointer outline-none"
-                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                      >
-                        <option value="sans">无衬线</option>
-                        <option value="serif">衬线</option>
-                        <option value="mono">等宽</option>
-                      </select>
-                      <button
-                        onClick={() => { setReadingMode(prev => prev === 'scroll' ? 'paginated' : 'scroll'); setPageIndex(0); }}
-                        className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all duration-200 tap-active`}
-                        style={{
-                          background: readingMode === 'paginated' ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)',
-                          color: readingMode === 'paginated' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                        }}
-                      >
-                        {readingMode === 'paginated' ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> 翻页</> : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> 滚动</>}
-                      </button>
-                    </div>
-                  </div>
 
 
                   {ttsState !== 'idle' && (

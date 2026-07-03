@@ -19,6 +19,7 @@
  * 1.18.0 (2026-07-03): ReaderPage iOS阅读排版升级 — 字间距、段落间距控制、iOS字体栈、设置页偏好同步
  * 1.19.0 (2026-07-03): 全界面iOS风格统一完善 — LoginPage iOS化重写、BookshelfPage/ReaderPage Tailwind→CSS变量全替换、首行缩进开关、SettingsPage阅读偏好同步
  * 1.19.1 (2026-07-03): [BUGFIX] 移动端导航栏补充设置按钮（sm:hidden 导致移动端无设置入口）
+ * 1.19.2 (2026-07-03): [BUGFIX] 全局播放按钮传入含HTML标签内容（isHtml=false）+ 阅读浮动菜单纵向高度优化（2×2网格合并字号/行距/段距/首行缩进）
  */
 
-export const APP_VERSION = '1.19.1';
+export const APP_VERSION = '1.19.2';

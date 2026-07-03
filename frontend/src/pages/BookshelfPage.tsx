@@ -1272,7 +1272,9 @@ useEffect(() => {
                       bookId: globalTtsInfo.bookId,
                       bookTitle: globalTtsInfo.bookTitle || lastPlayback.bookTitle,
                     });
-                    await player.load(content.text || content.content || content, false, targetChapter.id);
+                    const contentText = content.text || content.content || content;
+                    const isHtml = typeof contentText === 'string' && /<[a-z][\s\S]*?>/i.test(contentText);
+                    await player.load(contentText, isHtml, targetChapter.id);
                     if (lastPlayback.currentIndex > 0) {
                       player['currentIndex'] = lastPlayback.currentIndex;
                     }
