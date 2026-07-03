@@ -22,7 +22,9 @@
     "archive:deploy": "bash scripts/auto-archive-deploy.sh",
     "archive:deploy:dry-run": "bash scripts/auto-archive-deploy.sh --dry-run",
     "archive:build": "bash scripts/auto-archive-deploy.sh --skip-deploy",
-    "archive:quick": "bash scripts/auto-archive-deploy.sh --skip-tests"
+    "archive:quick": "bash scripts/auto-archive-deploy.sh --skip-tests",
+    "deploy:auto": "bash scripts/triggered-deploy.sh",
+    "deploy:auto:now": "bash scripts/triggered-deploy.sh --now"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

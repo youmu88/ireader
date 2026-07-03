@@ -10,6 +10,7 @@
  * 每次开发完成后，在提交前根据本次改动类型更新对应位。
  * 
  * 1.12.0 (2026-07-03): 书架页面图标布局优化，导航栏简化，操作栏按功能分行排列
+ * 1.13.0 (2026-07-03): 自动更新部署 — triggered-deploy.sh + Git hooks 自动化部署
  */
 
-export const APP_VERSION = '1.12.0';
+export const APP_VERSION = '1.13.0';

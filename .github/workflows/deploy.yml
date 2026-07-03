@@ -54,7 +54,7 @@ jobs:
 
       - name: ④ 部署到生产环境
         run: |
-          # 使用 deploy.sh 部署，escalate 权限以管理 systemd 服务
+          # 使用 deploy.sh 部署
           bash deploy.sh
 
       - name: ⑤ 健康检查
