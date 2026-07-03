@@ -212,8 +212,18 @@ export default function SettingsPage() {
 
 
   // ── iOS 风格所需状态（由 iOS 美化新增） ──
-  const [fontSize, setFontSize] = useState(18);
-  const [readerBg, setReaderBg] = useState(() => document.documentElement.classList.contains('dark') ? '#1a1a2e' : '#ffffff');
+  const READER_PREFS_KEY = 'ireader_reader_prefs';
+  // 从阅读器偏好中读取初始值，与 ReaderPage 共享
+  const [fontSize, setFontSize] = useState(() => {
+    try {
+      const raw = localStorage.getItem(READER_PREFS_KEY);
+      if (raw) { const p = JSON.parse(raw); if (p.fontSize) return p.fontSize; }
+    } catch {}
+    return 18;
+  });
+  const [readerBg, setReaderBg] = useState(() => {
+    try { return localStorage.getItem('ireader_reader_bg') || (document.documentElement.classList.contains('dark') ? '#1a1a2e' : '#ffffff'); } catch { return '#ffffff'; }
+  });
   const BUILD_TIME = '2026-07-03';
   const RUNNING_ENV = typeof window !== 'undefined' && 'standalone' in window.navigator && (window.navigator as any).standalone ? 'PWA' : 'Web';
   const handleLogout = async () => {
@@ -546,11 +556,11 @@ export default function SettingsPage() {
               <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>阅读字体大小</span>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => setFontSize(prev => Math.max(12, prev - 1))}
+              <button onClick={() => { const v = Math.max(12, fontSize - 1); setFontSize(v); try { const cur = JSON.parse(localStorage.getItem(READER_PREFS_KEY) || '{}'); localStorage.setItem(READER_PREFS_KEY, JSON.stringify({...cur, fontSize: v})); } catch {} }}
                 className="w-7 h-7 rounded-full flex items-center justify-center text-sm tap-icon"
                 style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>A−</button>
               <span className="text-xs w-8 text-center font-medium" style={{ color: 'var(--color-text)' }}>{fontSize}</span>
-              <button onClick={() => setFontSize(prev => Math.min(32, prev + 1))}
+              <button onClick={() => { const v = Math.min(32, fontSize + 1); setFontSize(v); try { const cur = JSON.parse(localStorage.getItem(READER_PREFS_KEY) || '{}'); localStorage.setItem(READER_PREFS_KEY, JSON.stringify({...cur, fontSize: v})); } catch {} }}
                 className="w-7 h-7 rounded-full flex items-center justify-center text-sm tap-icon"
                 style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>A+</button>
             </div>
@@ -568,7 +578,7 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center gap-2">
               {['#ffffff', '#f5f0e8', '#e8f0f5', '#1a1a2e', '#2d2d2d'].map(color => (
-                <button key={color} onClick={() => setReaderBg(color)}
+                <button key={color} onClick={() => { setReaderBg(color); document.documentElement.style.setProperty('--reader-bg', color); try { localStorage.setItem('ireader_reader_bg', color); } catch {} }}
                   className="w-7 h-7 rounded-full border-2 transition-all duration-200 tap-icon"
                   style={{
                     background: color,

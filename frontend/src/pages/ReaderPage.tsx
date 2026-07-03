@@ -96,6 +96,8 @@ function ReaderPage() {
   const [fontSize, setFontSize] = useState(initialPrefs.fontSize ?? 18);
   const [fontFamily, setFontFamily] = useState<'sans' | 'serif' | 'mono'>(initialPrefs.fontFamily ?? 'sans');
   const [lineHeight, setLineHeight] = useState(initialPrefs.lineHeight ?? 1.8);
+  const [paragraphSpacing, setParagraphSpacing] = useState(initialPrefs.paragraphSpacing ?? 0.6);
+  const [letterSpacing] = useState(initialPrefs.letterSpacing ?? 0.01);
   const [ttsState, setTtsState] = useState<PlayerState>('idle');
   const [ttsProgress, setTtsProgress] = useState(0);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
@@ -320,6 +322,8 @@ function ReaderPage() {
   useEffect(() => { saveReaderPrefs({ fontFamily }); }, [fontFamily]);
   useEffect(() => { saveReaderPrefs({ lineHeight }); }, [lineHeight]);
   useEffect(() => { saveReaderPrefs({ readingMode }); }, [readingMode]);
+  useEffect(() => { saveReaderPrefs({ paragraphSpacing }); }, [paragraphSpacing]);
+  useEffect(() => { saveReaderPrefs({ letterSpacing }); }, [letterSpacing]);
 
   // Separate effect for EPUB loading — waits for DOM (readerRef) to be ready
   useEffect(() => {
@@ -1655,7 +1659,9 @@ function ReaderPage() {
         {book?.format === 'epub' && !showEpubView && (
           <div
             ref={epubTextScrollRef}
-            className="flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto overflow-y-auto"
+            className="flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto overflow-y-auto reading-container"
+            data-p-spacing={paragraphSpacing}
+            data-l-spacing={letterSpacing}
           >
             {(displayChapter || currentChapter) && (
               <div className="mb-4">
@@ -1668,8 +1674,9 @@ function ReaderPage() {
               className="text-gray-800 dark:text-gray-200"
               style={{
                 fontSize: `${fontSize}px`,
-                fontFamily: fontFamily === 'sans' ? 'inherit' : fontFamily === 'serif' ? '"Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
+                fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
                 lineHeight,
+                letterSpacing: `${letterSpacing}em`,
               }}
             >
               {chapterLoading ? (
@@ -1753,6 +1760,8 @@ function ReaderPage() {
           <div
             ref={txtScrollRef}
             className={`flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto ${readingMode === 'scroll' ? 'overflow-y-auto' : 'overflow-hidden flex flex-col'}`}
+            data-p-spacing={paragraphSpacing}
+            data-l-spacing={letterSpacing}
           >
             {(displayChapter || currentChapter) && (
               <div className="mb-4">
@@ -1768,8 +1777,9 @@ function ReaderPage() {
               }`}
               style={{
                 fontSize: `${fontSize}px`,
-                fontFamily: fontFamily === 'sans' ? 'inherit' : fontFamily === 'serif' ? '"Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
+                fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
                 lineHeight,
+                letterSpacing: `${letterSpacing}em`,
               }}
             >
               {chapterLoading ? (
@@ -1940,6 +1950,26 @@ function ReaderPage() {
                       >行+</button>
                     </div>
                   </div>
+
+                  {/* ── 段落间距 ── */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">段距</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setParagraphSpacing(Math.max(0.2, +(paragraphSpacing - 0.1).toFixed(1)))}
+                        disabled={paragraphSpacing <= 0.2}
+                        className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-40 transition-colors"
+                      >段-</button>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 w-8 text-center">{paragraphSpacing.toFixed(1)}</span>
+                      <button
+                        onClick={() => setParagraphSpacing(Math.min(2.0, +(paragraphSpacing + 0.1).toFixed(1)))}
+                        disabled={paragraphSpacing >= 2.0}
+                        className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-40 transition-colors"
+                      >段+</button>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-100 dark:border-gray-700" />
 
                   {/* ── 字体 + 模式 ── */}
                   <div className="flex items-center justify-between">

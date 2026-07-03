@@ -272,25 +272,42 @@ button, a, [role="button"] {
               border-color 0.2s ease-out;
 }
 
-/* EPUB HTML content rendering */
+/* ── iOS 风格阅读排版增强 ── */
+:root {
+  --reader-p-spacing: 0.6em;
+  --reader-letter-spacing: 0.01em;
+  --reader-bg: #ffffff;
+  --reader-first-line-indent: 2em;
+}
+.dark {
+  --reader-bg: #1a1a2e;
+}
+
+/* EPUB HTML content rendering — iOS Books 风格 */
 .epub-content {
   line-height: inherit;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  letter-spacing: var(--reader-letter-spacing);
 }
 .epub-content img {
   max-width: 100%;
   height: auto;
   display: block;
-  margin: 1em auto;
+  margin: 1.2em auto;
   border-radius: 4px;
 }
 .epub-content p {
-  margin: 0.8em 0;
+  margin: var(--reader-p-spacing) 0;
+  text-indent: var(--reader-first-line-indent);
+}
+.epub-content p:first-of-type {
+  margin-top: 0;
 }
 .epub-content h1, .epub-content h2, .epub-content h3 {
-  margin: 1.2em 0 0.6em;
+  margin: 1.4em 0 0.5em;
   font-weight: 600;
+  letter-spacing: 0.02em;
 }
 .epub-content a {
   color: var(--color-primary);
@@ -301,6 +318,7 @@ button, a, [role="button"] {
   margin: 1em 0;
   padding: 0.5em 1em;
   color: var(--color-text-secondary);
+  font-style: italic;
 }
 .epub-content ul, .epub-content ol {
   margin: 0.8em 0;
