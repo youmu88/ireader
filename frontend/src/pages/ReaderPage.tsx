@@ -316,6 +316,64 @@ function ReaderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentChapter, book, searchParams]);
 
+  // ⭐ TTS 预热：loadBook 完成后提前初始化播放器（跳过 init 网络请求 + 预载 IDB 缓存）
+  const warmupTriggered = useRef(false);
+  useEffect(() => {
+    if (warmupTriggered.current) return;
+    if (loading || !currentChapter || !bookId || !book) return;
+    warmupTriggered.current = true;
+
+    // 延迟到 loadBook 完全就绪后执行，不影响页面渲染
+    const timer = setTimeout(async () => {
+      try {
+        // 读取上次播放记录，判断是否同书
+        let lastPlayback: { bookId: string; chapterId: string } | null = null;
+        try {
+          const raw = localStorage.getItem('ireader_last_playback');
+          if (raw) lastPlayback = JSON.parse(raw);
+        } catch { /* ignore */ }
+
+        // 仅当上次也是同一本书时预热（非同书记忆的用户场景无预热必要）
+        if (!lastPlayback || lastPlayback.bookId !== bookId) return;
+
+        const player = getDefaultPlayer();
+        if (player['audioElement']) return; // 已初始化
+
+        // 读取语音设置
+        const savedVoice = (() => {
+          try { return localStorage.getItem('ireader_tts_voice'); } catch { return null; }
+        })();
+        const noCachePref = (() => {
+          try { return localStorage.getItem('ireader_tts_noCache') === 'true'; } catch { return true; }
+        })();
+
+        // 提前初始化播放器（创建 audio 元素 + 缓存 TTS 设置）
+        await player.init({
+          speed: ttsSpeed,
+          voice: savedVoice || ttsVoice,
+          noCache: noCachePref,
+          bookId,
+          bookTitle: book?.title || '',
+          bookCoverUrl: `/api/books/${bookId}/cover`,
+        });
+
+        // 预热当前章节的 TTS 音频缓存（从 IDB 加载到播放器）
+        const cachedContent = await getCachedChapterContent(bookId, currentChapter.id);
+        if (cachedContent) {
+          const text = book.format === 'epub' ? stripHtml(cachedContent) : cachedContent;
+          const splitChunks = text.match(/[^。！？\n]+[。！？\n]?/g);
+          if (splitChunks && splitChunks.length > 0) {
+            player.preloadCachedAudio(bookId, currentChapter.id, splitChunks);
+          }
+        }
+      } catch {
+        // 预热失败不阻塞应用（静默）
+      }
+    }, 1000); // 延迟 1 秒确保 loadBook 完全稳定
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, currentChapter, bookId, book]);
+
   const loadBook = async () => {
     // ⭐ 记录触发时的书籍 ID，异步完成后校验是否仍为同一本书
     const triggerBookId = bookId;
@@ -840,7 +898,13 @@ function ReaderPage() {
   const getCurrentChapterText = useCallback(async (): Promise<string> => {
     if (!currentChapter || !bookId || !book) return '';
 
-    // ⭐ 调试模式：统一从 API 获取当前章节内容，不依赖 txtContent（可能累积多章内容）
+    // ⭐ 优先从 IDB 缓存读取（0-5ms，无需网络）
+    const cachedContent = await getCachedChapterContent(bookId, currentChapter.id);
+    if (cachedContent) {
+      return book.format === 'epub' ? stripHtml(cachedContent) : cachedContent;
+    }
+
+    // ⭐ 未命中缓存 → 从 API 获取
     try {
       const res = await axios.get(`/api/books/${bookId}/chapters/${currentChapter.id}/content`);
       const rawContent = res.data.data?.content;
@@ -1127,15 +1191,27 @@ function ReaderPage() {
       const noCachePref = (() => {
         try { return localStorage.getItem('ireader_tts_noCache') === 'true'; } catch { return true; }
       })();
-      await player.init({
-        speed: ttsSpeed,
-        voice: ttsVoice,
-        noCache: noCachePref,
-        // ⭐ 传入书籍信息用于 Media Session 锁屏封面 + 全局播放状态
-        bookId,
-        bookTitle: book?.title || '',
-        bookCoverUrl: book ? `/api/books/${bookId}/cover` : '',
-      });
+
+      // ⭐ 如果播放器已预热初始化（audio 元素已存在），跳过完整 init，仅更新选项
+      if (player['audioElement']) {
+        player.setVoice(ttsVoice);
+        player['speed'] = ttsSpeed;
+        player['currentBookId'] = bookId;
+        player['bookTitle'] = book?.title || '';
+        player['bookCoverUrl'] = book ? `/api/books/${bookId}/cover` : '';
+        if (player['audioElement']) {
+          player['audioElement'].playbackRate = ttsSpeed;
+        }
+      } else {
+        await player.init({
+          speed: ttsSpeed,
+          voice: ttsVoice,
+          noCache: noCachePref,
+          bookId,
+          bookTitle: book?.title || '',
+          bookCoverUrl: book ? `/api/books/${bookId}/cover` : '',
+        });
+      }
       player.setVolume(ttsVolume);
 
       // 文本已是纯文本（EPUB 已由 getCurrentChapterText 返回 txtContent，非原始 HTML）

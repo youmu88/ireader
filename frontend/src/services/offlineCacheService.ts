@@ -314,6 +314,26 @@ export async function cacheTTSAudioBatch(
 }
 
 /**
+ * 批量获取某章节所有缓存的 TTS 音频（用于预热）
+ * 返回按 segmentIndex 排序的音频数据列表
+ */
+export async function getAllCachedTTSAudioForChapter(
+  bookId: string,
+  chapterId: string,
+): Promise<{ segmentIndex: number; audioData: ArrayBuffer }[]> {
+  try {
+    const db = await getDB();
+    const entries = await db.getAllFromIndex('ttsAudio', 'chapterId', chapterId) as TTSAudioCache[];
+    return entries
+      .filter(e => e.bookId === bookId)
+      .sort((a, b) => a.segmentIndex - b.segmentIndex)
+      .map(e => ({ segmentIndex: e.segmentIndex, audioData: e.audioData }));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * 获取缓存的 TTS 音频
  */
 export async function getCachedTTSAudio(

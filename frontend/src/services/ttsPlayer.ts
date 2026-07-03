@@ -16,7 +16,7 @@
 
 import { fetchTTSSettings } from './ttsService';
 import { getToken } from './authService';
-import { getCachedTTSAudio, cacheTTSAudio } from './offlineCacheService';
+import { getCachedTTSAudio, cacheTTSAudio, getAllCachedTTSAudioForChapter } from './offlineCacheService';
 
 // ===== 类型定义 =====
 
@@ -289,26 +289,51 @@ export class TTSPlayer {
     if (options?.bookTitle) this.bookTitle = options.bookTitle;
     if (options?.bookCoverUrl) this.bookCoverUrl = options.bookCoverUrl;
 
-    // 尝试加载后端设置
-    try {
-      const settings = await fetchTTSSettings();
-      this.source = settings.source || this.source;
-      this.voice = settings.voiceId || this.voice;
-      this.speed = settings.speed ?? this.speed;
-    } catch {
-      // 使用默认值
+    // ⭐ 如果 audio 元素已存在（预热时已初始化），只更新选项和设置
+    if (this.audioElement) {
+      this.audioElement.playbackRate = this.speed;
+      this.setupBackgroundPlayback();
+      return;
     }
 
-    // 创建隐藏 <audio> 元素
-    if (!this.audioElement) {
-      const el = new Audio();
-      el.preload = 'auto';
-      el.volume = this.volume;
-      el.playbackRate = this.speed;
-      el.style.display = 'none';
-      document.body.appendChild(el);
-      this.audioElement = el;
+    // ⭐ 优先从 localStorage 读取缓存的 TTS 设置（减少网络延迟）
+    const cachedSettings = getCachedTTSSettings();
+    if (cachedSettings) {
+      this.source = cachedSettings.source || this.source;
+      this.voice = cachedSettings.voiceId || this.voice;
+      this.speed = cachedSettings.speed ?? this.speed;
+    } else {
+      // 无缓存时首次加载仍等待网络（冷启动不可避免）
+      try {
+        const settings = await fetchTTSSettings();
+        this.source = settings.source || this.source;
+        this.voice = settings.voiceId || this.voice;
+        this.speed = settings.speed ?? this.speed;
+        saveCachedTTSSettings(settings);
+      } catch {
+        // 使用默认值
+      }
     }
+
+    // ⭐ 后台异步刷新 TTS 设置并更新缓存（不阻塞初始化）
+    fetchTTSSettings().then(settings => {
+      if (!this.isDestroyed) {
+        this.source = settings.source || this.source;
+        this.voice = settings.voiceId || this.voice;
+        this.speed = settings.speed ?? this.speed;
+        saveCachedTTSSettings(settings);
+        if (this.audioElement) this.audioElement.playbackRate = this.speed;
+      }
+    }).catch(() => {});
+
+    // 创建隐藏 <audio> 元素
+    const el = new Audio();
+    el.preload = 'auto';
+    el.volume = this.volume;
+    el.playbackRate = this.speed;
+    el.style.display = 'none';
+    document.body.appendChild(el);
+    this.audioElement = el;
 
     // ⭐ 初始化后台播放支持（Media Session API + <audio> 原生后台支持）
     this.setupBackgroundPlayback();
@@ -535,7 +560,12 @@ export class TTSPlayer {
     }
     this.setState('loading');
 
-    // 预生成前 preGenCount 个片段
+    // ⭐ 批量检查 IDB 中已缓存的 TTS 音频分片，直接标记为 ready（跳过网络请求）
+    if (this.currentBookId && chapterId) {
+      this.batchLoadCachedAudio(this.currentBookId, chapterId).catch(() => {});
+    }
+
+    // 预生成前 preGenCount 个片段（已缓存的 chunk 跳过网络请求）
     await this.preGenRange(0, Math.min(this.preGenCount, this.chunks.length) - 1);
 
     // 后台启动全量预取（不阻塞 load 返回，play 时判断就绪状态）
@@ -1321,6 +1351,64 @@ export class TTSPlayer {
     this.preGenRange(start, end);
   }
 
+  /**
+   * 预加载 IDB 中已缓存的 TTS 音频分片（预热时调用）
+   * 在用户点击播放前，将之前缓存到 IndexedDB 的音频批量加载到播放器
+   * 后续 load() 调用时，已就绪的 chunk 在 preGenRange 中直接命中缓存，跳过网络
+   */
+  async preloadCachedAudio(bookId: string, chapterId: string, segments: string[]): Promise<void> {
+    if (this.isDestroyed || segments.length === 0) return;
+
+    const gen = this.generation;
+    // 批量从 IDB 获取该章节所有缓存的音频
+    const cached = await getAllCachedTTSAudioForChapter(bookId, chapterId);
+    if (cached.length === 0) return;
+
+    // 将缓存的音频加载到 chunks 缓冲区（不依赖外部 load 调用）
+    const chunks: TTSChunk[] = segments.map((text, i) => {
+      const cachedEntry = cached.find(c => c.segmentIndex === i);
+      let audioBlobUrl: string | undefined;
+      if (cachedEntry) {
+        const blob = new Blob([cachedEntry.audioData], { type: 'audio/wav' });
+        audioBlobUrl = URL.createObjectURL(blob);
+        this.allBlobUrls.push(audioBlobUrl);
+      }
+      return {
+        index: i,
+        text,
+        status: cachedEntry ? 'ready' : 'pending',
+        audioBlobUrl,
+        chapterId,
+      };
+    });
+
+    if (gen !== this.generation || this.isDestroyed) {
+      // 清理已分配的 blob URL
+      chunks.forEach(c => { if (c.audioBlobUrl) { try { URL.revokeObjectURL(c.audioBlobUrl); } catch { /* ignore */ } } });
+      return;
+    }
+
+    // 存储预取结果，供后续 load 检测
+    this.prefetchedChunks = chunks;
+    this.prefetchedGeneration = gen;
+  }
+
+  /** 批量从 IDB 加载已缓存的分片音频（在 load() 的 preGenRange 前异步执行） */
+  private async batchLoadCachedAudio(bookId: string, chapterId: string): Promise<void> {
+    const cached = await getAllCachedTTSAudioForChapter(bookId, chapterId);
+    if (cached.length === 0) return;
+    for (const entry of cached) {
+      const chunk = this.chunks[entry.segmentIndex];
+      if (chunk && chunk.status === 'pending') {
+        const blob = new Blob([entry.audioData], { type: 'audio/wav' });
+        const url = URL.createObjectURL(blob);
+        this.allBlobUrls.push(url);
+        chunk.audioBlobUrl = url;
+        chunk.status = 'ready';
+      }
+    }
+  }
+
   private async preGenRange(start: number, end: number): Promise<void> {
     const pendingChunks: TTSChunk[] = [];
     for (let i = start; i <= end; i++) {
@@ -1531,6 +1619,33 @@ export class TTSPlayer {
 
 /** localStorage key：最后播放记录 */
 const LS_LAST_PLAYBACK = 'ireader_last_playback';
+/** localStorage key：TTS 设置缓存（减少播放启动时的网络请求） */
+const TTS_SETTINGS_CACHE_KEY = 'ireader_tts_settings_cache';
+/** TTS 设置缓存有效期（毫秒） */
+const TTS_SETTINGS_CACHE_TTL = 5 * 60 * 1000; // 5分钟
+
+/** 从 localStorage 读取缓存的 TTS 设置 */
+function getCachedTTSSettings(): { source: string; voiceId: string; speed: number } | null {
+  try {
+    const raw = localStorage.getItem(TTS_SETTINGS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed._cachedAt > TTS_SETTINGS_CACHE_TTL) {
+      localStorage.removeItem(TTS_SETTINGS_CACHE_KEY);
+      return null;
+    }
+    return { source: parsed.source, voiceId: parsed.voiceId, speed: parsed.speed };
+  } catch {
+    return null;
+  }
+}
+
+/** 保存 TTS 设置到 localStorage 缓存 */
+function saveCachedTTSSettings(settings: { source: string; voiceId: string; speed: number }): void {
+  try {
+    localStorage.setItem(TTS_SETTINGS_CACHE_KEY, JSON.stringify({ ...settings, _cachedAt: Date.now() }));
+  } catch { /* 静默 */ }
+}
 
 export interface LastPlaybackInfo {
   bookId: string;
