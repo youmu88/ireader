@@ -1048,24 +1048,6 @@ function ReaderPage() {
       // ⭐ 设置音色
       if (ttsVoice) player.setVoice(ttsVoice);
 
-      // ⭐ 触发后台预合成：当前章节 + 后续 10 章或 50%（低优先级、非阻塞）
-      try {
-        const totalCh = chapters.length;
-        const currentOrder = currentChapter?.order || 1;
-        const remaining = totalCh - currentOrder;
-        const chaptersToGen = Math.min(
-          Math.max(10, Math.ceil(remaining * 0.5)),
-          remaining,
-        );
-        if (chaptersToGen > 0) {
-          axios.post(`/api/books/${bookId}/tts-generate`, {
-            voice: ttsVoice,
-            speed: ttsSpeed,
-            chapterCount: chaptersToGen,
-          }).catch(() => {});
-        }
-      } catch { /* 预合成触发失败不影响主流程 */ }
-
       player.setCallbacks({
         onStateChange: (s) => {
           setTtsState(s);
