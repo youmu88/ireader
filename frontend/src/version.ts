@@ -26,6 +26,11 @@
  * 1.20.2 (2026-07-03): 浮动菜单布局调整 — 四个圆图标（⏬本章·⏬全书·🗑文字·🗑语音）一行排列，缓存信息下方展示；移除底部预合成/语音缓存统计；顶栏书名与播放栏间距收紧
  * 1.20.3 (2026-07-03): [BUGFIX] 修复主界面重复语音图标 + 移除播放时自动预生成（全局设置关闭时不应自动触发）
  * 1.20.4 (2026-07-03): [PERF] TTS 播放启动加速（5-10秒→秒级）— getCurrentChapterText 优先读 IDB 缓存；loadBook 完成后预热 player.init + IDB 音频缓存预加载；TTS 设置 localStorage 缓存；load() 批量检查 IDB 音频缓存
+ * 1.21.0 (2026-07-04): [BUGFIX+FEATURE] 综合修复与增强：
+ *   1) TTS 音色/语速持久化 — 设置页同步到 localStorage，ReaderPage 从 localStorage 初始化，不再被硬编码默认值覆盖
+ *   2) 缓存全书改为逐段合成语音并存入本地 IndexedDB（而非仅触发服务端预合成）
+ *   3) 浮动窗播放栏新增「停止」按钮 — 清理播放进度，下次从当前页开始
+ *   4) 播放栏新增上/下一章按钮，Media Session 锁屏支持上下章控制
  */
 
-export const APP_VERSION = '1.20.4';
+export const APP_VERSION = '1.21.0';

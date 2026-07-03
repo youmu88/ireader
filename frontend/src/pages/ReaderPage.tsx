@@ -4,6 +4,8 @@ import {
   cacheBookChapters,
   cacheSingleChapter,
   getCachedChapterContent,
+  getCachedTTSAudio,
+  cacheTTSAudio,
   getBookCacheDetailedStats,
   clearBookChapterCache,
   clearBookTTSAudioCache,
@@ -102,14 +104,21 @@ function ReaderPage() {
   const [ttsProgress, setTtsProgress] = useState(0);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
   const [ttsError, setTtsError] = useState<string | null>(null);
-  const ttsSpeed = 1.0;
+  const [ttsSpeed, setTtsSpeed] = useState(() => {
+    try {
+      const raw = localStorage.getItem('ireader_tts_speed');
+      return raw ? parseFloat(raw) : 1.0;
+    } catch { return 1.0; }
+  });
   const ttsVolume = 1.0;
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(-1);
   const [readingMode, setReadingMode] = useState<'scroll' | 'paginated'>(initialPrefs.readingMode ?? 'scroll');
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const showEpubView = false;
-  const [ttsVoice, setTtsVoice] = useState('zh-CN-XiaoxiaoNeural'); // 原版/文本切换按钮已移除，固定为文本视图
+  const [ttsVoice, setTtsVoice] = useState(() => {
+    try { return localStorage.getItem('ireader_tts_voice') || 'zh-CN-XiaoxiaoNeural'; } catch { return 'zh-CN-XiaoxiaoNeural'; }
+  });
 
 
   // ── 悬浮UI控制（全屏阅读：点击屏幕显示/隐藏所有控件） ──
@@ -190,7 +199,9 @@ function ReaderPage() {
       // 获取当前章节内容
       const res = await axios.get(`/api/books/${bookId}/chapters/${currentChapter.id}/content`);
       const rawContent = res.data.data?.content || '';
-      const content = book.format === 'epub' ? stripHtml(rawContent) : rawContent;
+      // 内联 HTML 剥离
+        const simpleStrip2 = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim();
+      const content = book.format === 'epub' ? simpleStrip2(rawContent) : rawContent;
       await cacheSingleChapter(bookId, book.title, {
         chapterId: currentChapter.id,
         title: currentChapter.title,
@@ -205,17 +216,19 @@ function ReaderPage() {
     }
   }, [bookId, currentChapter, book, checkCacheStatus]);
 
-  /** 缓存全书到客户端（文字 + 当前音色语音预合成） */
+  /** 缓存全书到客户端（文字 + 逐段预合成语音并缓存到本地 IndexedDB） */
   const handleCacheFullBook = useCallback(async () => {
     if (!bookId || !book || !chapters.length) return;
     setCachingInProgress(true);
     try {
-      // 批量获取所有章节内容
+      // 阶段1：批量获取并缓存所有章节文字内容
       const chapterData: { chapterId: string; title: string; order: number; content: string }[] = [];
       for (const ch of chapters) {
         const res = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`);
         const rawContent = res.data.data?.content || '';
-        const content = book.format === 'epub' ? stripHtml(rawContent) : rawContent;
+        // 内联的 HTML 标签剥离函数（避免在 useCallback 前引用 stripHtml）
+        const simpleStrip = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#(\d+);/g, (_m: string, n: string) => String.fromCharCode(parseInt(n, 10))).trim();
+        const content = book.format === 'epub' ? simpleStrip(rawContent) : rawContent;
         chapterData.push({
           chapterId: ch.id,
           title: ch.title,
@@ -225,13 +238,71 @@ function ReaderPage() {
       }
       await cacheBookChapters(bookId, book.title, chapterData);
 
-      // ⭐ 同步触发当前音色的后台预合成（静默，不阻塞 UI）
-      try {
-        await axios.post(`/api/books/${bookId}/tts-generate`, {
-          voice: ttsPlayerRef.current?.getVoice?.() || ttsVoice,
-          speed: ttsSpeed,
-        });
-      } catch { /* 预合成触发失败不影响主流程 */ }
+      // 阶段2：逐章逐段合成语音并缓存到 IndexedDB
+      // 使用并发池限制并发（避免浏览器限流），每章串行，章内并行
+      const player = getDefaultPlayer();
+      const effectiveVoice = (() => {
+        try { return localStorage.getItem('ireader_tts_voice') || player.getVoice() || ttsVoice; } catch { return ttsVoice; }
+      })();
+      const effectiveSpeed = (() => {
+        try {
+          const raw = localStorage.getItem('ireader_tts_speed');
+          return raw ? parseFloat(raw) : ttsSpeed;
+        } catch { return ttsSpeed; }
+      })();
+      const noCachePref = (() => {
+        try { return localStorage.getItem('ireader_tts_noCache') === 'true'; } catch { return true; }
+      })();
+
+      // 跳过实时合成模式
+      if (!noCachePref) {
+        const MAX_CONCURRENT = 4; // 并发合成限制
+        let totalCached = 0;
+        for (const ch of chapters) {
+          const chData = chapterData.find(d => d.chapterId === ch.id);
+          if (!chData || !chData.content) continue;
+          const segments = splitText(chData.content);
+          if (segments.length === 0) continue;
+
+          // 并行合成该章的各段落（限制并发数）
+          const tasks = segments.map((seg, segIdx) => (async () => {
+            try {
+              // 检查是否已缓存
+              const existing = await getCachedTTSAudio(bookId, ch.id, segIdx);
+              if (existing) return; // 已缓存，跳过
+
+              const res = await fetch('/api/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  input: seg,
+                  voice: effectiveVoice,
+                  speed: effectiveSpeed,
+                  response_format: 'wav',
+                  tts_source: 'kokoro',
+                  no_cache: false,
+                }),
+              });
+              if (!res.ok) return;
+              const arrayBuffer = await res.arrayBuffer();
+              await cacheTTSAudio(bookId, ch.id, segIdx, arrayBuffer);
+              totalCached++;
+            } catch { /* 单段合成失败不影响全书 */ }
+          })());
+
+          // 并发池限制
+          let i = 0;
+          const next = async () => {
+            while (i < tasks.length) {
+              const idx = i++;
+              await tasks[idx];
+            }
+          };
+          const workers = Array.from({ length: Math.min(MAX_CONCURRENT, tasks.length) }, () => next());
+          await Promise.all(workers);
+        }
+        console.log(`全书缓存完成：共合成 ${totalCached} 段语音`);
+      }
 
       await checkCacheStatus();
     } catch (err) {
@@ -343,13 +414,19 @@ function ReaderPage() {
         const savedVoice = (() => {
           try { return localStorage.getItem('ireader_tts_voice'); } catch { return null; }
         })();
+        const savedSpeed = (() => {
+          try {
+            const raw = localStorage.getItem('ireader_tts_speed');
+            return raw ? parseFloat(raw) : null;
+          } catch { return null; }
+        })();
         const noCachePref = (() => {
           try { return localStorage.getItem('ireader_tts_noCache') === 'true'; } catch { return true; }
         })();
 
         // 提前初始化播放器（创建 audio 元素 + 缓存 TTS 设置）
         await player.init({
-          speed: ttsSpeed,
+          speed: savedSpeed || ttsSpeed,
           voice: savedVoice || ttsVoice,
           noCache: noCachePref,
           bookId,
@@ -1044,7 +1121,7 @@ function ReaderPage() {
         setTtsError(userMsg);
         setTimeout(() => setTtsError(null), 8000);
       },
-      onEnd: () => {
+              onEnd: () => {
         setTtsProgress(1);
         if (ttsProgressSaveTimer.current) {
           clearInterval(ttsProgressSaveTimer.current);
@@ -1057,11 +1134,24 @@ function ReaderPage() {
         // ⭐ 单章播放完毕 → 自动加载下一章并继续播放
         advanceToNextChapterTTSRef.current?.(player);
       },
+      // ⭐ 锁屏/通知栏上下章控制 — 委托给章节导航函数
+      onPrevChapter: () => {
+        const idx = chapters.findIndex((c) => c.id === (currentChapter?.id || ''));
+        if (idx > 0) {
+          navigateToChapter(chapters[idx - 1]);
+        }
+      },
+      onNextChapter: () => {
+        const idx = chapters.findIndex((c) => c.id === (currentChapter?.id || ''));
+        if (idx >= 0 && idx < chapters.length - 1) {
+          navigateToChapter(chapters[idx + 1]);
+        }
+      },
     });
 
     // ⭐ 重启进度保存定时器（当前组件实例的上下文）
     startTtsProgressSaver(bookId, currentChapter.id, currentChapter?.title || '', player);
-  }, [bookId, currentChapter, loading, chapters, preloadNextChapters, startTtsProgressSaver]);
+  }, [bookId, currentChapter, loading, chapters, preloadNextChapters, startTtsProgressSaver, navigateToChapter]);
 
   const handleStartTTS = useCallback(async () => {
     if (!bookId || !currentChapter) return;
@@ -1109,8 +1199,14 @@ function ReaderPage() {
       player.chapterId = currentChapter?.id || '';
       (player as any).bookTitle = book?.title || '';
 
-      // ⭐ 设置音色
-      if (ttsVoice) player.setVoice(ttsVoice);
+      // ⭐ 设置音色 — 优先从 localStorage 读取（用户显式保存的），
+      // 其次是 player.init() 已从后端加载的值，最后才是 state 默认值
+      const savedVoice = (() => {
+        try { return localStorage.getItem('ireader_tts_voice'); } catch { return null; }
+      })();
+      const effectiveVoice = savedVoice || player.getVoice() || ttsVoice;
+      player.setVoice(effectiveVoice);
+      if (effectiveVoice !== ttsVoice) setTtsVoice(effectiveVoice);
 
       player.setCallbacks({
         onStateChange: (s) => {
@@ -1177,15 +1273,38 @@ function ReaderPage() {
           // ⭐ 单章播放完毕 → 自动加载下一章并继续播放（严格同步）
           advanceToNextChapterTTSRef.current?.(player);
         },
+        // ⭐ 锁屏/通知栏上下章控制
+        onPrevChapter: () => {
+          const idx = chapters.findIndex((c) => c.id === (currentChapter?.id || ''));
+          if (idx > 0) {
+            navigateToChapter(chapters[idx - 1]);
+          }
+        },
+        onNextChapter: () => {
+          const idx = chapters.findIndex((c) => c.id === (currentChapter?.id || ''));
+          if (idx >= 0 && idx < chapters.length - 1) {
+            navigateToChapter(chapters[idx + 1]);
+          }
+        },
       });
 
-      // ⭐ 从 localStorage 读取语音设置
-      const savedVoice = (() => {
+      // ⭐ 从 localStorage 读取语音设置（仅在确认有显式保存的值时更新）
+      const savedVoiceLs = (() => {
         try { return localStorage.getItem('ireader_tts_voice'); } catch { return null; }
       })();
-      if (savedVoice && savedVoice !== ttsVoice) {
-        setTtsVoice(savedVoice);
-        player.setVoice(savedVoice);
+      const savedSpeedLs = (() => {
+        try {
+          const raw = localStorage.getItem('ireader_tts_speed');
+          return raw ? parseFloat(raw) : null;
+        } catch { return null; }
+      })();
+      if (savedVoiceLs) {
+        setTtsVoice(savedVoiceLs);
+        player.setVoice(savedVoiceLs);
+      }
+      if (savedSpeedLs && savedSpeedLs !== ttsSpeed) {
+        setTtsSpeed(savedSpeedLs);
+        player.setSpeed(savedSpeedLs);
       }
       // ⭐ 从 localStorage 读取"实时合成模式"开关（设置页可配置）
       const noCachePref = (() => {
@@ -1194,18 +1313,39 @@ function ReaderPage() {
 
       // ⭐ 如果播放器已预热初始化（audio 元素已存在），跳过完整 init，仅更新选项
       if (player['audioElement']) {
-        player.setVoice(ttsVoice);
-        player['speed'] = ttsSpeed;
+        // 优先使用 localStorage 中用户保存的值
+        const savedVoiceLs2 = (() => {
+          try { return localStorage.getItem('ireader_tts_voice'); } catch { return null; }
+        })();
+        const savedSpeedLs2 = (() => {
+          try {
+            const raw = localStorage.getItem('ireader_tts_speed');
+            return raw ? parseFloat(raw) : null;
+          } catch { return null; }
+        })();
+        const useVoice = savedVoiceLs2 || player.getVoice() || ttsVoice;
+        const useSpeed = savedSpeedLs2 || ttsSpeed;
+        player.setVoice(useVoice);
+        player.setSpeed(useSpeed);
         player['currentBookId'] = bookId;
         player['bookTitle'] = book?.title || '';
         player['bookCoverUrl'] = book ? `/api/books/${bookId}/cover` : '';
         if (player['audioElement']) {
-          player['audioElement'].playbackRate = ttsSpeed;
+          player['audioElement'].playbackRate = useSpeed;
         }
       } else {
+        const savedVoiceLs3 = (() => {
+          try { return localStorage.getItem('ireader_tts_voice'); } catch { return null; }
+        })();
+        const savedSpeedLs3 = (() => {
+          try {
+            const raw = localStorage.getItem('ireader_tts_speed');
+            return raw ? parseFloat(raw) : null;
+          } catch { return null; }
+        })();
         await player.init({
-          speed: ttsSpeed,
-          voice: ttsVoice,
+          speed: savedSpeedLs3 || ttsSpeed,
+          voice: savedVoiceLs3 || ttsVoice,
           noCache: noCachePref,
           bookId,
           bookTitle: book?.title || '',
@@ -1233,7 +1373,45 @@ function ReaderPage() {
       setTtsError('语音播放启动失败：TTS 后端服务不可用（默认 Kokoro :8880 未运行），请在设置中切换到 Edge-TTS 或启动 Kokoro 服务');
       setTimeout(() => setTtsError(null), 10000);
     }
-  }, [bookId, currentChapter, book, ttsSpeed, getCurrentChapterText, saveTtsProgress, startTtsProgressSaver, preloadNextChapters]);
+  }, [bookId, currentChapter, book, ttsSpeed, getCurrentChapterText, saveTtsProgress, startTtsProgressSaver, preloadNextChapters, chapters, navigateToChapter]);
+
+  /** 上一章切换（用于播放器控制） */
+  const handlePrevChapter = useCallback(async () => {
+    if (!currentChapter) return;
+    const idx = chapters.findIndex((c) => c.id === currentChapter.id);
+    if (idx <= 0) return;
+    // 如果正在播放，先停止
+    const player = ttsPlayerRef.current;
+    if (player && player.getState() !== 'idle') {
+      player.stop();
+      setTtsState('idle');
+      setTtsProgress(0);
+      setActiveSegmentIndex(-1);
+      setTtsSegmentText('');
+    }
+    await goToPrevChapter();
+    // 自动播放上一章
+    setTimeout(() => handleStartTTS(), 300);
+  }, [currentChapter, chapters, goToPrevChapter, handleStartTTS]);
+
+  /** 下一章切换（用于播放器控制） */
+  const handleNextChapter = useCallback(async () => {
+    if (!currentChapter) return;
+    const idx = chapters.findIndex((c) => c.id === currentChapter.id);
+    if (idx < 0 || idx >= chapters.length - 1) return;
+    // 如果正在播放，先停止
+    const player = ttsPlayerRef.current;
+    if (player && player.getState() !== 'idle') {
+      player.stop();
+      setTtsState('idle');
+      setTtsProgress(0);
+      setActiveSegmentIndex(-1);
+      setTtsSegmentText('');
+    }
+    await goToNextChapter();
+    // 自动播放下一章
+    setTimeout(() => handleStartTTS(), 300);
+  }, [currentChapter, chapters, goToNextChapter, handleStartTTS]);
 
   /** 暂停 TTS */
   const handlePauseTTS = useCallback(() => {
@@ -1884,11 +2062,17 @@ function ReaderPage() {
 
                     {/* ── 播放栏（始终显示） ── */}
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <button onClick={handleSkipBackward} className="w-10 h-10 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="后退10秒">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          {/* ⏮ 上一章 */}
+                          <button onClick={handlePrevChapter} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="上一章">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
                           </button>
+                          {/* ↩10 后退10秒 */}
+                          <button onClick={handleSkipBackward} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="后退10秒">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+                          </button>
+                          {/* ▶/⏸ 播放/暂停 */}
                           {ttsState === 'playing' ? (
                             <button onClick={handlePauseTTS} className="w-11 h-11 rounded-full flex items-center justify-center" style={{background: 'var(--color-primary)'}} title="暂停">
                               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
@@ -1898,10 +2082,19 @@ function ReaderPage() {
                               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                             </button>
                           )}
-                          <button onClick={handleSkipForward} className="w-10 h-10 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="快进10秒">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+                          {/* ↩10 快进10秒 */}
+                          <button onClick={handleSkipForward} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="快进10秒">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
                           </button>
-                          <span className="text-sm min-w-[3rem]" style={{ color: 'var(--color-text-muted)' }}>{Math.round(ttsProgress * 100)}%</span>
+                          {/* ⏭ 下一章 */}
+                          <button onClick={handleNextChapter} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="下一章">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                          </button>
+                          {/* ⏹ 停止 — 清理进度，下次播放从当前页开始 */}
+                          <button onClick={handleStopTTS} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="停止">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+                          </button>
+                          <span className="text-xs min-w-[2.5rem]" style={{ color: 'var(--color-text-muted)' }}>{Math.round(ttsProgress * 100)}%</span>
                         </div>
                         <button
                           onClick={() => {

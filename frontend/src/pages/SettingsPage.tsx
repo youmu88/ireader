@@ -209,6 +209,12 @@ export default function SettingsPage() {
       });
       setTtsSettings(updated);
       setSaveMessage('✓ 设置已保存');
+
+      // ⭐ 同步音色/语速到 localStorage（供 ReaderPage 和播放器预热使用）
+      try {
+        localStorage.setItem('ireader_tts_voice', selectedVoice);
+        localStorage.setItem('ireader_tts_speed', String(speed));
+      } catch { /* ignore */ }
       setTimeout(() => setSaveMessage(''), 3000);
     } catch (err) {
       setSaveMessage('✗ 保存失败');

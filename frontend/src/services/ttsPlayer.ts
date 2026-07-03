@@ -94,6 +94,10 @@ export interface TTSPlayerCallbacks {
   onEnd?: () => void;
   /** 后台播放被中断时回调（如浏览器阻止继续播放） */
   onBackgroundInterrupted?: () => void;
+  /** 用户通过锁屏/通知栏请求上一章 */
+  onPrevChapter?: () => void;
+  /** 用户通过锁屏/通知栏请求下一章 */
+  onNextChapter?: () => void;
 }
 
 // ===== 文本分段 =====
@@ -743,6 +747,8 @@ export class TTSPlayer {
         navigator.mediaSession.setActionHandler('pause', () => this.pause());
         navigator.mediaSession.setActionHandler('stop', () => this.stop());
         // 可选：seek 控制
+        navigator.mediaSession.setActionHandler('previoustrack', () => { this.callbacks.onPrevChapter?.(); });
+        navigator.mediaSession.setActionHandler('nexttrack', () => { this.callbacks.onNextChapter?.(); });
         navigator.mediaSession.setActionHandler('seekbackward', () => { /* 预留 */ });
         navigator.mediaSession.setActionHandler('seekforward', () => { /* 预留 */ });
       } catch { /* Media Session 不可用则静默跳过 */ }
