@@ -1,0 +1,63 @@
+# iReader CI/CD Pipeline
+# ======================
+# 自动触发：push 到 main 分支时，执行 类型检查 → 构建 → 测试 → 部署 → Git 归档
+#
+# 该流水线与 scripts/auto-archive-deploy.sh 等效，通过 GitHub Actions 自动执行。
+# 每轮开发完成后 push 到 main，流水线自动将代码部署上线。
+#
+# 如需本地一键执行完整流程，也可运行：
+#   npm run archive:deploy
+# 或
+#   bash scripts/auto-archive-deploy.sh
+
+name: iReader CI/CD
+
+on:
+  push:
+    branches: [main]
+  # 允许手动触发
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 安装根依赖
+        run: npm ci
+
+      - name: 安装 backend 依赖
+        working-directory: ./backend
+        run: npm ci
+
+      - name: 安装 frontend 依赖
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: ① 类型检查
+        run: npm run typecheck
+
+      - name: ② 构建项目
+        run: npm run build
+
+      - name: ③ 运行测试
+        run: npm test
+
+      - name: ④ 部署到生产环境
+        run: |
+          # 使用 deploy.sh 部署，escalate 权限以管理 systemd 服务
+          bash deploy.sh
+
+      - name: ⑤ 健康检查
+        run: |
+          sleep 3
+          curl -s http://localhost:10000/api/health | grep -q '"ok"\|"status":"ok"\|"success":true' && echo "健康检查通过 ✓" || (echo "健康检查失败 ❌" && exit 1)

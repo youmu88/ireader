@@ -114,7 +114,6 @@ function ReaderPage() {
 
   // ── 悬浮UI控制（全屏阅读：点击屏幕显示/隐藏所有控件） ──
   const [showUi, setShowUi] = useState(false);
-  const uiHideTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const txtPageRef = useRef<HTMLDivElement>(null);
   const readerRef = useRef<HTMLDivElement>(null);
   const epubRef = useRef<any>(null);
@@ -149,22 +148,10 @@ function ReaderPage() {
       setShowToc(false);
       return;
     }
-    setShowUi(prev => {
-      const next = !prev;
-      if (uiHideTimerRef.current) clearTimeout(uiHideTimerRef.current);
-      if (next) {
-        uiHideTimerRef.current = setTimeout(() => setShowUi(false), 6000);
-      }
-      return next;
-    });
+    setShowUi(prev => !prev);
   }, [showToc]);
 
-  // Cleanup auto-hide timer on unmount
-  useEffect(() => {
-    return () => {
-      if (uiHideTimerRef.current) clearTimeout(uiHideTimerRef.current);
-    };
-  }, []);
+  // uiHideTimerRef 保留供兼容（不再使用定时器，仅留 ref 避免编译报错）
 
   // ── 睡眠计时器 ──
   const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
@@ -1800,7 +1787,7 @@ function ReaderPage() {
 
         {/* ⏫ 悬浮操作面板：默认隐藏，点击阅读区显示 */}
         {showUi && (
-          <div className="absolute inset-0 z-30 flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="absolute inset-0 z-30 flex flex-col" onClick={() => setShowUi(false)}>
             {/* 半透明背景点击关闭 */}
             <div className="absolute inset-0 bg-black/30" onClick={() => setShowUi(false)} />
 
