@@ -1569,10 +1569,10 @@ function ReaderPage() {
 
   if (loading) {
     return (
-      <div className="h-screen flex flex-col bg-white dark:bg-gray-900">
+      <div className="h-screen flex flex-col" style={{background: 'var(--color-bg)'}}>
         <ReaderTopBar title="" onBack={() => navigate('/')} readingMode="scroll" onToggleReadingMode={() => {}} />
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-gray-400 dark:text-gray-500 text-lg">加载中...</p>
+          <p className="text-lg" style={{color: 'var(--color-text-muted)'}}>加载中...</p>
         </div>
       </div>
     );
@@ -1580,14 +1580,14 @@ function ReaderPage() {
 
   if (error) {
     return (
-      <div className="h-screen flex flex-col bg-white dark:bg-gray-900">
+      <div className="h-screen flex flex-col" style={{background: 'var(--color-bg)'}}>
         <ReaderTopBar title="" onBack={() => navigate('/')} readingMode="scroll" onToggleReadingMode={() => {}} />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <p className="text-red-500 mb-4">{error}</p>
             <button
               onClick={() => { setError(null); loadBook(); }}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              className="px-4 py-2 rounded-lg font-medium" style={{background: 'var(--color-primary)', color: 'white'}}
             >
               重试
             </button>
@@ -1598,7 +1598,7 @@ function ReaderPage() {
   }
 
   return (
-    <div className="h-screen bg-white dark:bg-gray-900 select-none">
+    <div className="h-screen select-none" style={{background: 'var(--color-bg)'}}>
       <div className="h-full relative">
         {/* ── 浮动章节导航按钮（半透明大按钮，屏幕左右中部） ── */}
         <button
@@ -1622,8 +1622,8 @@ function ReaderPage() {
           <div className="flex-1 flex overflow-hidden relative" onClick={handleTapReader}>
         {/* TOC Sidebar */}
         {showToc && (
-          <div onClick={(e) => e.stopPropagation()} className="w-64 sm:w-72 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-y-auto absolute sm:relative z-20 inset-y-0 left-0 shadow-lg sm:shadow-none">
-            <div className="p-3 font-semibold text-sm border-b border-gray-200 dark:border-gray-700">
+          <div onClick={(e) => e.stopPropagation()} className="w-64 sm:w-72 overflow-y-auto absolute sm:relative z-20 inset-y-0 left-0 shadow-lg sm:shadow-none" style={{background: 'var(--color-bg-card)', borderRight: '0.5px solid var(--color-border)'}}>
+            <div className="p-3 font-semibold text-sm" style={{borderBottom: '0.5px solid var(--color-border)'}}>
               章节目录
             </div>
             {chapters.map((ch) => (
@@ -1708,9 +1708,9 @@ function ReaderPage() {
                 disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter.id) === 0}
                 className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-300 dark:hover:bg-gray-600"
               >
-                ← 上一章
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="15 18 9 12 15 6"/></svg> 上一章
               </button>
-              <span className="text-gray-500 dark:text-gray-400">
+              <span className="text-xs" style={{color: 'var(--color-text-muted)'}}>
                 {currentChapter
                   ? `${chapters.findIndex((c) => c.id === currentChapter.id) + 1} / ${chapters.length}`
                   : ''}
@@ -1723,7 +1723,7 @@ function ReaderPage() {
                 disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter.id) === chapters.length - 1}
                 className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-300 dark:hover:bg-gray-600"
               >
-                下一章 →
+                下一章 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
             </div>
           </div>
@@ -1736,7 +1736,7 @@ function ReaderPage() {
           <div className="absolute top-0 left-0 right-0 z-10 mx-auto max-w-xl mt-2">
             <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg px-4 py-2 flex items-center justify-between shadow-sm">
               <span className="text-xs sm:text-sm text-red-800 dark:text-red-200 flex-1">
-                ⚠️ {ttsError}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> {ttsError}
               </span>
               <button
                 onClick={() => setTtsError(null)}
@@ -1795,7 +1795,7 @@ function ReaderPage() {
                           <div className="mx-auto max-w-3xl px-3 sm:px-6 pb-16">
               <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
                 <p className="text-sm text-blue-800 dark:text-blue-200 line-clamp-2">
-                  🔊 {ttsSegmentText}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> {ttsSegmentText}
                 </p>
               </div>
             </div>
@@ -1814,7 +1814,7 @@ function ReaderPage() {
 
             {/* 底部控制面板 — 阻止点击冒泡到外层遮罩，避免非关闭按钮意外关闭面板 */}
             <div className="relative z-10 pointer-events-none">
-              <div className="pointer-events-auto bg-white dark:bg-gray-800 rounded-t-2xl shadow-2xl max-h-[55vh] overflow-y-auto mx-auto max-w-3xl animate-slide-up" onClick={(e) => e.stopPropagation()}>
+              <div className="pointer-events-auto glass-bar rounded-t-2xl shadow-2xl max-h-[55vh] overflow-y-auto mx-auto max-w-3xl animate-slide-up" onClick={(e) => e.stopPropagation()}>
                   <div className="p-4 space-y-3">
                     {/* ── 第一行：返回 + 书名 + 目录 ── */}
                     <div className="flex items-center justify-between">
@@ -1822,7 +1822,7 @@ function ReaderPage() {
                         onClick={() => navigate('/')}
                         className="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-full px-3 py-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-200 tap-active"
                       >
-                        ← 返回
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><polyline points="15 18 9 12 15 6"/></svg> 返回
                       </button>
                       <h2 className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate max-w-[50%] text-center">
                         {book?.title || ''}
@@ -1835,7 +1835,8 @@ function ReaderPage() {
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
-                        📑 目录
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                        目录
                       </button>
                     </div>
                     <div className="border-t border-gray-100 dark:border-gray-700" />
@@ -1847,31 +1848,31 @@ function ReaderPage() {
                         disabled={ttsState === 'loading'}
                         className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all duration-200 tap-active ${ttsState !== 'idle' ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
                       >
-                        {ttsState === 'playing' ? '🔊 朗读中' : ttsState === 'paused' ? '⏸ 已暂停' : ttsState === 'loading' ? '⏳ 加载中' : '🔊 朗读'}
+                        {ttsState === 'playing' ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 朗读中</> : ttsState === 'paused' ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> 已暂停</> : ttsState === 'loading' ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 animate-spin"><circle cx="12" cy="12" r="10" opacity="0.3"/><path d="M12 2a10 10 0 0 1 10 10"/></svg> 加载中</> : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 朗读</>}
                       </button>
                       <button
                         onClick={handleCacheCurrentChapter}
                         disabled={cachingInProgress}
                         className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-200 tap-active"
                       >
-                        💾 缓存本章
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 缓存本章
                       </button>
                       <button
                         onClick={handleCacheFullBook}
                         disabled={cachingInProgress}
                         className="text-xs px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-200 tap-active"
                       >
-                        📦 全书缓存
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> 全书缓存
                       </button>
                       {cacheStatus && cacheStatus.chapterCount > 0 && (
                         <div className="flex flex-col gap-1.5">
                           <div className="flex items-center gap-2 flex-wrap text-xs">
                             <span className="text-green-600 dark:text-green-400" title="已缓存文字章节">
-                              📖 {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章 ({formatBytes(cacheStatus.chapterBytes)})
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章 ({formatBytes(cacheStatus.chapterBytes)})
                             </span>
                             {cacheStatus.audioSegmentCount > 0 && (
                               <span className="text-purple-600 dark:text-purple-400" title="已缓存语音段">
-                                🔊 {cacheStatus.audioSegmentCount}段 ({formatBytes(cacheStatus.audioBytes)})
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> {cacheStatus.audioSegmentCount}段 ({formatBytes(cacheStatus.audioBytes)})
                               </span>
                             )}
                             <span className="text-gray-400">
@@ -1883,21 +1884,21 @@ function ReaderPage() {
                               onClick={handleClearTextCache}
                               className="text-[10px] px-2 py-1 rounded-full text-orange-500 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-all duration-150 tap-active"
                             >
-                              🗑 清除文字
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 清除文字
                             </button>
                             {cacheStatus.audioSegmentCount > 0 && (
                               <button
                                 onClick={handleClearAudioCache}
                                 className="text-[10px] px-2 py-1 rounded-full text-purple-500 bg-purple-50 dark:bg-purple-900/20 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-all duration-150 tap-active"
                               >
-                                🗑 清除语音
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 清除语音
                               </button>
                             )}
                             <button
                               onClick={handleClearCache}
                               className="text-[10px] px-2 py-1 rounded-full text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-all duration-150 tap-active"
                             >
-                              ✕ 清除全部
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> 清除全部
                             </button>
                           </div>
                         </div>
@@ -1961,7 +1962,7 @@ function ReaderPage() {
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
-                        {readingMode === 'paginated' ? '📄 翻页' : '📜 滚动'}
+                        {readingMode === 'paginated' ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> 翻页</> : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> 滚动</>}
                       </button>
                     </div>
                   </div>
@@ -1997,18 +1998,18 @@ function ReaderPage() {
                           {/* 播放控制 */}
                           <div className="flex items-center gap-1">
                             {ttsState === 'playing' ? (
-                              <button onClick={handlePauseTTS} className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs hover:bg-blue-600 active:scale-90 transition-all duration-150" title="暂停">⏸</button>
+                              <button onClick={handlePauseTTS} className="w-8 h-8 rounded-full" style={{background: 'var(--color-primary)'}} title="暂停"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
                             ) : (
-                              <button onClick={ttsState === 'paused' ? handleResumeTTS : handleStartTTS} className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs hover:bg-blue-600 active:scale-90 transition-all duration-150" title={ttsState === 'paused' ? '继续' : '播放'}>▶</button>
+                              <button onClick={ttsState === 'paused' ? handleResumeTTS : handleStartTTS} className="w-8 h-8 rounded-full" style={{background: 'var(--color-primary)'}} title={ttsState === 'paused' ? '继续' : '播放'}><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
                             )}
-                            <button onClick={handleStopTTS} className="w-7 h-7 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150" title="停止">⏹</button>
+                            <button onClick={handleStopTTS} className="w-8 h-8 rounded-full" style={{background: 'var(--color-bg-alt)'}} title="停止"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
                           </div>
                           {/* 进度 */}
                           <span className="text-xs text-gray-500 min-w-[2.5rem]">{Math.round(ttsProgress * 100)}%</span>
                           {/* 快进/快退 */}
                           <div className="flex items-center gap-1">
-                            <button onClick={handleSkipBackward} className="w-7 h-7 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-200 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150" title="后退10秒">⏪</button>
-                            <button onClick={handleSkipForward} className="w-7 h-7 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs hover:bg-gray-200 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150" title="快进10秒">⏩</button>
+                            <button onClick={handleSkipBackward} className="w-8 h-8 rounded-full" style={{background: 'var(--color-bg-alt)'}} title="后退10秒"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg></button>
+                            <button onClick={handleSkipForward} className="w-8 h-8 rounded-full" style={{background: 'var(--color-bg-alt)'}} title="快进10秒"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button>
                           </div>
                           {/* 睡眠定时 */}
                           <button
@@ -2024,7 +2025,7 @@ function ReaderPage() {
                                 : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                             }`}
                           >
-                            {sleepTimerMinutes ? `⏰ ${sleepTimerMinutes}分` : '⏰ 定时'}
+                            {sleepTimerMinutes ? <span className="inline-flex items-center gap-1"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>{sleepTimerMinutes}分</span> : <span className="inline-flex items-center gap-1"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>定时</span>}
                           </button>
                         </div>
                       </div>
@@ -2065,13 +2066,13 @@ function ReaderPage() {
                             onClick={() => { if (pageIndex > 0) setPageIndex(i => i - 1); else goToPrevChapter(); }}
                             disabled={pageIndex === 0 && chapters.findIndex(c => c.id === currentChapter?.id) === 0}
                             className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-150 tap-active"
-                          >← 上一页</button>
+                          ><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="15 18 9 12 15 6"/></svg> 上一页</button>
                         <span className="text-xs text-gray-500">{pageIndex + 1} / {totalPages}</span>
                           <button
                             onClick={() => { if (pageIndex < totalPages - 1) setPageIndex(i => i + 1); else goToNextChapter(); }}
                             disabled={pageIndex >= totalPages - 1 && chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1}
                             className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-40 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-150 tap-active"
-                          >下一页 →</button>
+                          >下一页 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="9 18 15 12 9 6"/></svg></button>
                       </div>
                     )}
                   </div>
@@ -2080,14 +2081,14 @@ function ReaderPage() {
                   {serverStats && (
                     <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
                       <div className="flex items-center gap-3 flex-wrap text-xs text-gray-500 dark:text-gray-400">
-                        <span>📖 阅读 {Math.round(serverStats.readingPercentage * 100)}%</span>
-                        <span>📑 {currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1}/${serverStats.totalChapters}` : `共${serverStats.totalChapters}`}章</span>
-                        <span>🔊 预合成 {Math.round((serverStats.voiceGenerationRate || 0) * serverStats.totalChapters)}/{serverStats.totalChapters}章</span>
+                        <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> 阅读 {Math.round(serverStats.readingPercentage * 100)}%</span>
+                        <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> {currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1}/${serverStats.totalChapters}` : `共${serverStats.totalChapters}`}章</span>
+                        <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> 预合成 {Math.round((serverStats.voiceGenerationRate || 0) * serverStats.totalChapters)}/{serverStats.totalChapters}章</span>
                         {serverStats.ttsCacheCount !== undefined && serverStats.ttsCacheCount > 0 && (
-                          <span>🎙️ 语音缓存 {serverStats.ttsCacheCount}条</span>
+                          <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> 语音缓存 {serverStats.ttsCacheCount}条</span>
                         )}
                         {serverStats.cachedChapters > 0 && (
-                          <span>💾 内容缓存 {serverStats.cachedChapters}章{serverStats.cacheType ? `（${serverStats.cacheType === 'full_book' ? '全书' : '部分'}）` : ''}</span>
+                          <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 内容缓存 {serverStats.cachedChapters}章{serverStats.cacheType ? `（${serverStats.cacheType === 'full_book' ? '全书' : '部分'}）` : ''}</span>
                         )}
                       </div>
                     </div>
@@ -2150,36 +2151,45 @@ function ReaderTopBar({
   onCacheFullBook?: () => void;
   onClearCache?: () => void;
 }) {
-  const ttsLabel = ttsState === 'playing' ? '🔊 朗读中' :
-    ttsState === 'paused' ? '🔇 已暂停' :
-    ttsState === 'loading' ? '⏳ 加载中' :
-    '🔊 朗读本章';
 
   return (
-    <div className="flex items-center justify-between px-2 sm:px-4 py-1 sm:py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-x-auto">
-      <div className="flex items-center gap-3">
-        <button onClick={onBack} className="text-blue-600 dark:text-blue-400 hover:underline text-sm tap-active">
-          ← 返回书架
+    <div className="glass flex items-center justify-between px-2 sm:px-4 py-1 sm:py-2 overflow-x-auto scrollbar-hide"
+      style={{ borderBottom: '0.5px solid var(--color-border)' }}>
+      <div className="flex items-center gap-2 shrink-0">
+        <button onClick={onBack} className="flex items-center gap-1 text-sm tap-active px-2 py-1 rounded-lg transition-all duration-200"
+          style={{ color: 'var(--color-primary)' }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          <span className="hidden sm:inline">返回</span>
         </button>
-        <h1 className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate max-w-xs">
+        <h1 className="text-sm font-medium truncate max-w-[120px] sm:max-w-xs"
+          style={{ color: 'var(--color-text)' }}>
           {title}
         </h1>
-        <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1 shrink-0">v0.1.0</span>
+        <span className="text-[10px] shrink-0" style={{ color: 'var(--color-text-muted)' }}>v0.1.0</span>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         {/* TTS 朗读按钮 */}
         {onStartTTS && (
           <button
             onClick={ttsActive ? onStopTTS : onStartTTS}
             disabled={ttsState === 'loading'}
-            className={`text-xs px-2 py-1 rounded transition-all duration-200 tap-active ${
-              ttsActive
-                ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
-                : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-            }`}
+            className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-full transition-all duration-200 tap-active"
+            style={{
+              background: ttsActive ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)',
+              color: ttsActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+            }}
             title={ttsActive ? '停止朗读' : '朗读本章'}
           >
-            {ttsLabel}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              {ttsState === 'playing' ? (
+                <><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></>
+              ) : (
+                <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /></>
+              )}
+            </svg>
+            <span className="hidden sm:inline">{ttsState === 'playing' ? '朗读中' : ttsState === 'paused' ? '已暂停' : ttsState === 'loading' ? '加载中' : '朗读'}</span>
           </button>
         )}
         {/* 离线缓存按钮 */}
@@ -2188,34 +2198,48 @@ function ReaderTopBar({
             <button
               onClick={onCacheChapter}
               disabled={cachingInProgress}
-              className={`text-xs px-2 py-1 rounded transition-all duration-200 tap-active ${
-                cacheStatus?.chapterCount
-                  ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
-                  : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-              }`}
+              className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-full transition-all duration-200 tap-active"
+              style={{
+                background: cacheStatus?.chapterCount ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)',
+                color: cacheStatus?.chapterCount ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+              }}
               title="缓存当前章节到本地（离线可用）"
             >
-              {cachingInProgress ? '⏳' : '💾'} 缓存本章
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              <span className="hidden sm:inline">{cachingInProgress ? '缓存中' : '缓存'}</span>
             </button>
             <button
               onClick={onCacheFullBook}
               disabled={cachingInProgress}
-              className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 tap-active"
+              className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-full transition-all duration-200 tap-active"
+              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
               title="缓存全书到本地（离线可用）"
             >
-              💾 缓存全书
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                <line x1="12" y1="22.08" x2="12" y2="12" />
+              </svg>
+              <span className="hidden sm:inline">全书</span>
             </button>
             {cacheStatus && cacheStatus.chapterCount > 0 && (
               <>
-                <span className="text-xs text-green-600 dark:text-green-400" title="已缓存章节数">
-                  📦 {cacheStatus.chapterCount}/{cacheStatus.totalChapters}
+                <span className="text-xs" style={{ color: 'var(--color-primary)' }} title="已缓存章节数">
+                  {cacheStatus.chapterCount}/{cacheStatus.totalChapters}
                 </span>
                 <button
                   onClick={onClearCache}
-                  className="text-xs px-1 py-1 rounded text-red-500 hover:text-red-700 dark:hover:text-red-300 tap-icon"
+                  className="w-6 h-6 flex items-center justify-center rounded-full tap-icon"
+                  style={{ color: 'var(--color-text-muted)' }}
                   title="清除本地缓存"
                 >
-                  ✕
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
                 </button>
               </>
             )}
@@ -2224,18 +2248,22 @@ function ReaderTopBar({
         {onToggleToc && (
           <button
             onClick={onToggleToc}
-            className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 tap-active"
+            className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-full transition-all duration-200 tap-active"
+            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
           >
-            📑 目录
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+            </svg>
+            <span className="hidden sm:inline">目录</span>
           </button>
         )}
-        {/* EPUB 视图切换（已移除——原按钮有 bug 且无实际用途） */}
         {/* 字体族选择 */}
         {onFontFamilyChange && (
           <select
             value={fontFamily || 'sans'}
             onChange={(e) => onFontFamilyChange(e.target.value as 'sans' | 'serif' | 'mono')}
-            className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-none cursor-pointer"
+            className="text-xs px-2 py-1.5 rounded-lg border-none cursor-pointer"
+            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text)' }}
           >
             <option value="sans">无衬线</option>
             <option value="serif">衬线</option>
@@ -2245,28 +2273,37 @@ function ReaderTopBar({
         {/* 阅读模式切换 */}
         <button
           onClick={onToggleReadingMode}
-          className={`text-xs px-2 py-1 rounded transition-all duration-200 tap-active ${
-            readingMode === 'paginated'
-              ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-              : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-          }`}
+          className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-full transition-all duration-200 tap-active"
+          style={{
+            background: readingMode === 'paginated' ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)',
+            color: readingMode === 'paginated' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+          }}
           title="切换阅读模式"
         >
-          {readingMode === 'paginated' ? '📄 翻页' : '📜 滚动'}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {readingMode === 'paginated' ? (
+              <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></>
+            ) : (
+              <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></>
+            )}
+          </svg>
+          <span className="hidden sm:inline">{readingMode === 'paginated' ? '翻页' : '滚动'}</span>
         </button>
         {/* 字号控制 */}
         {onFontSizeChange && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             <button
               onClick={() => onFontSizeChange(Math.max(12, (fontSize || 18) - 2))}
-              className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-xs tap-icon transition-all duration-150"
+              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
             >
               A-
             </button>
-            <span className="text-xs text-gray-500 w-6 text-center">{fontSize || 18}</span>
+            <span className="text-xs w-5 text-center" style={{ color: 'var(--color-text-secondary)' }}>{fontSize || 18}</span>
             <button
               onClick={() => onFontSizeChange(Math.min(36, (fontSize || 18) + 2))}
-              className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-xs tap-icon transition-all duration-150"
+              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
             >
               A+
             </button>
@@ -2274,18 +2311,20 @@ function ReaderTopBar({
         )}
         {/* 行高控制 */}
         {onLineHeightChange && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             <button
               onClick={() => onLineHeightChange(Math.max(1.2, (lineHeight || 1.8) - 0.2))}
-              className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-xs tap-icon transition-all duration-150"
+              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
               disabled={(lineHeight || 1.8) <= 1.2}
             >
               行-
             </button>
-            <span className="text-xs text-gray-500 w-6 text-center">{(lineHeight || 1.8).toFixed(1)}</span>
+            <span className="text-xs w-5 text-center" style={{ color: 'var(--color-text-secondary)' }}>{(lineHeight || 1.8).toFixed(1)}</span>
             <button
               onClick={() => onLineHeightChange(Math.min(3.0, (lineHeight || 1.8) + 0.2))}
-              className="w-7 h-7 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs hover:bg-gray-300 dark:hover:bg-gray-600 active:scale-90 transition-all duration-150"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-xs tap-icon transition-all duration-150"
+              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
               disabled={(lineHeight || 1.8) >= 3.0}
             >
               行+
