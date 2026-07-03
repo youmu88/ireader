@@ -88,23 +88,29 @@ export default function SettingsPage() {
         setSpeed(settings.speed ?? 1.0);
         setApiUrl(settings.apiUrl || '');
         setApiKey(settings.apiKey || '');
-        setApiKey(settings.apiKey || '');
         setAutoPreSynthesize(settings.autoPreSynthesize ?? false);
-        try {
-          const effectiveUrl = settings.apiUrl || PRESET_DEFAULT_URLS[settings.source || 'kokoro'];
-          const voiceList = await fetchVoices(settings.source || 'kokoro', effectiveUrl, settings.apiKey || undefined);
-          setVoices(voiceList);
-        } catch {
-          setVoices([]);
-        }
+        // 先渲染页面，再后台拉取音色列表（避免阻塞 UI）
+        setLoading(false);
+        // ⭐ 后台异步拉取音色：不阻塞设置页面渲染
+        fetchVoicesInBackground(settings.source || 'kokoro', settings.apiUrl || undefined, settings.apiKey || undefined);
       } catch (err) {
         console.warn('Failed to load TTS settings:', err);
-      } finally {
         setLoading(false);
       }
     }
     load();
   }, []);
+
+  // ⭐ 后台异步拉取音色列表
+  async function fetchVoicesInBackground(source: string, apiUrl?: string, apiKey?: string) {
+    try {
+      const effectiveUrl = apiUrl || PRESET_DEFAULT_URLS[source] || undefined;
+      const voiceList = await fetchVoices(source, effectiveUrl, apiKey);
+      setVoices(voiceList);
+    } catch {
+      setVoices([]);
+    }
+  }
 
   // 当 source 切换时，更新 apiUrl 显示（预设源自动填充默认地址）
   useEffect(() => {

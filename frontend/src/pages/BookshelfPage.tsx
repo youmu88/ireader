@@ -713,9 +713,27 @@ useEffect(() => {
       {selectionMode && (
         <div className="fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 shadow-2xl px-4 py-3">
           <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <span className="text-sm text-gray-700 dark:text-gray-300">
-              已选择 <strong className="text-blue-600 dark:text-blue-400">{selectedIds.size}</strong> 本
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                已选择 <strong className="text-blue-600 dark:text-blue-400">{selectedIds.size}</strong> 本
+              </span>
+              <span className="text-gray-300 dark:text-gray-600">|</span>
+              <button
+                onClick={() => {
+                  const allFilteredIds = new Set(filteredBooks.map(b => b.id));
+                  if (allFilteredIds.size === selectedIds.size) {
+                    // 已全选 → 全不选
+                    setSelectedIds(new Set());
+                  } else {
+                    // 未全选 → 全选
+                    setSelectedIds(allFilteredIds);
+                  }
+                }}
+                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium transition-colors"
+              >
+                {selectedIds.size > 0 && selectedIds.size >= filteredBooks.length ? '☐ 全不选' : '☑ 全选'}
+              </button>
+            </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={exitSelectionMode}
