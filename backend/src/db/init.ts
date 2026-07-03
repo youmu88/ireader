@@ -188,6 +188,19 @@ migrateOldTables(sqlite);
     console.error('[迁移] tts_cache 列补充失败:', (err as Error).message);
   }
 
+  // ── 迁移：books 表增加 file_hash 列 ──
+  try {
+    const bookCols = sqlite.prepare("PRAGMA table_info('books')").all() as { name: string }[];
+    const hasFileHash = bookCols.some(c => c.name === 'file_hash');
+    if (!hasFileHash) {
+      console.log('[迁移] books 缺少 file_hash 列，正在补充...');
+      sqlite.exec(`ALTER TABLE books ADD COLUMN file_hash TEXT;`);
+      console.log('[迁移] books file_hash 列补充完成 ✅');
+    }
+  } catch (err) {
+    console.error('[迁移] books 列补充失败:', (err as Error).message);
+  }
+
   // ── 旧表迁移：检查是否需要从旧版升级 ──
 
   // ── 旧表迁移：检查是否需要从旧版升级 ──

@@ -580,9 +580,9 @@ export function createBooksRouter(db: any, dataDir: string): Router {
         .where(sql`book_id = ${bookId} AND user_id = ${userId} AND status = 'failed'`)
         .get()?.count ?? 0;
 
-      // 按需播放产生的缓存
+      // 按需播放产生的缓存（按 bookId 精确统计）
       const cachedChunks = db.select({ count: sql<number>`count(*)` }).from(ttsCache)
-        .where(sql`user_id = ${userId}`)
+        .where(sql`user_id = ${userId} AND book_id = ${bookId}`)
         .get()?.count ?? 0;
 
       // 进度 = 已完成分片 / 总分片

@@ -441,13 +441,15 @@ useEffect(() => {
            <span className="text-xs text-gray-400 dark:text-gray-500 font-normal bg-gray-100 dark:bg-gray-700/50 px-1.5 py-0.5 rounded select-none">
              v{APP_VERSION}
            </span>
-           {/* 预合成活跃指示器 */}
-           {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
-             <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 ml-1">
-               <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shadow-sm shadow-green-400/50" />
-               合成中
-             </span>
-           )}
+            {/* 预合成活跃指示器（点击可跳转到队列面板） */}
+            {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
+              <button onClick={() => setShowTtsQueue(true)}
+                className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 ml-1 cursor-pointer hover:text-green-700 dark:hover:text-green-300 transition-colors"
+                title="点击查看 TTS 队列">
+                <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shadow-sm shadow-green-400/50" />
+                合成中
+              </button>
+            )}
          </h1>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           {/* 搜索框 */}
