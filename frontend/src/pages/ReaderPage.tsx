@@ -292,6 +292,7 @@ function ReaderPage() {
 
           // 全局并发池 — 所有任务共享并发槽
           let i = 0;
+          const chapterMarkedDone = new Set<string>(); // 防止同一章多次计入 completedChapterCount
           const next = async () => {
             while (i < allTasks.length) {
               const idx = i++;
@@ -317,10 +318,11 @@ function ReaderPage() {
                     totalCached++;
                   }
                 }
-                // 检查该章是否全部完成
+                // 检查该章是否全部完成（每章只计一次）
                 const chDone = (chapterCompletedSegments.get(task.chapter.id) || 0) + 1;
                 chapterCompletedSegments.set(task.chapter.id, chDone);
-                if (chDone >= (chapterTotalSegments.get(task.chapter.id) || 0)) {
+                if (chDone >= (chapterTotalSegments.get(task.chapter.id) || 0) && !chapterMarkedDone.has(task.chapter.id)) {
+                  chapterMarkedDone.add(task.chapter.id);
                   completedChapterCount++;
                 }
                 setCacheProgressText(`合成语音 ${completedChapterCount}/${totalChapterCount} 章`);
@@ -1568,20 +1570,6 @@ function ReaderPage() {
     );
   }, [ttsState, activeSegmentIndex]);
 
-  /** 快退10秒 */
-  const handleSkipBackward = useCallback(() => {
-    const player = ttsPlayerRef.current;
-    if (!player || player.getState() === 'idle') return;
-    handleTTSSeek(Math.max(0, ttsProgress - 0.1));
-  }, [ttsProgress, handleTTSSeek]);
-
-  /** 快进10秒 */
-  const handleSkipForward = useCallback(() => {
-    const player = ttsPlayerRef.current;
-    if (!player || player.getState() === 'idle') return;
-    handleTTSSeek(Math.min(1, ttsProgress + 0.1));
-  }, [ttsProgress, handleTTSSeek]);
-
   // After book loads, check for saved TTS progress and offer resume
   // ⭐ 全局鼠标/触摸拖拽进度条 seek
   useEffect(() => {
@@ -2076,7 +2064,7 @@ function ReaderPage() {
                       </button>
                       <h2 className="text-base font-medium truncate max-w-[50%] text-center"
                         style={{ color: 'var(--color-text-secondary)' }}>
-                        {book?.title || ''}
+                        {(displayChapter || currentChapter)?.title || book?.title || ''}
                       </h2>
                       <button
                         onClick={() => { setShowToc(v => !v); setShowUi(false); }}
@@ -2091,17 +2079,13 @@ function ReaderPage() {
                       </button>
                     </div>
 
-                    {/* ── 播放栏（始终显示） ── */}
+                    {/* ── 播放栏（精简为4个按钮：上一章、播放/暂停、下一章、停止） ── */}
                     <div className="space-y-3">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <div className="flex items-center gap-1.5">
-                          {/* ⏮ 上一章 */}
+                          {/* ⏮ 上一章 — 使用当前上一片按钮 */}
                           <button onClick={handlePrevChapter} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="上一章">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
-                          </button>
-                          {/* ↩10 后退10秒 */}
-                          <button onClick={handleSkipBackward} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="后退10秒">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
                           </button>
                           {/* ▶/⏸ 播放/暂停 */}
                           {ttsState === 'playing' ? (
@@ -2113,11 +2097,7 @@ function ReaderPage() {
                               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                             </button>
                           )}
-                          {/* ↩10 快进10秒 */}
-                          <button onClick={handleSkipForward} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="快进10秒">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
-                          </button>
-                          {/* ⏭ 下一章 */}
+                          {/* ⏭ 下一章 — 使用当前下一片按钮 */}
                           <button onClick={handleNextChapter} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="下一章">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
                           </button>
@@ -2125,7 +2105,6 @@ function ReaderPage() {
                           <button onClick={handleStopTTS} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="停止">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
                           </button>
-                          <span className="text-xs min-w-[2.5rem]" style={{ color: 'var(--color-text-muted)' }}>{Math.round(ttsProgress * 100)}%</span>
                         </div>
                         <button
                           onClick={() => {
@@ -2309,7 +2288,7 @@ function ReaderPage() {
                           <span>文字</span>
                         </span>
                       </button>
-                      {(cacheStatus?.audioSegmentCount ?? 0) > 0 && (
+                      {(cacheStatus?.audioChapterCount ?? 0) > 0 && (
                         <button
                           onClick={handleClearAudioCache}
                           className="w-12 h-12 rounded-full flex items-center justify-center text-[10px] transition-all duration-150 tap-active"
@@ -2329,11 +2308,16 @@ function ReaderPage() {
                       </div>
                     )}
                     {cacheStatus && cacheStatus.chapterCount > 0 && (
-                      <div className="flex items-center justify-center gap-3 text-xs pt-1" style={{ color: 'var(--color-text-muted)' }}>
+                      <div className="flex items-center justify-center gap-3 text-xs pt-1 flex-wrap" style={{ color: 'var(--color-text-muted)' }}>
                         <span title="已缓存章节" style={{ color: 'var(--color-accent-2)' }}>
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> {cacheStatus.chapterCount}/{cacheStatus.totalChapters}章
                         </span>
-                        <span>{formatBytes(cacheStatus.totalBytes)}</span>
+                        {cacheStatus.audioChapterCount > 0 && (
+                          <span title="已缓存语音章节">
+                            🎙 {cacheStatus.audioChapterCount}/{cacheStatus.totalChapters}章
+                          </span>
+                        )}
+                        <span>{formatBytes(cacheStatus.totalBytes)}{cacheStatus.audioChapterCount > 0 ? `（文字 ${formatBytes(cacheStatus.chapterBytes)} / 语音 ${formatBytes(cacheStatus.audioBytes)}）` : ''}</span>
                       </div>
                     )}
                   </div>

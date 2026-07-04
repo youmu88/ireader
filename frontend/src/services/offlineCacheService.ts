@@ -506,6 +506,8 @@ export interface BookCacheDetailedStats {
   chapterBytes: number;
   /** 语音缓存 */
   audioSegmentCount: number;
+  /** 语音缓存覆盖的章节数（而非音频段数） */
+  audioChapterCount: number;
   audioBytes: number;
   /** 汇总 */
   totalBytes: number;
@@ -527,7 +529,25 @@ export async function getBookCacheDetailedStats(bookId: string): Promise<BookCac
     const bookAudiosList = audios.filter(a => a.bookId === bookId);
 
     const chapterBytes = bookChaptersList.reduce((sum, c) => sum + new Blob([c.content]).size, 0);
-    const audioBytes = bookAudiosList.reduce((sum, a) => sum + a.audioData.byteLength, 0);
+    // ⭐ 修复：audioData 在 IndexedDB 中可能存为 Blob，需统一转为 ArrayBuffer 再取 byteLength
+    let audioBytes = 0;
+    const audioChapterSet = new Set<string>();
+    for (const a of bookAudiosList) {
+      audioChapterSet.add(a.chapterId);
+      try {
+        if (a.audioData instanceof Blob) {
+          audioBytes += a.audioData.size;
+        } else if (a.audioData instanceof ArrayBuffer) {
+          audioBytes += a.audioData.byteLength;
+        } else {
+          // ArrayBufferView 兜底
+          const buf = a.audioData as unknown as ArrayBufferView;
+          audioBytes += buf.byteLength;
+        }
+      } catch {
+        // 单条计算失败不阻塞整体
+      }
+    }
 
     return {
       bookId: meta.bookId,
@@ -536,6 +556,7 @@ export async function getBookCacheDetailedStats(bookId: string): Promise<BookCac
       totalChapters: meta.totalChapters,
       chapterBytes,
       audioSegmentCount: meta.cachedAudioSegments,
+      audioChapterCount: audioChapterSet.size,
       audioBytes,
       totalBytes: chapterBytes + audioBytes,
       lastCachedAt: meta.lastCachedAt,
