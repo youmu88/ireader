@@ -55,13 +55,6 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showTTSDetail, setShowTTSDetail] = useState(false);
-  const [firstLineIndent, setFirstLineIndent] = useState(() => {
-    try {
-      const raw = localStorage.getItem(READER_PREFS_KEY);
-      if (raw) { const p = JSON.parse(raw); if (p.firstLineIndent !== undefined) return p.firstLineIndent; }
-    } catch {}
-    return false;
-  });
   // @ts-ignore
   const [saveMessage, setSaveMessage] = useState('');
   // ── 实时合成（noCache）开关 ──
@@ -600,38 +593,6 @@ export default function SettingsPage() {
                 />
               ))}
             </div>
-          </div>
-          {/* 首行缩进 */}
-          <div className="flex items-center justify-between px-4 py-3.5 tap-row"
-            style={{ borderTop: '0.5px solid var(--color-border)' }}>
-            <div className="flex items-center gap-3">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                style={{ color: 'var(--color-text-secondary)' }}>
-                <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="15" y2="12" />
-                <line x1="3" y1="18" x2="19" y2="18" /><line x1="3" y1="8" x2="3" y2="16" />
-              </svg>
-              <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>首行缩进</span>
-            </div>
-            <button
-              onClick={() => {
-                const newVal = !firstLineIndent;
-                setFirstLineIndent(newVal);
-                try {
-                  const cur = JSON.parse(localStorage.getItem(READER_PREFS_KEY) || '{}');
-                  localStorage.setItem(READER_PREFS_KEY, JSON.stringify({...cur, firstLineIndent: newVal}));
-                } catch {}
-              }}
-              className={`relative w-[48px] h-[28px] rounded-full transition-all duration-200 ${
-                firstLineIndent ? '' : 'opacity-50'
-              }`}
-              style={{
-                background: firstLineIndent ? 'var(--color-primary)' : 'var(--color-border)',
-              }}
-            >
-              <div className={`absolute top-[3px] w-[22px] h-[22px] rounded-full bg-white shadow-sm transition-all duration-200 ${
-                firstLineIndent ? 'left-[23px]' : 'left-[3px]'
-              }`} />
-            </button>
           </div>
         </div>
       </div>

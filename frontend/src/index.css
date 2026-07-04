@@ -276,10 +276,8 @@ button, a, [role="button"] {
 
 /* ── iOS 风格阅读排版增强 ── */
 :root {
-  --reader-p-spacing: 0.6em;
   --reader-letter-spacing: 0.01em;
   --reader-bg: #ffffff;
-  --reader-first-line-indent: 2em;
 }
 .dark {
   --reader-bg: #1a1a2e;
@@ -300,13 +298,7 @@ button, a, [role="button"] {
   border-radius: 4px;
 }
 .epub-content p {
-  margin: var(--reader-p-spacing) 0;
-  text-indent: var(--reader-first-line-indent);
-}
-/* 首行缩进开关：data-first-indent="false" 时关闭 */
-.reading-container[data-first-indent="false"] .epub-content p,
-.reading-container:not([data-first-indent="true"]) .epub-content p {
-  text-indent: 0 !important;
+  margin: 0.6em 0;
 }
 .epub-content p:first-of-type {
   margin-top: 0;

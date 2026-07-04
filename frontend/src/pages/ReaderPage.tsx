@@ -97,9 +97,7 @@ function ReaderPage() {
   const [fontSize, setFontSize] = useState(initialPrefs.fontSize ?? 18);
   const [fontFamily, setFontFamily] = useState<'sans' | 'serif' | 'mono'>(initialPrefs.fontFamily ?? 'sans');
   const [lineHeight, setLineHeight] = useState(initialPrefs.lineHeight ?? 1.8);
-  const [paragraphSpacing, setParagraphSpacing] = useState(initialPrefs.paragraphSpacing ?? 0.6);
   const [letterSpacing] = useState(initialPrefs.letterSpacing ?? 0.01);
-  const [firstLineIndent, setFirstLineIndent] = useState(initialPrefs.firstLineIndent ?? false);
   const [ttsState, setTtsState] = useState<PlayerState>('idle');
   const [ttsProgress, setTtsProgress] = useState(0);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
@@ -393,9 +391,7 @@ function ReaderPage() {
   useEffect(() => { saveReaderPrefs({ fontFamily }); }, [fontFamily]);
   useEffect(() => { saveReaderPrefs({ lineHeight }); }, [lineHeight]);
   useEffect(() => { saveReaderPrefs({ readingMode }); }, [readingMode]);
-  useEffect(() => { saveReaderPrefs({ paragraphSpacing }); }, [paragraphSpacing]);
   useEffect(() => { saveReaderPrefs({ letterSpacing }); }, [letterSpacing]);
-  useEffect(() => { saveReaderPrefs({ firstLineIndent }); }, [firstLineIndent]);
 
   // Separate effect for EPUB loading — waits for DOM (readerRef) to be ready
   useEffect(() => {
@@ -1882,9 +1878,7 @@ function ReaderPage() {
           <div
             ref={epubTextScrollRef}
             className="flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto overflow-y-auto reading-container"
-            data-p-spacing={paragraphSpacing}
             data-l-spacing={letterSpacing}
-            data-first-indent={firstLineIndent}
           >
             {(displayChapter || currentChapter) && (
               <div className="mb-4">
@@ -1986,9 +1980,7 @@ function ReaderPage() {
           <div
             ref={txtScrollRef}
             className={`flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto ${readingMode === 'scroll' ? 'overflow-y-auto' : 'overflow-hidden flex flex-col'}`}
-            data-p-spacing={paragraphSpacing}
             data-l-spacing={letterSpacing}
-            data-first-indent={firstLineIndent}
           >
             {(displayChapter || currentChapter) && (
               <div className="mb-4">
@@ -2079,13 +2071,13 @@ function ReaderPage() {
                       </button>
                     </div>
 
-                    {/* ── 播放栏（精简为4个按钮：上一章、播放/暂停、下一章、停止） ── */}
+                    {/* ── 播放栏（上一章/播放暂停/下一章/停止 + 定时按钮靠右） ── */}
                     <div className="space-y-3">
-                      <div className="flex items-center gap-1.5 flex-wrap">
+                      <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
-                          {/* ⏮ 上一章 — 使用当前上一片按钮 */}
+                          {/* ⏮ 上一章 */}
                           <button onClick={handlePrevChapter} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="上一章">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                           </button>
                           {/* ▶/⏸ 播放/暂停 */}
                           {ttsState === 'playing' ? (
@@ -2097,15 +2089,16 @@ function ReaderPage() {
                               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                             </button>
                           )}
-                          {/* ⏭ 下一章 — 使用当前下一片按钮 */}
+                          {/* ⏭ 下一章 */}
                           <button onClick={handleNextChapter} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="下一章">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
                           </button>
                           {/* ⏹ 停止 — 清理进度，下次播放从当前页开始 */}
                           <button onClick={handleStopTTS} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="停止">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
                           </button>
                         </div>
+                        {/* 定时按钮 — 靠右 */}
                         <button
                           onClick={() => {
                             const opts: (number | null)[] = [null, 15, 30, 60];
@@ -2147,7 +2140,7 @@ function ReaderPage() {
 
                     <div style={{ borderTop: '0.5px solid var(--color-border)' }} />
 
-                    {/* ── 阅读设置（字号/行距/段距/首行缩进）紧凑 2×2 网格 ── */}
+                    {/* ── 阅读设置（字号/行距）紧凑 2列 ── */}
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                       {/* 字号 */}
                       <div className="flex items-center justify-between">
@@ -2175,29 +2168,7 @@ function ReaderPage() {
                             style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>+</button>
                         </div>
                       </div>
-                      {/* 段距 */}
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>段距</span>
-                        <div className="flex items-center gap-1.5">
-                          <button onClick={() => setParagraphSpacing(Math.max(0.2, +(paragraphSpacing - 0.1).toFixed(1)))} disabled={paragraphSpacing <= 0.2}
-                            className="w-10 h-10 rounded-full flex items-center justify-center text-sm disabled:opacity-40 transition-colors"
-                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>−</button>
-                          <span className="text-sm w-8 text-center" style={{ color: 'var(--color-text-muted)' }}>{paragraphSpacing.toFixed(1)}</span>
-                          <button onClick={() => setParagraphSpacing(Math.min(2.0, +(paragraphSpacing + 0.1).toFixed(1)))} disabled={paragraphSpacing >= 2.0}
-                            className="w-10 h-10 rounded-full flex items-center justify-center text-sm disabled:opacity-40 transition-colors"
-                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>+</button>
-                        </div>
                       </div>
-                      {/* 首行缩进 */}
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>首行缩进</span>
-                        <button onClick={() => setFirstLineIndent(!firstLineIndent)}
-                          className={`relative w-[44px] h-[24px] rounded-full transition-all ${firstLineIndent ? '' : 'opacity-50'}`}
-                          style={{ background: firstLineIndent ? 'var(--color-primary)' : 'var(--color-border)' }}>
-                          <div className={`absolute top-[1px] w-[22px] h-[22px] rounded-full bg-white shadow-sm transition-all ${firstLineIndent ? 'left-[21px]' : 'left-[1px]'}`} />
-                        </button>
-                      </div>
-                    </div>
 
                     {/* ── 样式（字体 + 阅读模式）─与上方网格共享间距，不额外加分隔线 ── */}
                     <div className="flex items-center justify-between pt-1">
