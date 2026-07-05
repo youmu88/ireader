@@ -49,4 +49,4 @@
  *   5) Layout 导航栏使用 SafeGlass 替代硬编码 glass 类
  */
 
-export const APP_VERSION = '1.24.0';
+export const APP_VERSION = '1.25.0';
