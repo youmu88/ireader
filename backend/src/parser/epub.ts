@@ -50,17 +50,78 @@ function buildTocTitleMap(tocItems: any[]): Map<string, string> {
 }
 
 /**
- * 使用 Python3 修复被"二次包装"的 EPUB 文件（内容嵌套在子目录中）。
- * 调用项目内置脚本 `scripts/repair_epub.py <input> <output>`。
+ * 使用内联 Python 代码修复被"二次包装"的 EPUB 文件（内容嵌套在子目录中）。
+ * 通过 python3 -c 传递脚本，不依赖外部文件。
+ * 修复逻辑：检测 ZIP 中所有文件是否在同一顶层目录下（如 `书名.epub/mimetype`），
+ * 去掉该目录前缀后重新打包为符合 EPUB 标准的文件。
  */
 function rebuildEpubWithPython(sourcePath: string, tmpDir: string): string | null {
   const { execSync } = require('child_process');
-  // 脚本路径：dist/parser/epub.js → ../../scripts/repair_epub.py → backend/scripts/repair_epub.py
-  const scriptPath = path.join(path.dirname(path.dirname(__dirname)), 'scripts', 'repair_epub.py');
   const outPath = path.join(tmpDir, 'repaired.epub');
 
+  // 内联的 Python 修复脚本（等价于 scripts/repair_epub.py）
+  const inlineScript = `
+import zipfile, os, sys, tempfile, shutil
+
+def main():
+    src, out = sys.argv[1], sys.argv[2]
+    tmp = tempfile.mkdtemp()
+    try:
+        with zipfile.ZipFile(src, 'r') as z:
+            names = z.namelist()
+            files = [n for n in names if not n.endswith('/')]
+            dirs = set(n.split('/')[0] for n in names if '/' in n)
+
+            if len(dirs) != 1:
+                print("NO_FIX_NEEDED", flush=True)
+                sys.exit(1)
+
+            prefix = list(dirs)[0]
+            has_mimetype = any(n == prefix + '/mimetype' for n in names)
+            root_has_mimetype = any(n == 'mimetype' for n in names)
+
+            if not (has_mimetype and not root_has_mimetype):
+                print("NO_FIX_NEEDED", flush=True)
+                sys.exit(1)
+
+            for name in files:
+                rel = name[len(prefix)+1:] if name.startswith(prefix+'/') else name
+                if not rel: continue
+                target = os.path.join(tmp, rel)
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with open(target, 'wb') as f:
+                    f.write(z.read(name))
+
+            with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as out_z:
+                for root2, dirs2, files2 in os.walk(tmp):
+                    for f in files2:
+                        fp = os.path.join(root2, f)
+                        rel = os.path.relpath(fp, tmp)
+                        compress = zipfile.ZIP_STORED if rel == 'mimetype' else zipfile.ZIP_DEFLATED
+                        out_z.write(fp, rel, compress_type=compress)
+
+            if os.path.getsize(out) > 0:
+                print("OK:" + out, flush=True)
+                shutil.rmtree(tmp, ignore_errors=True)
+                return 0
+
+        print("NO_FIX_NEEDED", flush=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+        return 1
+    except Exception as e:
+        print("ERR:" + str(e), flush=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+        return 2
+
+if __name__ == '__main__':
+    sys.exit(main())
+`;
+
   try {
-    const cmd = `python3 "${scriptPath}" "${sourcePath}" "${outPath}"`;
+    // 写入临时 Python 脚本文件后执行，避免命令行长度/转义问题
+    const tmpScript = path.join(tmpDir, 'repair.py');
+    fs.writeFileSync(tmpScript, inlineScript);
+    const cmd = `python3 "${tmpScript}" "${sourcePath}" "${outPath}"`;
     const result = execSync(cmd, {
       stdio: 'pipe',
       timeout: 15000,
@@ -243,7 +304,7 @@ export async function parseEpub(epubPath: string, outputDir: string): Promise<Ep
   const extractedDir = path.join(outputDir, 'extracted');
 
   await new Promise<void>((resolve, reject) => {
-    yauzl.open(epubPath, { lazyEntries: true }, (err, zipfile) => {
+    yauzl.open(actualPath, { lazyEntries: true }, (err, zipfile) => {
       if (err) return reject(err);
       if (!zipfile) return reject(new Error('Failed to open EPUB'));
 

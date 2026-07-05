@@ -50,6 +50,7 @@
  * 1.25.0 (2026-07-05): [FEATURE] 前端渐进增强兼容策略 + 构建兼容降级 — @vitejs/plugin-legacy 双输出
  * 1.25.1 (2026-07-05): [BUGFIX] 兼容 .epub.zip 双扩展名上传格式 — 智能格式检测函数，前端放开文件选择限制
  * 1.25.2 (2026-07-05): [BUGFIX] 修复"二次包装"EPUB 无法解析—内容被嵌套在 `书名.epub/` 子目录下时自动提级修复
+ * 1.25.3 (2026-07-05): [BUGFIX] 修复解析失败（封面乱码）— 将修复脚本内联到 epub.ts 中，消除对 scripts/repair_epub.py 文件的外部依赖；Step3 提取文件改用修复后的 EPUB 路径
  */
 
-export const APP_VERSION = '1.25.2';
+export const APP_VERSION = '1.25.3';
