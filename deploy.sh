@@ -145,14 +145,15 @@ check_prerequisites() {
   fi
   log "Node.js v${node_version} ✓"
 
-  # 检查 npm
-  if ! command -v npm &>/dev/null; then
-    echo "错误: 未找到 npm 命令。"
+  # 检查 pnpm
+  if ! command -v pnpm &>/dev/null; then
+    echo "错误: 未找到 pnpm 命令。"
+    echo "请安装 pnpm: npm install -g pnpm 或 curl -fsSL https://get.pnpm.io/install.sh | sh -"
     exit 1
   fi
-  local npm_version
-  npm_version="$(npm --version)"
-  log "npm v${npm_version} ✓"
+  local pnpm_version
+  pnpm_version="$(pnpm --version)"
+  log "pnpm v${pnpm_version} ✓"
 
   # 检查源代码目录
   if [ ! -f "${SOURCE_DIR}/package.json" ]; then
@@ -305,16 +306,16 @@ do_build() {
       log "  已清理根 node_modules"
     fi
 
-    # 重新安装依赖
-    log "安装根依赖..."
-    npm install 2>&1 | while IFS= read -r line; do log "  npm: ${line}"; done
+    # 重新安装依赖（使用 pnpm）
+    log "安装根依赖 (pnpm)..."
+    pnpm install 2>&1 | while IFS= read -r line; do log "  pnpm: ${line}"; done
 
     log "安装 backend 依赖..."
-    cd backend && npm install 2>&1 | while IFS= read -r line; do log "  npm: ${line}"; done
+    cd backend && pnpm install 2>&1 | while IFS= read -r line; do log "  pnpm: ${line}"; done
     cd ..
 
     log "安装 frontend 依赖..."
-    cd frontend && npm install 2>&1 | while IFS= read -r line; do log "  npm: ${line}"; done
+    cd frontend && pnpm install 2>&1 | while IFS= read -r line; do log "  pnpm: ${line}"; done
     cd ..
   else
     # 增量构建：确保 node_modules 存在，缺失才安装
@@ -322,17 +323,17 @@ do_build() {
 
     cd "${SOURCE_DIR}"
     if [ ! -d "node_modules" ]; then
-      log "安装根依赖..."
-      npm install 2>&1 | tail -3
+      log "安装根依赖 (pnpm)..."
+      pnpm install 2>&1 | tail -3
     fi
     if [ ! -d "backend/node_modules" ]; then
       log "安装 backend 依赖..."
-      cd backend && npm install 2>&1 | tail -3
+      cd backend && pnpm install 2>&1 | tail -3
       cd ..
     fi
     if [ ! -d "frontend/node_modules" ]; then
       log "安装 frontend 依赖..."
-      cd frontend && npm install 2>&1 | tail -3
+      cd frontend && pnpm install 2>&1 | tail -3
       cd ..
     fi
   fi
@@ -341,11 +342,11 @@ do_build() {
   cd "${SOURCE_DIR}"
   log "执行构建: backend + frontend (并行)..."
   (
-    cd backend && npm run build 2>&1 | while IFS= read -r line; do log "  backend: ${line}"; done
+    cd backend && pnpm run build 2>&1 | while IFS= read -r line; do log "  backend: ${line}"; done
   ) &
   BUILD_PID_BACKEND=$!
   (
-    cd frontend && npm run build:fast 2>&1 | while IFS= read -r line; do log "  frontend: ${line}"; done
+    cd frontend && pnpm run build:fast 2>&1 | while IFS= read -r line; do log "  frontend: ${line}"; done
   ) &
   BUILD_PID_FRONTEND=$!
 
@@ -390,7 +391,7 @@ do_deploy() {
   log "拷贝 backend..."
   mkdir -p "${APP_DIR}/backend"
   cp -r "${SOURCE_DIR}/backend/package.json" "${APP_DIR}/backend/"
-  cp -r "${SOURCE_DIR}/backend/package-lock.json" "${APP_DIR}/backend/" 2>/dev/null || true
+  cp -r "${SOURCE_DIR}/backend/pnpm-lock.yaml" "${APP_DIR}/backend/" 2>/dev/null || true
 
   # 拷贝 dist
   if [ -d "${SOURCE_DIR}/backend/dist" ]; then
@@ -409,9 +410,9 @@ do_deploy() {
     log "  → ${APP_DIR}/backend/node_modules ✓ (跳过 prune，完整拷贝 devDependencies)"
     cd "${SOURCE_DIR}"
   else
-    # 兜底：源码无 node_modules 时才 npm install
-    log "源码无 node_modules，回退到 npm install --production..."
-    cd "${APP_DIR}/backend" && npm install --production 2>&1 | while IFS= read -r line; do log "  npm: ${line}"; done
+    # 兜底：源码无 node_modules 时才 pnpm install
+    log "源码无 node_modules，回退到 pnpm install --prod..."
+    cd "${APP_DIR}/backend" && pnpm install --prod 2>&1 | while IFS= read -r line; do log "  pnpm: ${line}"; done
     cd "${SOURCE_DIR}"
   fi
 

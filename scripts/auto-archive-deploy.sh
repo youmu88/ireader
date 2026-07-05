@@ -194,16 +194,16 @@ main() {
   check_prerequisites
 
   # Step 1: 类型检查
-  log_step "1/5" "类型检查 (npm run typecheck)"
-  if ! run "cd \"${PROJECT_DIR}\" && npm run typecheck 2>&1"; then
+  log_step "1/5" "类型检查 (pnpm run typecheck)"
+  if ! run "cd \"${PROJECT_DIR}\" && pnpm run typecheck 2>&1"; then
     echo "❌ 类型检查失败，终止流程。请修复 TypeScript 错误后重试。"
     exit 1
   fi
   log "类型检查通过 ✓"
 
   # Step 2: 构建
-  log_step "2/5" "构建项目 (npm run build)"
-  if ! run "cd \"${PROJECT_DIR}\" && npm run build 2>&1"; then
+  log_step "2/5" "构建项目 (pnpm run build)"
+  if ! run "cd \"${PROJECT_DIR}\" && pnpm run build 2>&1"; then
     echo "❌ 构建失败，终止流程。请修复构建错误后重试。"
     exit 1
   fi
@@ -211,8 +211,8 @@ main() {
 
   # Step 3: 测试（可选跳过）
   if [ "${SKIP_TESTS}" = false ]; then
-    log_step "3/5" "运行测试 (npm test)"
-    if ! run "cd \"${PROJECT_DIR}\" && npm test 2>&1"; then
+    log_step "3/5" "运行测试 (pnpm test)"
+    if ! run "cd \"${PROJECT_DIR}\" && pnpm test 2>&1"; then
       echo "❌ 测试失败，终止流程。请修复测试后重试。"
       exit 1
     fi

@@ -66,4 +66,4 @@
  *   3) 验证：npm run build (tsc -b + vite build) ✅、tsc --noEmit 零错误 ✅、38项测试全绿 ✅
  */
 
-export const APP_VERSION = '1.26.1';
+export const APP_VERSION = '1.27.0';

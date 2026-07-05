@@ -156,8 +156,8 @@ do_deploy() {
     log "❌ 未找到 node 命令"
     return 1
   fi
-  if ! command -v npm &>/dev/null; then
-    log "❌ 未找到 npm 命令"
+  if ! command -v pnpm &>/dev/null; then
+    log "❌ 未找到 pnpm 命令"
     return 1
   fi
   if ! command -v git &>/dev/null; then
@@ -165,7 +165,7 @@ do_deploy() {
     return 1
   fi
   log "node $(node --version) ✓"
-  log "npm $(npm --version) ✓"
+  log "pnpm $(pnpm --version) ✓"
   log "git $(git --version) ✓"
 
   # ── Step 1: git pull ──
@@ -174,19 +174,19 @@ do_deploy() {
   fi
 
   # ── Step 2: 类型检查 ──
-  if ! run_step "Step 2/5: 类型检查" "npm run typecheck 2>&1"; then
+  if ! run_step "Step 2/5: 类型检查" "pnpm run typecheck 2>&1"; then
     log "❌ 类型检查失败，终止部署"
     return 1
   fi
 
   # ── Step 3: 构建 ──
-  if ! run_step "Step 3/5: 构建项目" "npm run build 2>&1"; then
+  if ! run_step "Step 3/5: 构建项目" "pnpm run build 2>&1"; then
     log "❌ 构建失败，终止部署"
     return 1
   fi
 
   # ── Step 4: 测试 ──
-  if ! run_step "Step 4/5: 运行测试" "npm test 2>&1"; then
+  if ! run_step "Step 4/5: 运行测试" "pnpm test 2>&1"; then
     log "❌ 测试失败，终止部署"
     return 1
   fi
