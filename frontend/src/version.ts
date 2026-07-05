@@ -41,6 +41,12 @@
  *   3) JS 运行时性能检测（CPU核心数/内存），低性能设备自动禁用毛玻璃和动画
  *   4) .low-perf CSS class 动态注入，组件可通过 useTheme().compatibility 消费
  *   5) COMPATIBILITY.md 兼容策略文档
+ * 1.24.0 (2026-07-05): [FEATURE] 组件级渐进增强容器 — SafeGlass/SafeMotion/ProgressiveCard/ProgressiveTappable
+ *   1) SafeGlass: 组件级毛玻璃兼容容器（低性能设备纯色替代，减少GPU合成层）
+ *   2) SafeMotion: 动效兼容包装器（低性能设备禁用弹性动画）
+ *   3) ProgressiveCard: 渐进增强卡片（低性能设备无阴影无hover缩放）
+ *   4) ProgressiveTappable: 按压反馈兼容包装器（低性能设备仅透明度变化）
+ *   5) Layout 导航栏使用 SafeGlass 替代硬编码 glass 类
  */
 
-export const APP_VERSION = '1.23.0';
+export const APP_VERSION = '1.24.0';

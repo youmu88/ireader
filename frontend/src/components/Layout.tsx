@@ -1,6 +1,7 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTheme } from '../services/themeService';
+import { SafeGlass } from '../services/progressiveComponents';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 
@@ -54,11 +55,13 @@ function Layout() {
     navigate('/', { state: { openTtsQueue: true } });
   };
 
+  const { compatibility } = useTheme();
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--color-bg)' }}>
       {/* iOS 风格毛玻璃导航栏（非阅读器页面） */}
       {!isReader && (
-        <header className="glass sticky top-0 z-40">
+        <SafeGlass compatibility={compatibility} className="sticky top-0 z-40" fallbackClassName="sticky top-0 z-40">
           <div className="max-w-7xl mx-auto px-4 sm:px-6">
             {/* 主栏：标题 + 操作 */}
             <div className="flex items-center justify-between h-12 sm:h-14">
@@ -217,7 +220,7 @@ function Layout() {
               </nav>
             </div>
           </div>
-        </header>
+        </SafeGlass>
       )}
       <main className="flex-1">
         <Outlet />
