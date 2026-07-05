@@ -1,0 +1,150 @@
+.calibre {
+    display: block;
+    font-size: 1em;
+    padding-left: 0;
+    padding-right: 0;
+    margin: 0 5pt
+    }
+.calibre1 {
+    display: block
+    }
+.calibre2 {
+    display: block;
+    font-size: 1em;
+    text-align: center;
+    margin: 0 5pt;
+    padding: 0
+    }
+.calibre3 {
+    display: block;
+    font-size: 1.66667em;
+    font-weight: bold;
+    line-height: 1.2;
+    margin: 0.83em 0
+    }
+.calibre4 {
+    display: block;
+    list-style-type: disc;
+    margin-bottom: 1em;
+    margin-right: 0;
+    margin-top: 1em
+    }
+.calibre5 {
+    display: list-item;
+    list-style-type: none
+    }
+.calibre6 {
+    text-decoration: none
+    }
+.calibre7 {
+    display: block;
+    list-style-type: circle;
+    margin-bottom: 0;
+    margin-right: 0;
+    margin-top: 0
+    }
+.copyright {
+    display: block;
+    duokan-text-indent: 0;
+    font-family: "DK-KAITI", "kt", "kaiti", "楷体";
+    font-size: 0.83333em;
+    padding-left: 0.6em;
+    text-align: left;
+    text-indent: 0;
+    margin: 0.3em
+    }
+.cp {
+    -moz-hyphens: none;
+    -webkit-hyphens: none;
+    adobe-hyphenate: none;
+    display: block;
+    duokan-text-indent: 0;
+    font-family: "DK-XIAOBIAOSONG", "st", "songti", "方正小标宋";
+    font-size: 1.29167em;
+    font-style: normal;
+    font-weight: normal;
+    hyphens: none;
+    letter-spacing: normal;
+    line-height: 1.5;
+    page-break-after: avoid;
+    text-align: center;
+    text-indent: 0;
+    word-break: break-all;
+    margin: 1em auto
+    }
+.p_body_text_first_indent {
+    display: block;
+    duokan-text-indent: 2em;
+    font-family: "宋体", serif;
+    font-size: 1em;
+    line-height: 130%;
+    text-align: justify;
+    text-indent: 2em;
+    text-justify: inter-ideograph;
+    margin: 1em 0
+    }
+.p_heading_ {
+    -moz-hyphens: none;
+    -webkit-hyphens: none;
+    adobe-hyphenate: none;
+    display: block;
+    font-family: "fzxbs", "st", "songti", "方正小标宋";
+    font-size: 1.29167em;
+    font-style: normal;
+    font-weight: bold;
+    hyphens: none;
+    line-height: 170%;
+    page-break-after: avoid;
+    text-align: left;
+    text-indent: 0;
+    margin: 8% 0 12%
+    }
+.p_heading_1 {
+    -moz-hyphens: none;
+    -webkit-hyphens: none;
+    adobe-hyphenate: none;
+    display: block;
+    font-family: "fzxbs", "st", "songti", "方正小标宋";
+    font-size: 1.29167em;
+    font-style: normal;
+    font-weight: bold;
+    hyphens: none;
+    line-height: 170%;
+    page-break-after: avoid;
+    text-align: left;
+    text-indent: 0;
+    margin: 8% 0 12%
+    }
+.p_signature {
+    display: block;
+    font-size: 1em;
+    text-align: right;
+    text-indent: 0;
+    margin: 0
+    }
+.p_yin_yong {
+    color: #000;
+    display: block;
+    font-size: 1em;
+    text-align: justify;
+    text-indent: 2em;
+    margin: 0 1.42em
+    }
+.xx {
+    display: block;
+    font-size: 1em;
+    width: 17em;
+    padding: 1em 0.5em;
+    border: black solid 2px
+    }
+.yy {
+    background: #fff;
+    display: block;
+    font-size: 1em;
+    width: 17em;
+    margin: 40% auto 0;
+    padding: 0.5em
+    }
+.pcalibre:hover {
+    color: red
+    }

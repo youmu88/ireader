@@ -1,0 +1,34 @@
+<?xml version="1.0"  encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uuid_id">
+  <metadata xmlns:opf="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:calibre="http://calibre.kovidgoyal.net/2009/metadata">
+    <dc:title>百妖谱</dc:title>
+    <dc:creator opf:role="aut" opf:file-as="娑罗双树">娑罗双树</dc:creator>
+    <dc:identifier id="uuid_id" opf:scheme="uuid">4bcbf423-5487-41ba-b088-2a03f112e15e</dc:identifier>
+    <dc:contributor opf:role="bkp">calibre (7.14.0) [https://calibre-ebook.com]</dc:contributor>
+    <dc:date>2024-07-16T16:00:00+00:00</dc:date>
+    <dc:language>zh</dc:language>
+    <dc:identifier opf:scheme="calibre">4bcbf423-5487-41ba-b088-2a03f112e15e</dc:identifier>
+    <meta name="calibre:timestamp" content="2024-07-17T06:28:54.097888+00:00"/>
+    <meta name="calibre:title_sort" content="百妖谱"/>
+    <meta name="cover" content="cover"/>
+    <meta name="calibre:rating" content="10.0"/>
+  </metadata>
+  <manifest>
+    <item id="id" href="toc.xhtml" media-type="application/xhtml+xml"/>
+    <item id="titlepage" href="titlepage.xhtml" media-type="application/xhtml+xml"/>
+    <item id="html" href="index.html" media-type="application/xhtml+xml"/>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="page_css" href="page_styles.css" media-type="text/css"/>
+    <item id="css" href="stylesheet.css" media-type="text/css"/>
+    <item id="cover" href="cover_image.jpg" media-type="image/jpeg"/>
+  </manifest>
+  <spine toc="ncx">
+    <itemref idref="id"/>
+    <itemref idref="titlepage"/>
+    <itemref idref="html"/>
+  </spine>
+  <guide>
+    <reference type="cover" href="titlepage.xhtml" title="Title page"/>
+    <reference type="toc" title="Table of Contents" href="toc.xhtml#calibre_generated_inline_toc"/>
+  </guide>
+</package>

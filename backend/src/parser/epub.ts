@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 import yauzl from 'yauzl';
 import EPub from 'epub';
 
@@ -56,7 +57,6 @@ function buildTocTitleMap(tocItems: any[]): Map<string, string> {
  * 去掉该目录前缀后重新打包为符合 EPUB 标准的文件。
  */
 function rebuildEpubWithPython(sourcePath: string, tmpDir: string): string | null {
-  const { execSync } = require('child_process');
   const outPath = path.join(tmpDir, 'repaired.epub');
 
   // 内联的 Python 修复脚本（等价于 scripts/repair_epub.py）

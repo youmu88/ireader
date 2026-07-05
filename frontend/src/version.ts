@@ -51,6 +51,7 @@
  * 1.25.1 (2026-07-05): [BUGFIX] 兼容 .epub.zip 双扩展名上传格式 — 智能格式检测函数，前端放开文件选择限制
  * 1.25.2 (2026-07-05): [BUGFIX] 修复"二次包装"EPUB 无法解析—内容被嵌套在 `书名.epub/` 子目录下时自动提级修复
  * 1.25.3 (2026-07-05): [BUGFIX] 修复解析失败（封面乱码）— 将修复脚本内联到 epub.ts 中，消除对 scripts/repair_epub.py 文件的外部依赖；Step3 提取文件改用修复后的 EPUB 路径
+ * 1.25.4 (2026-07-06): [BUGFIX] 修复 1.25.3 引入的回归 bug — `rebuildEpubWithPython` 函数使用 `require('child_process')` 但文件为 ESM 模块，导致 `require is not defined`，修复函数始终抛异常返回 null，修复逻辑从未生效；已将 `require` 替换为顶层 `import { execSync }` 解决 ESM 兼容问题
  */
 
-export const APP_VERSION = '1.25.3';
+export const APP_VERSION = '1.25.4';
