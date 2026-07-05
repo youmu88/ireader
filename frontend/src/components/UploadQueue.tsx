@@ -346,7 +346,7 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
             <input
               ref={fileInputRef}
               type="file"
-              accept=".epub,.txt"
+              accept=".epub,.txt,.zip"
               multiple
               className="hidden"
               onChange={handleInputChange}
@@ -355,7 +355,7 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
             <p className="text-gray-600 dark:text-gray-300 font-medium">
               {dragging ? '松开鼠标添加文件' : '点击或拖拽 EPUB / TXT 文件到这里'}
             </p>
-            <p className="text-sm text-gray-400 mt-1">支持批量选择，最大 500MB/个</p>
+            <p className="text-sm text-gray-400 mt-1">支持批量选择，最大 500MB/个（兼容 .epub.zip 格式）</p>
           </div>
         </div>
 

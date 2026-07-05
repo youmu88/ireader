@@ -73,19 +73,60 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
 
-  /** Allowed file extensions */
-  const SUPPORTED_EXTS = ['.epub', '.txt'];
+  /**
+   * 智能检测文件格式：兼容 .epub.zip 双扩展名
+   * - foo.epub → epub
+   * - foo.epub.zip → epub
+   * - foo.txt → txt
+   * - 其他 → 根据扩展名判定
+   */
+  function detectBookFormat(fileName: string): { format: 'epub' | 'txt'; ext: string } {
+    const lower = fileName.toLowerCase();
+    // 优先检测 .epub.zip 双扩展名
+    if (lower.endsWith('.epub.zip')) {
+      return { format: 'epub', ext: '.epub.zip' };
+    }
+    if (lower.endsWith('.epub')) {
+      return { format: 'epub', ext: '.epub' };
+    }
+    if (lower.endsWith('.txt')) {
+      return { format: 'txt', ext: '.txt' };
+    }
+    // fallback: 取最后一个扩展名
+    const lastExt = path.extname(lower);
+    return { format: lastExt === '.epub' ? 'epub' : 'txt', ext: lastExt };
+  }
+
+  /**
+   * 提取书名：去掉文件扩展名（兼容双扩展名如 .epub.zip）
+   */
+  function extractTitle(fileName: string): string {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith('.epub.zip')) {
+      return fileName.slice(0, -9); // 去掉 .epub.zip (9个字符)
+    }
+    const ext = path.extname(fileName);
+    return ext ? fileName.slice(0, -ext.length) : fileName;
+  }
+
+  /**
+   * 构建存储路径：统一将 .epub.zip 存储为 .epub
+   */
+  function buildStorageExt(detectedExt: string): string {
+    if (detectedExt === '.epub.zip') return '.epub';
+    return detectedExt;
+  }
 
   /**
    * Process a single uploaded file: save, parse, insert into DB.
    * Returns the final book record or null on failure.
    */
   const processUpload = async (file: Express.Multer.File, now: string, userId: string): Promise<any> => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const format = ext === '.epub' ? 'epub' : 'txt';
+    const { format, ext: detectedExt } = detectBookFormat(file.originalname);
+    const storageExt = buildStorageExt(detectedExt);
     const bookId = uuidv4();
     const bookDir = path.join(booksDir, bookId);
-    const targetPath = path.join(bookDir, `original${ext}`);
+    const targetPath = path.join(bookDir, `original${storageExt}`);
 
     // Create book directory
     fs.mkdirSync(bookDir, { recursive: true });
@@ -97,7 +138,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     const bookRecord = {
       id: bookId,
       userId,
-      title: path.basename(file.originalname, ext),
+      title: extractTitle(file.originalname),
       author: null,
       format,
       categoryId: null,
@@ -181,14 +222,14 @@ export function createBooksRouter(db: any, dataDir: string): Router {
 
       const now = new Date().toISOString();
       const userId = req.user!.userId;
-      const ext = path.extname(file.originalname).toLowerCase();
+      const { format: detectedFormat, ext: detectedExt } = detectBookFormat(file.originalname);
 
-      // Validate file extension
-      if (!SUPPORTED_EXTS.includes(ext)) {
+      // Validate file format (兼容 .epub.zip 双扩展名)
+      if (detectedFormat !== 'epub' && detectedFormat !== 'txt') {
         if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
         return res.status(400).json({
           success: false,
-          error: `不支持 ${ext} 格式，仅支持 EPUB 和 TXT`,
+          error: `不支持 ${detectedExt} 格式，仅支持 EPUB 和 TXT`,
         });
       }
 
@@ -222,9 +263,9 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       const userId = req.user!.userId;
 
       for (const file of files) {
-        const ext = path.extname(file.originalname).toLowerCase();
-        if (!SUPPORTED_EXTS.includes(ext)) {
-          skipped.push({ fileName: file.originalname, reason: `不支持 ${ext} 格式，仅支持 EPUB 和 TXT` });
+        const { format: detectedFormat, ext: detectedExt } = detectBookFormat(file.originalname);
+        if (detectedFormat !== 'epub' && detectedFormat !== 'txt') {
+          skipped.push({ fileName: file.originalname, reason: `不支持 ${detectedExt} 格式，仅支持 EPUB 和 TXT` });
           continue;
         }
         supportedFiles.push(file);
