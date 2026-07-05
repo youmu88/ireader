@@ -50,16 +50,126 @@ function buildTocTitleMap(tocItems: any[]): Map<string, string> {
 }
 
 /**
+ * 使用 Python3 修复被"二次包装"的 EPUB 文件（内容嵌套在子目录中）。
+ * 调用项目内置脚本 `scripts/repair_epub.py <input> <output>`。
+ */
+function rebuildEpubWithPython(sourcePath: string, tmpDir: string): string | null {
+  const { execSync } = require('child_process');
+  // 脚本路径：dist/parser/epub.js → ../../scripts/repair_epub.py → backend/scripts/repair_epub.py
+  const scriptPath = path.join(path.dirname(path.dirname(__dirname)), 'scripts', 'repair_epub.py');
+  const outPath = path.join(tmpDir, 'repaired.epub');
+
+  try {
+    const cmd = `python3 "${scriptPath}" "${sourcePath}" "${outPath}"`;
+    const result = execSync(cmd, {
+      stdio: 'pipe',
+      timeout: 15000,
+    });
+    const output = result.toString().trim();
+    if (output.startsWith('OK:')) {
+      return outPath;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Parse EPUB file using the `epub` npm package (reliable XML parsing)
  * while still extracting files via yauzl for content serving.
+ *
+ * 自动修复"二次包装"的 EPUB：当 ZIP 内的所有文件被嵌套在一个顶层目录
+ * （如 `书名.epub/mimetype`→根目录缺少 `mimetype`），会自动将其修复为
+ * 符合标准的 EPUB 格式再解析。
  */
 export async function parseEpub(epubPath: string, outputDir: string): Promise<EpubParseResult> {
+  // ── Step 0: 预处理 — 修复被"二次包装"的 EPUB（内容嵌套在子目录中） ──
+  let actualPath = epubPath;
+  let cleanupDir: string | null = null;
+
+  try {
+    const buf = fs.readFileSync(epubPath);
+    const entryNames: string[] = [];
+
+    // 扫描 ZIP 目录
+    await new Promise<void>((resolve) => {
+      yauzl.fromBuffer(buf, { lazyEntries: true }, (err, zipfile) => {
+        if (err || !zipfile) { resolve(); return; }
+        zipfile.readEntry();
+        zipfile.on('entry', (entry: any) => {
+          entryNames.push(entry.fileName.replace(/\/$/, ''));
+          zipfile.readEntry();
+        });
+        zipfile.on('end', () => resolve());
+        zipfile.on('error', () => resolve());
+      });
+    });
+
+    // 检测是否缺少根目录 mimetype
+    if (!entryNames.some(e => e === 'mimetype')) {
+      const topDirs = new Set(entryNames.map(e => e.split('/')[0]));
+      if (topDirs.size === 1) {
+        const topDir = [...topDirs][0];
+        if (entryNames.some(e => e === `${topDir}/mimetype`)) {
+          // 需要修复：读取所有文件，去掉顶层目录前缀
+          const fileData = new Map<string, Buffer>();
+          await new Promise<void>((resolve) => {
+            yauzl.fromBuffer(buf, { lazyEntries: true }, (err, zipfile) => {
+              if (err || !zipfile) { resolve(); return; }
+              zipfile.readEntry();
+              zipfile.on('entry', (entry: any) => {
+                if (entry.fileName.endsWith('/')) { zipfile.readEntry(); return; }
+                const origName = entry.fileName;
+                zipfile.openReadStream(entry, (readErr: any, stream: any) => {
+                  if (readErr) { zipfile.readEntry(); return; }
+                  const chunks: Buffer[] = [];
+                  stream.on('data', (c: Buffer) => chunks.push(c));
+                  stream.on('end', () => {
+                    fileData.set(origName, Buffer.concat(chunks));
+                    zipfile.readEntry();
+                  });
+                });
+              });
+              zipfile.on('end', () => resolve());
+              zipfile.on('error', () => resolve());
+            });
+          });
+
+          if (fileData.size > 0) {
+            // 去掉顶层目录前缀，重建符合标准的 EPUB
+            const fixed = new Map<string, Buffer>();
+            for (const [k, v] of fileData) {
+              const relPath = k.slice(topDir.length + 1);
+              if (relPath) fixed.set(relPath, v);
+            }
+
+            if (fixed.has('mimetype')) {
+              const repairDir = path.join(outputDir, '.epub-repair-' + Date.now());
+              fs.mkdirSync(repairDir, { recursive: true });
+              const tmpPath = rebuildEpubWithPython(epubPath, repairDir);
+              if (tmpPath) {
+                actualPath = tmpPath;
+                cleanupDir = repairDir;
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[EPUB 预处理] 检测/修复失败，使用原始文件:', (e as Error).message);
+  }
+
   // ── Step 1: Use `epub` package for metadata + chapter structure ──
   let epub: any;
   try {
-    epub = new EPub(epubPath);
+    epub = new EPub(actualPath);
     await epub.parse();
   } catch (err: any) {
+    if (cleanupDir) {
+      try { fs.rmSync(cleanupDir, { recursive: true, force: true }); } catch {}
+    }
     throw new Error(`Failed to parse EPUB metadata: ${err.message}`);
   }
 
