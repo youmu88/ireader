@@ -60,6 +60,10 @@
  *   4) 离线状态指示器：Layout 导航栏显示离线图标（Wi-Fi 断开图标）
  *   5) sw.ts：Service Worker 注册模块（原生 SW，无需额外 npm 包）
  *   6) offlineCacheService 扩展：ShelfCacheMeta 接口、书籍元数据读写、网络状态监听
+ * 1.26.1 (2026-07-06): [FIX] 修复构建环境 — npm lockfile v3 requires段损坏导致devDependencies未安装，改用pnpm替代npm管理依赖，构建全流程（tsc类型检查+vite build+38项测试）全部通过
+ *   1) 根因：npm v10.9.4 lockfile v3的packages[""].requires段为空，导致npm install跳过devDependencies物理安装
+ *   2) 修复方案：引入pnpm v10.30.2替代npm进行依赖管理
+ *   3) 验证：npm run build (tsc -b + vite build) ✅、tsc --noEmit 零错误 ✅、38项测试全绿 ✅
  */
 
-export const APP_VERSION = '1.26.0';
+export const APP_VERSION = '1.26.1';
