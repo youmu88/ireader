@@ -45,6 +45,21 @@ interface CacheMeta {
   lastCachedAt: number;
 }
 
+/**
+ * 书架缓存元数据 — 用于离线时显示书架
+ * 存储在 cacheMeta store 中，与 CacheMeta 共用 bookId key
+ * 字段前缀 shelf_ 以避免与 CacheMeta 字段冲突
+ */
+export interface ShelfCacheMeta {
+  bookId: string;
+  bookTitle: string;
+  author: string;
+  coverUrl: string;
+  format: 'epub' | 'txt';
+  hasCover: boolean;
+  cachedAt: number;
+}
+
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
 /**
@@ -627,4 +642,130 @@ export async function estimateCacheSize(): Promise<{ chapterBytes: number; audio
   } catch {
     return { chapterBytes: 0, audioBytes: 0, totalBytes: 0 };
   }
+}
+
+
+// ==========================
+// 书架离线缓存
+// ==========================
+
+/**
+ * 缓存一本书的书架元数据（书名、作者、封面等）
+ * 用于离线时书架页面仍然能显示书籍信息
+ */
+export async function cacheShelfBookMeta(
+  bookId: string,
+  title: string,
+  author: string,
+  coverUrl: string,
+  format: 'epub' | 'txt',
+  hasCover: boolean,
+): Promise<void> {
+  try {
+    const db = await getDB();
+    const existingMeta = await db.get('cacheMeta', bookId) as CacheMeta | undefined;
+    const shelfMeta: ShelfCacheMeta = {
+      bookId,
+      bookTitle: title,
+      author,
+      coverUrl,
+      format,
+      hasCover,
+      cachedAt: Date.now(),
+    };
+    if (existingMeta) {
+      await db.put('cacheMeta', { ...existingMeta, ...shelfMeta });
+    } else {
+      await db.put('cacheMeta', shelfMeta);
+    }
+  } catch {
+    // 静默失败
+  }
+}
+
+/**
+ * 批量缓存书架上的所有书籍元数据
+ */
+export async function cacheShelfBooksMeta(
+  books: Array<{
+    id: string;
+    title: string;
+    author: string | null;
+    coverPath: string | null;
+    format: 'epub' | 'txt';
+  }>,
+): Promise<void> {
+  try {
+    const db = await getDB();
+    const tx = db.transaction('cacheMeta', 'readwrite');
+    const store = tx.objectStore('cacheMeta');
+    const now = Date.now();
+
+    for (const book of books) {
+      const coverUrl = book.coverPath ? `/api/books/${book.id}/cover` : '';
+      const existingMeta = await store.get(book.id) as CacheMeta | undefined;
+      const shelfMeta: ShelfCacheMeta = {
+        bookId: book.id,
+        bookTitle: book.title,
+        author: book.author || '',
+        coverUrl,
+        format: book.format,
+        hasCover: !!book.coverPath,
+        cachedAt: now,
+      };
+      if (existingMeta) {
+        await store.put({ ...existingMeta, ...shelfMeta });
+      } else {
+        await store.put(shelfMeta);
+      }
+    }
+    await tx.done;
+  } catch {
+    // 静默失败
+  }
+}
+
+/**
+ * 获取离线书架书籍列表（从 IndexedDB 读取）
+ */
+export async function getOfflineShelfBooks(): Promise<ShelfCacheMeta[]> {
+  try {
+    const db = await getDB();
+    const allMetas = await db.getAll('cacheMeta') as Array<CacheMeta | ShelfCacheMeta>;
+    return allMetas
+      .filter((m: any) => m && m.bookTitle)
+      .map((m: any) => ({
+        bookId: m.bookId,
+        bookTitle: m.bookTitle,
+        author: m.author || '',
+        coverUrl: m.coverUrl || '',
+        format: m.format || 'epub',
+        hasCover: m.hasCover || false,
+        cachedAt: m.cachedAt || 0,
+      } as ShelfCacheMeta))
+      .sort((a, b) => b.cachedAt - a.cachedAt);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 检查是否处于在线状态
+ */
+export function isOnline(): boolean {
+  return navigator.onLine;
+}
+
+/**
+ * 监听网络状态变化
+ */
+export function onNetworkChange(callback: (online: boolean) => void): () => void {
+  const handleOnline = () => callback(true);
+  const handleOffline = () => callback(false);
+  window.addEventListener('online', handleOnline);
+  window.addEventListener('offline', handleOffline);
+  return () => {
+    window.removeEventListener('online', handleOnline);
+    window.removeEventListener('offline', handleOffline);
+  };
 }

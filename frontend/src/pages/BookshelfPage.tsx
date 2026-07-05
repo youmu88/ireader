@@ -4,6 +4,10 @@ import axios from 'axios';
 import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, getLastPlaybackFromLocalStorage, type PlayerState } from '../services/ttsPlayer';
 import UploadQueue, { type UploadQueueStats, type UploadQueueHandle } from '../components/UploadQueue';
 import { APP_VERSION } from '../version';
+import {
+  cacheShelfBooksMeta,
+  getOfflineShelfBooks,
+} from '../services/offlineCacheService';
 
 interface TTSJob {
   id: string;
@@ -349,17 +353,80 @@ useEffect(() => {
     loadData();
   }, []);
 
+  // 网络状态监听（用于离线时自动刷新书架）
+  useEffect(() => {
+    const handleOnline = () => { loadData(); };
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const [booksRes, catsRes] = await Promise.all([
-        axios.get('/api/books'),
-        axios.get('/api/categories'),
-      ]);
-      setBooks(booksRes.data.data || []);
-      setCategories(catsRes.data.data || []);
-      setError(null);
+
+      // 在线时正常请求 API
+      if (navigator.onLine) {
+        const [booksRes, catsRes] = await Promise.all([
+          axios.get('/api/books'),
+          axios.get('/api/categories'),
+        ]);
+        const booksData = booksRes.data.data || [];
+        setBooks(booksData);
+        setCategories(catsRes.data.data || []);
+        setError(null);
+
+        // 后台静默缓存书架元数据到 IndexedDB（用于离线展示）
+        cacheShelfBooksMeta(booksData).catch(() => {});
+      } else {
+        // 离线时从 IndexedDB 读取书架
+        const offlineBooks = await getOfflineShelfBooks();
+        if (offlineBooks.length > 0) {
+          setBooks(offlineBooks.map(b => ({
+            id: b.bookId,
+            title: b.bookTitle,
+            author: b.author || null,
+            format: b.format,
+            coverPath: b.hasCover ? `/api/books/${b.bookId}/cover` : null,
+            status: 'ready' as const,
+            categoryId: null,
+            pinned: 0,
+            parseError: null,
+            lastReadAt: null,
+            createdAt: new Date(b.cachedAt).toISOString(),
+          })));
+          setCategories([]);
+          setError(null);
+        } else {
+          setError('当前为离线状态，且没有已缓存的书籍');
+          setBooks([]);
+          setCategories([]);
+        }
+      }
     } catch (err: any) {
+      // 网络请求失败 → 尝试离线降级
+      if (!navigator.onLine) {
+        const offlineBooks = await getOfflineShelfBooks();
+        if (offlineBooks.length > 0) {
+          setBooks(offlineBooks.map(b => ({
+            id: b.bookId,
+            title: b.bookTitle,
+            author: b.author || null,
+            format: b.format,
+            coverPath: b.hasCover ? `/api/books/${b.bookId}/cover` : null,
+            status: 'ready' as const,
+            categoryId: null,
+            pinned: 0,
+            parseError: null,
+            lastReadAt: null,
+            createdAt: new Date(b.cachedAt).toISOString(),
+          })));
+          setCategories([]);
+          setError(null);
+          return;
+        }
+      }
       setError(err.response?.data?.error || '加载数据失败');
     } finally {
       setLoading(false);

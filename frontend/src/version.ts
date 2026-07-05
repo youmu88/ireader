@@ -55,4 +55,4 @@
  * 1.25.5 (2026-07-06): [BUGFIX] 修复二次包装EPUB解析失败（mimetype在子目录中）导致的书架乱码——使用repair_epub.py修复原始文件后重新上传到default-user账户，百妖谱和狂飙封面/章节/正文全部恢复正常
  */
 
-export const APP_VERSION = '1.25.5';
+export const APP_VERSION = '1.26.0';
