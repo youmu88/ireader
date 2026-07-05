@@ -14,5 +14,7 @@ export default defineConfig({
     build: {
         outDir: 'dist',
         sourcemap: true,
+        // 兼容旧浏览器：降低目标到 es2015（支持 Safari 9+ / iOS 9+）
+        target: 'es2015',
     },
 });

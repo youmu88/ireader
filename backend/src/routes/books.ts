@@ -80,7 +80,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
    * - foo.txt → txt
    * - 其他 → 根据扩展名判定
    */
-  function detectBookFormat(fileName: string): { format: 'epub' | 'txt'; ext: string } {
+  function detectBookFormat(fileName: string): { format: 'epub' | 'txt' | null; ext: string } {
     const lower = fileName.toLowerCase();
     // 优先检测 .epub.zip 双扩展名
     if (lower.endsWith('.epub.zip')) {
@@ -92,9 +92,8 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     if (lower.endsWith('.txt')) {
       return { format: 'txt', ext: '.txt' };
     }
-    // fallback: 取最后一个扩展名
-    const lastExt = path.extname(lower);
-    return { format: lastExt === '.epub' ? 'epub' : 'txt', ext: lastExt };
+    // 不支持的格式
+    return { format: null, ext: path.extname(lower) };
   }
 
   /**
@@ -164,7 +163,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
 
     // Parse book (await since parseBook is async)
     try {
-      const parseResult = await parseBook(targetPath, format, bookDir);
+      const parseResult = await parseBook(targetPath, format!, bookDir);
 
       // Update book metadata from parse result
       const updateData: any = {
