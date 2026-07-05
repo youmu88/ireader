@@ -1,12 +1,18 @@
 /**
- * Theme Service — 亮/暗主题管理
+ * Theme Service — 亮/暗主题管理 + 设备兼容性检测
  *
  * 使用 Tailwind CSS `dark:` class 模式
  * 通过 document.documentElement.classList 切换 'dark' 类
  * 持久化到 localStorage
+ *
+ * 兼容性策略：
+ * - 检测设备性能等级（CPU核心数/内存），低性能设备自动禁用毛玻璃等重渲染效果
+ * - 跟随系统 prefers-reduced-motion 设置
+ * - 通过 @supports 检测 backdrop-filter 支持情况
  */
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { detectCompatibility, type CompatibilityInfo } from './compatibilityService';
 
 type Theme = 'light' | 'dark';
 
@@ -44,12 +50,22 @@ interface ThemeContextValue {
   theme: Theme;
   setTheme: (t: Theme) => void;
   toggleTheme: () => void;
+  /** 设备兼容性信息，组件可通过此判断是否启用高级特性 */
+  compatibility: CompatibilityInfo;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
   theme: DEFAULT_THEME,
   setTheme: () => {},
   toggleTheme: () => {},
+  compatibility: {
+    tier: 'high',
+    disableGlass: false,
+    reducedMotion: false,
+    cpuCores: 0,
+    deviceMemory: undefined,
+    supportsBackdropFilter: true,
+  },
 });
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -67,6 +83,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
     applyTheme(stored);
     return stored;
+  });
+
+  // ── 设备兼容性检测（初始化时执行一次） ──
+  const [compatibility] = useState<CompatibilityInfo>(() => {
+    const info = detectCompatibility();
+    // 低性能设备在 documentElement 上添加 .low-perf 标记，CSS 据此降级
+    if (info.tier === 'low') {
+      document.documentElement.classList.add('low-perf');
+    }
+    return info;
   });
 
   const setTheme = (t: Theme) => {
@@ -93,7 +119,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme, compatibility }}>
       {children}
     </ThemeContext.Provider>
   );

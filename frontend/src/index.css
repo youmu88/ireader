@@ -157,6 +157,127 @@ textarea:focus {
 }
 
 /* ═══════════════════════════════════════
+   渐进增强 — 设备兼容性策略
+   ═══════════════════════════════════════
+   策略说明：
+   1. backdrop-filter 等现代 CSS 特性使用 @supports 检测，不支持的设备自动回退纯色背景
+   2. prefers-reduced-motion 降级动效，减少老旧设备 CPU/GPU 负担
+   3. 所有基础功能不依赖现代 CSS，确保老旧设备可读可用
+   ═══════════════════════════════════════ */
+
+/* ── backdrop-filter 不支持时的后备 ── */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .dark .glass {
+    background: rgba(30, 30, 30, 0.95) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .glass-card {
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .dark .glass-card {
+    background: rgba(40, 40, 40, 0.95) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .glass-bar {
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .dark .glass-bar {
+    background: rgba(20, 20, 20, 0.95) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .glass-overlay {
+    background: rgba(0, 0, 0, 0.5) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+/* ── 减少动效模式：禁用全部弹性/缩放动画 ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  button:active:not(:disabled):not(.no-tap):not(:has(.keep-scale)),
+  a[href]:active:not(.no-tap):not(.keep-scale),
+  [role="button"]:active:not(:disabled):not(.no-tap) {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+  .tap-icon:active {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+  .tap-dim:active {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .ripple-btn::after {
+    display: none !important;
+  }
+  .toggle-track,
+  .toggle-thumb {
+    transition: none !important;
+  }
+}
+
+/* ── 低性能设备标记（由 JS 动态添加 .low-perf 类） ── */
+.low-perf .glass {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+.dark.low-perf .glass {
+  background: rgba(30, 30, 30, 0.95) !important;
+}
+.low-perf .glass-card {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+.dark.low-perf .glass-card {
+  background: rgba(40, 40, 40, 0.95) !important;
+}
+.low-perf .glass-bar {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+.dark.low-perf .glass-bar {
+  background: rgba(20, 20, 20, 0.95) !important;
+}
+.low-perf .glass-overlay {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(0, 0, 0, 0.5) !important;
+}
+.low-perf button:active:not(:disabled),
+.low-perf a[href]:active:not(.no-tap),
+.low-perf [role="button"]:active:not(:disabled) {
+  transform: none !important;
+  opacity: 0.8 !important;
+}
+
+/* ═══════════════════════════════════════
+   iOS 毛玻璃效果
+   ═══════════════════════════════════════ */
+/* ═══════════════════════════════════════
    iOS 毛玻璃效果
    ═══════════════════════════════════════ */
 .glass {
