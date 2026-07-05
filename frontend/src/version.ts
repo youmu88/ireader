@@ -47,6 +47,8 @@
  *   3) ProgressiveCard: 渐进增强卡片（低性能设备无阴影无hover缩放）
  *   4) ProgressiveTappable: 按压反馈兼容包装器（低性能设备仅透明度变化）
  *   5) Layout 导航栏使用 SafeGlass 替代硬编码 glass 类
+ * 1.25.0 (2026-07-05): [FEATURE] 前端渐进增强兼容策略 + 构建兼容降级 — @vitejs/plugin-legacy 双输出
+ * 1.25.1 (2026-07-05): [BUGFIX] 兼容 .epub.zip 双扩展名上传格式 — 智能格式检测函数，前端放开文件选择限制
  */
 
-export const APP_VERSION = '1.25.0';
+export const APP_VERSION = '1.25.1';
