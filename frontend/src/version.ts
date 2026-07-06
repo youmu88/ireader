@@ -71,4 +71,4 @@
  *   4) offlineCacheService 新增 getOfflineBookInfo：从 cacheMeta 提取书籍基本信息供离线使用
  */
 
-export const APP_VERSION = '1.29.0';
+export const APP_VERSION = '1.30.0';

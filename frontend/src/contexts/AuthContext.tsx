@@ -37,6 +37,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // 初始化：设置拦截器 + 检查已有 Token
   useEffect(() => {
+    // ── 离线策略：完全跳过认证，允许访问本地缓存数据 ──
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      console.log('[Auth] 离线模式：跳过认证，允许访问本地缓存数据');
+      setLoading(false);
+      return;
+    }
+
     setupAxiosInterceptors(handleUnauthorized);
 
     const token = getToken();
