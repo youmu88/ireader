@@ -8,7 +8,9 @@
  * 4. API 数据：网络优先 + 缓存回退（NetworkFirst）
  */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
+const SW_VERSION = '1.0.0';
+// SW 版本号——变更时触发 install 事件，自动激活新 SW
 const STATIC_CACHE = `ireader-static-${CACHE_VERSION}`;
 const COVERS_CACHE = `ireader-covers-${CACHE_VERSION}`;
 const API_CACHE = `ireader-api-${CACHE_VERSION}`;
@@ -69,7 +71,7 @@ function isAPIRequest(url) {
   return url.pathname.startsWith('/api/');
 }
 
-// ── 导航请求：离线时返回缓存的 App Shell ──
+// ── 导航请求：离线时返回缓存的 App Shell（StaleWhileRevalidate 化）──
 function isNavigateRequest(event) {
   return event.request.mode === 'navigate';
 }
@@ -81,38 +83,55 @@ self.addEventListener('fetch', (event) => {
   // 只处理同源请求
   if (url.origin !== self.location.origin) return;
 
-  // ⭐ 导航请求（页面级跳转）：离线时返回缓存的 App Shell（index.html）
-  // 这是 PWA 离线可用的核心：让 SPA 的根页面在断网时也能从缓存加载
+  // ⭐ 导航请求（页面级跳转）：StaleWhileRevalidate 化
+  //    在线时后台更新 index.html 缓存，离线时从缓存返回
+  //    确保用户看到的 App Shell 是最新版
   if (isNavigateRequest(event)) {
     event.respondWith(
-      fetch(event.request).catch(() => {
-        return caches.match('/index.html').then((cached) => {
+      caches.open(STATIC_CACHE).then((cache) => {
+        return cache.match('/index.html').then((cached) => {
+          // 后台更新：不管有没有缓存，都发起网络请求更新
+          const networkPromise = fetch(event.request).then((response) => {
+            if (response && response.status === 200) {
+              cache.put('/index.html', response.clone());
+            }
+            return response;
+          });
+          // 立即返回缓存（如果有），同时后台静默更新
           if (cached) return cached;
-          // 极端兜底：返回一个最简 HTML 结构
-          return new Response(
-            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>iReader - 离线模式</title></head><body><div id="root"><div style="padding:40px;text-align:center;color:#666;font-family:sans-serif"><h2>📚 iReader 离线模式</h2><p>正在从本地缓存加载书籍数据...</p><p style="font-size:12px;color:#999;margin-top:20px">请确保您已预先缓存书籍</p></div></div><script>navigator.serviceWorker.getRegistration().then(r=>r&&r.active&&location.reload())</script></body></html>',
-            { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
-          );
+          // 无缓存时走网络请求；网络失败则返回最简离线 HTML
+          return networkPromise.catch(() => {
+            return new Response(
+              '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>iReader - 离线模式</title></head><body><div id="root"><div style="padding:40px;text-align:center;color:#666;font-family:sans-serif"><h2>📚 iReader 离线模式</h2><p>正在从本地缓存加载书籍数据...</p><p style="font-size:12px;color:#999;margin-top:20px">请确保您已预先缓存书籍</p></div></div></body></html>',
+              { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+            );
+          });
         });
       })
     );
     return;
   }
 
-  // 静态资源：缓存优先（CacheFirst）
+  // 静态资源：过期缓存 + 后台更新（StaleWhileRevalidate）
+  // ✅ 修复：CacheFirst → StaleWhileRevalidate
+  //    用户立即看到缓存版本，同时后台静默下载最新版并更新缓存
+  //    解决了 PWA 模式下用户永远看不到新版代码的问题
   if (isStaticAsset(url)) {
     event.respondWith(
-      caches.match(event.request).then((cached) => {
-        if (cached) return cached;
-        return fetch(event.request).then((response) => {
-          if (response && response.status === 200) {
-            const clone = response.clone();
-            caches.open(STATIC_CACHE).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        }).catch(() => {
-          // 离线时返回缓存首页
-          return caches.match('/index.html');
+      caches.open(STATIC_CACHE).then((cache) => {
+        return cache.match(event.request).then((cached) => {
+          // 并发：返回缓存 + 后台网络请求更新缓存
+          const fetchPromise = fetch(event.request).then((response) => {
+            if (response && response.status === 200) {
+              cache.put(event.request, response.clone());
+            }
+            return response;
+          }).catch(() => {
+            // 网络失败时如果无缓存，尝试返回 index.html 兜底
+            return caches.match('/index.html');
+          });
+          // 优先返回缓存，同时后台发起网络请求更新缓存
+          return cached || fetchPromise;
         });
       })
     );
