@@ -13,7 +13,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
-  const { login, register, isAuthenticated } = useAuth();
+  const { login, register, isAuthenticated, enterOfflineMode } = useAuth();
 
   // 如果已登录则自动跳转
   if (isAuthenticated) {
@@ -178,6 +178,46 @@ export default function LoginPage() {
               ) : isRegister ? '注册' : '登录'}
             </button>
           </form>
+
+          {/* ── 离线使用按钮 ── */}
+          <div className="mt-4">
+            <div className="relative flex items-center gap-3 mb-4">
+              <div className="flex-1 h-px" style={{ background: 'var(--color-border)' }} />
+              <span className="text-[10px] uppercase tracking-wider font-medium" style={{ color: 'var(--color-text-muted)' }}>或</span>
+              <div className="flex-1 h-px" style={{ background: 'var(--color-border)' }} />
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                enterOfflineMode();
+                navigate('/', { replace: true });
+              }}
+              className="w-full py-3 rounded-xl text-sm font-semibold text-center
+                transition-all duration-200 active:scale-[0.97]
+                border border-dashed"
+              style={{
+                borderColor: 'var(--color-primary)',
+                color: 'var(--color-primary)',
+                background: 'transparent',
+              }}
+            >
+              <span className="flex items-center justify-center gap-2">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a10 10 0 0 1 10 10" opacity="0.3" />
+                  <path d="M12 2a10 10 0 0 0-10 10" />
+                  <path d="M2 12h10V2" />
+                  <path d="M12 12 2 18" opacity="0.3" />
+                  <path d="M12 12 22 18" opacity="0.3" />
+                  <path d="M12 22V12" />
+                  <path d="M2 12h20" opacity="0.15" />
+                </svg>
+                离线使用
+              </span>
+            </button>
+            <p className="text-[10px] text-center mt-2" style={{ color: 'var(--color-text-muted)' }}>
+              跳过登录，访问本地缓存的书籍
+            </p>
+          </div>
 
           {/* 切换登录/注册 */}
           <div className="mt-6 text-center">

@@ -13,13 +13,18 @@ import {
   UserInfo,
 } from '../services/authService';
 
+const OFFLINE_MODE_KEY = 'ireader_offline_mode';
+
 interface AuthContextType {
   user: UserInfo | null;
   loading: boolean;
   isAuthenticated: boolean;
+  isOfflineMode: boolean;
   login: (username: string, password: string) => Promise<string | null>;
   register: (username: string, password: string, displayName?: string) => Promise<string | null>;
   logout: () => void;
+  enterOfflineMode: () => void;
+  exitOfflineMode: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -27,6 +32,9 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isOfflineMode, setIsOfflineMode] = useState(() => {
+    try { return localStorage.getItem(OFFLINE_MODE_KEY) === 'true'; } catch { return false; }
+  });
 
   // 处理未授权回调（跳转到登录页）
   const handleUnauthorized = useCallback(() => {
@@ -37,7 +45,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // 初始化：设置拦截器 + 检查已有 Token
   useEffect(() => {
-    // ── 离线策略：完全跳过认证，允许访问本地缓存数据 ──
+    // ── 离线模式（用户主动选择）：完全跳过认证 ──
+    if (isOfflineMode) {
+      console.log('[Auth] 离线模式（用户主动选择）：跳过认证');
+      setLoading(false);
+      return;
+    }
+
+    // ── 离线策略（网络不可用）：完全跳过认证，允许访问本地缓存数据 ──
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       console.log('[Auth] 离线模式：跳过认证，允许访问本地缓存数据');
       setLoading(false);
@@ -105,8 +120,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.href = '/login';
   }, []);
 
+  // ── 进入离线模式 ──
+  const enterOfflineMode = useCallback(() => {
+    try { localStorage.setItem(OFFLINE_MODE_KEY, 'true'); } catch { /* ignore */ }
+    setIsOfflineMode(true);
+    setLoading(false);
+  }, []);
+
+  // ── 退出离线模式 ──
+  const exitOfflineMode = useCallback(() => {
+    try { localStorage.removeItem(OFFLINE_MODE_KEY); } catch { /* ignore */ }
+    setIsOfflineMode(false);
+    setUser(null);
+    window.location.href = '/login';
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, isAuthenticated: !!user, login, register, logout }}>
+    <AuthContext.Provider value={{
+      user,
+      loading,
+      isAuthenticated: !!user || isOfflineMode,
+      isOfflineMode,
+      login,
+      register,
+      logout,
+      enterOfflineMode,
+      exitOfflineMode,
+    }}>
       {children}
     </AuthContext.Provider>
   );
