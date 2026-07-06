@@ -7,6 +7,8 @@ import {
   getCachedTTSAudio,
   cacheTTSAudio,
   getBookCacheDetailedStats,
+  getCachedChapters,
+  getOfflineBookInfo,
   clearBookChapterCache,
   clearBookTTSAudioCache,
 } from '../services/offlineCacheService';
@@ -485,17 +487,55 @@ function ReaderPage() {
     const triggerBookId = bookId;
     try {
       setLoading(true);
-      const [bookRes, chaptersRes] = await Promise.all([
-        axios.get(`/api/books/${bookId}`),
-        axios.get(`/api/books/${bookId}/chapters`),
-      ]);
+
+      // ── 离线判断：navigator.onLine 或首次 API 请求失败时降级 ──
+      const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
+      let bookData: any = null;
+      let chaptersData: any[] = [];
+
+      if (!isOffline) {
+        try {
+          const [bookRes, chaptersRes] = await Promise.all([
+            axios.get(`/api/books/${bookId}`),
+            axios.get(`/api/books/${bookId}/chapters`),
+          ]);
+          bookData = bookRes.data.data;
+          chaptersData = chaptersRes.data.data || [];
+        } catch {
+          // 网络请求失败 → 尝试离线降级
+        }
+      }
+
+      // ⭐ 离线或 API 失败时：从 IndexedDB 缓存读取
+      if (!bookData || !chaptersData.length) {
+        const [offlineBook, offlineChapters] = await Promise.all([
+          getOfflineBookInfo(bookId!),
+          getCachedChapters(bookId!),
+        ]);
+        if (offlineBook) {
+          bookData = offlineBook;
+        }
+        if (offlineChapters.length > 0) {
+          chaptersData = offlineChapters.map(c => ({
+            id: c.chapterId,
+            title: c.title,
+            order: c.order,
+          }));
+        }
+        // 离线且无缓存时，仍显示错误（由后续 null 判断处理）
+      }
 
       // ⭐ 书籍切换守卫：异步 fetch 期间用户可能已切换到另一本书
       if (currentBookIdRef.current !== triggerBookId) return;
 
-      const bookData = bookRes.data.data;
+      if (!bookData || !chaptersData.length) {
+        setError(!isOffline ? '加载图书失败' : '当前为离线状态，且该书未缓存到本地');
+        setLoading(false);
+        return;
+      }
+
       setBook(bookData);
-      const chaptersData = chaptersRes.data.data || [];
       setChapters(chaptersData);
 
       // ── 恢复阅读进度：尝试跳转到上次阅读的章节 ──

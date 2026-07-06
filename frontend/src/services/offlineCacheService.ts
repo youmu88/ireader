@@ -221,6 +221,33 @@ export async function getCachedChapters(bookId: string): Promise<{ chapterId: st
   }
 }
 
+/**
+ * 获取一本书的离线书籍信息（从 cacheMeta 读取）
+ * 仅返回离线阅读器需要的基本信息
+ */
+export async function getOfflineBookInfo(bookId: string): Promise<{
+  id: string;
+  title: string;
+  author: string;
+  format: 'epub' | 'txt';
+  status: string;
+} | null> {
+  try {
+    const db = await getDB();
+    const meta = await db.get('cacheMeta', bookId) as any;
+    if (!meta || !meta.bookTitle) return null;
+    return {
+      id: bookId,
+      title: meta.bookTitle,
+      author: meta.author || '',
+      format: meta.format || 'epub',
+      status: 'ready',
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ==========================
 // TTS 音频缓存
 // ==========================

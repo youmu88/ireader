@@ -23,10 +23,16 @@ const PRECACHE_URLS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(STATIC_CACHE).then((cache) => {
-      return cache.addAll(PRECACHE_URLS).catch(() => {
-        // 部分资源可能还不存在，忽略错误
-        console.log('[SW] 预缓存完成（部分可能跳过）');
-      });
+      // 逐个缓存而非 addAll（addAll 原子失败，一个失败全挂）
+      return Promise.allSettled(
+        PRECACHE_URLS.map((url) =>
+          cache.add(url).catch(() => {
+            console.log(`[SW] 预缓存 ${url} 跳过（可能尚不存在）`);
+          })
+        )
+      );
+    }).then(() => {
+      console.log('[SW] 预缓存完成');
     })
   );
   self.skipWaiting();
@@ -63,12 +69,35 @@ function isAPIRequest(url) {
   return url.pathname.startsWith('/api/');
 }
 
+// ── 导航请求：离线时返回缓存的 App Shell ──
+function isNavigateRequest(event) {
+  return event.request.mode === 'navigate';
+}
+
 // ── 响应：离线缓存策略 ──
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
   // 只处理同源请求
   if (url.origin !== self.location.origin) return;
+
+  // ⭐ 导航请求（页面级跳转）：离线时返回缓存的 App Shell（index.html）
+  // 这是 PWA 离线可用的核心：让 SPA 的根页面在断网时也能从缓存加载
+  if (isNavigateRequest(event)) {
+    event.respondWith(
+      fetch(event.request).catch(() => {
+        return caches.match('/index.html').then((cached) => {
+          if (cached) return cached;
+          // 极端兜底：返回一个最简 HTML 结构
+          return new Response(
+            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>iReader - 离线模式</title></head><body><div id="root"><div style="padding:40px;text-align:center;color:#666;font-family:sans-serif"><h2>📚 iReader 离线模式</h2><p>正在从本地缓存加载书籍数据...</p><p style="font-size:12px;color:#999;margin-top:20px">请确保您已预先缓存书籍</p></div></div><script>navigator.serviceWorker.getRegistration().then(r=>r&&r.active&&location.reload())</script></body></html>',
+            { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+          );
+        });
+      })
+    );
+    return;
+  }
 
   // 静态资源：缓存优先（CacheFirst）
   if (isStaticAsset(url)) {

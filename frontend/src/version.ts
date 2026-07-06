@@ -64,6 +64,11 @@
  *   1) 根因：npm v10.9.4 lockfile v3的packages[""].requires段为空，导致npm install跳过devDependencies物理安装
  *   2) 修复方案：引入pnpm v10.30.2替代npm进行依赖管理
  *   3) 验证：npm run build (tsc -b + vite build) ✅、tsc --noEmit 零错误 ✅、38项测试全绿 ✅
+ * 1.28.0 (2026-07-06): [FEATURE] 离线模式修复 — SW导航拦截 + ReaderPage离线降级
+ *   1) SW导航拦截：新增 isNavigateRequest 判断，飞行模式时返回缓存的 index.html（App Shell）
+ *   2) SW预缓存修复：addAll→Promise.allSettled 逐个缓存，避免单资源失败全缓存泡汤
+ *   3) ReaderPage loadBook离线降级：API请求失败时从 IndexedDB 读取书籍信息和章节列表
+ *   4) offlineCacheService 新增 getOfflineBookInfo：从 cacheMeta 提取书籍基本信息供离线使用
  */
 
-export const APP_VERSION = '1.27.0';
+export const APP_VERSION = '1.28.0';
