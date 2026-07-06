@@ -41,6 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const token = getToken();
     if (token) {
+      // 尝试校验 token：在线时请求后端验证，离线时信任本地 token（不删 token）
       getCurrentUser()
         .then((res) => {
           if (res.success && res.data) {
@@ -50,7 +51,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         })
         .catch(() => {
-          removeToken();
+          // 离线/网络错误：保留 token，让用户继续使用已缓存的离线内容
+          // token 过期会在下次在线操作时由 401 拦截器处理
+          console.warn('[Auth] 离线模式：保留本地 token，跳过后端验证');
         })
         .finally(() => {
           setLoading(false);

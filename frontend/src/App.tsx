@@ -6,9 +6,21 @@ import ReaderPage from './pages/ReaderPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
 
-/** 受保护路由：未登录跳转到登录页 */
+/** 判断当前是否离线 */
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
+/** 受保护路由：未登录跳转到登录页（离线时跳过认证，允许访问缓存的本地内容） */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
+  const offline = isOffline();
+
+  // 离线时：跳过认证检查，直接渲染子组件（信任本地缓存）
+  if (offline) {
+    return <>{children}</>;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
