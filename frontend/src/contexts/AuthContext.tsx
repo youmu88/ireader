@@ -1,7 +1,8 @@
 /**
  * 认证上下文 — 全局鉴权状态管理
  */
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   loginApi,
   registerApi,
@@ -35,16 +36,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isOfflineMode, setIsOfflineMode] = useState(() => {
     try { return localStorage.getItem(OFFLINE_MODE_KEY) === 'true'; } catch { return false; }
   });
+  const navigate = useNavigate();
+  const navigateRef = useRef<((path: string) => void) | null>(null);
 
-  // 处理未授权回调（跳转到登录页）
+  // 处理未授权回调（跳转到登录页）——优先使用 React Router navigate，避免硬跳转破坏 SPA 状态
   const handleUnauthorized = useCallback(() => {
     setUser(null);
     removeToken();
-    window.location.href = '/login';
+    if (navigateRef.current) {
+      navigateRef.current('/login');
+    } else {
+      window.location.href = '/login';
+    }
   }, []);
 
   // 初始化：设置拦截器 + 检查已有 Token
   useEffect(() => {
+    navigateRef.current = navigate;
+
     // ── 离线模式（用户主动选择）：完全跳过认证 ──
     if (isOfflineMode) {
       console.log('[Auth] 离线模式（用户主动选择）：跳过认证');
@@ -63,19 +72,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const token = getToken();
     if (token) {
-      // 尝试校验 token：在线时请求后端验证，离线时信任本地 token（不删 token）
+      // 尝试校验 token：在线时请求后端验证
       getCurrentUser()
         .then((res) => {
           if (res.success && res.data) {
             setUser(res.data);
           } else {
+            // 后端返回 success=false（如用户不存在）→ 清除无效 token
             removeToken();
           }
         })
-        .catch(() => {
-          // 离线/网络错误：保留 token，让用户继续使用已缓存的离线内容
-          // token 过期会在下次在线操作时由 401 拦截器处理
-          console.warn('[Auth] 离线模式：保留本地 token，跳过后端验证');
+        .catch((err) => {
+          // ── 首次加载时 token 验证失败 ──
+          // 如果是 401 错误：拦截器已通过 handleUnauthorized 清除 token（但 navigate 可能是硬跳转）
+          // 这里统一处理：清除 token，不跳转，让 ProtectedRoute 自动重定向到 /login
+          if (err?.response?.status === 401) {
+            console.warn('[Auth] token 无效（401），已清除');
+            removeToken();
+          } else {
+            // 网络错误：保留 token，让用户继续使用已缓存的离线内容
+            console.warn('[Auth] 网络错误：保留本地 token，跳过后端验证');
+          }
         })
         .finally(() => {
           setLoading(false);
@@ -83,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       setLoading(false);
     }
-  }, [handleUnauthorized]);
+  }, [handleUnauthorized, navigate]);
 
   const login = useCallback(async (username: string, password: string): Promise<string | null> => {
     try {
@@ -117,7 +134,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     removeToken();
     setUser(null);
-    window.location.href = '/login';
+    if (navigateRef.current) {
+      navigateRef.current('/login');
+    } else {
+      window.location.href = '/login';
+    }
   }, []);
 
   // ── 进入离线模式 ──
@@ -132,7 +153,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try { localStorage.removeItem(OFFLINE_MODE_KEY); } catch { /* ignore */ }
     setIsOfflineMode(false);
     setUser(null);
-    window.location.href = '/login';
+    if (navigateRef.current) {
+      navigateRef.current('/login');
+    } else {
+      window.location.href = '/login';
+    }
   }, []);
 
   return (
