@@ -103,6 +103,15 @@
  *   - 手势滑动触发（水平滑动 > 50px）、浮动菜单翻页按钮支持
  *   - 保留 reduced-motion 和 low-perf 无障碍兼容
  * 2.3.1 (2026-07-12): [BUGFIX] 修复翻页模式两大核心缺陷：
+ * 2.4.0 (2026-07-12): [FEATURE] EPUB 视口高度分页 + 翻页进度指示器
+ *   1) EPUB 章节内分页：将 EPUB HTML 按块级标签（p/div/h1-6/img等）拆分为 blocks，
+ *      根据视口高度、字号、行距动态计算每屏可容纳的段落数，实现真正的视口分页。
+ *      翻页不再按章节跳跃，而是像 TXT 一样逐页翻。
+ *   2) 翻页进度指示：翻页模式下底部和浮动面板显示 "3/12" 页码指示，
+ *      让用户清楚当前在第几页/共几页。
+ *   3) EPUB 翻页模式容器 ref 统一管理，支持字体/字号/行距变化自动重新分页。
+ *   4) 章节切换时自动重置 pageIndex=0 和分页缓存，确保无缝衔接。
+ *
  *   1) 翻页变翻章：分页算法从固定50行/页改为视口高度动态计算（containerHeight / fontSize / lineHeight），短章也能正确分页
  *   2) 翻页模式可滚动：翻页模式下为阅读容器加 touch-action:none + overscroll-behavior:none 禁用浏览器默认手势，EPUB 翻页模式也切换 overflow-hidden
  * 2.0.0 (2026-07-12): [ARCH] 全局引用系统 — 相同书籍/TTS语音全局只存一份，引用计数隔离，30天自动清理
@@ -112,4 +121,4 @@
  *   3) 修复 ttsGenerationService 后台预合成时也写入 tts_global_resources，实现跨用户共享
  *   4) 运行 refresh SQL 脚本刷新所有书籍的语音合成进度
  */
-export const APP_VERSION = '2.3.1';
+export const APP_VERSION = '2.4.0';
