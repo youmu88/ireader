@@ -490,9 +490,31 @@ export function createBooksRouter(db: any, dataDir: string): Router {
           throw new AppError(400, 'EPUB 章节没有文件路径');
         }
         // Check if extracted file exists
-        const extractedPath = path.join(path.dirname(book.filePath), 'extracted', chapter.href);
+        // ⚠️ 章节 href 可能包含 # 锚点（如 index.html#toc_29），读取文件时需移除锚点部分
+        const hrefWithoutAnchor = chapter.href.split('#')[0];
+        const extractedPath = path.join(path.dirname(book.filePath), 'extracted', hrefWithoutAnchor);
         if (fs.existsSync(extractedPath)) {
-          const chapterContent = fs.readFileSync(extractedPath, 'utf-8');
+          let chapterContent = fs.readFileSync(extractedPath, 'utf-8');
+
+          // ⚠️ 如果 href 带锚点（#toc_X），从 HTML 中提取对应章节片段
+          const anchor = chapter.href.split('#')[1];
+          if (anchor && chapter.href.includes('#')) {
+            // 尝试多种锚点模式提取：id="toc_X"、id="章节标题"、name="toc_X"
+            const escapedAnchor = anchor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // 匹配 h1-h6 中 id/name 为锚点的标签，提取到下一个同级别标题或文件结尾
+            const sectionRegex = new RegExp(
+              `<h[1-6][^>]*\\b(id|name)\\s*=\\s*["']\\s*${escapedAnchor}\\s*["'][^>]*>[\\s\\S]*?(?=<h[1-6]\\b|$)`,
+              'i'
+            );
+            const sectionMatch = chapterContent.match(sectionRegex);
+            if (sectionMatch) {
+              chapterContent = sectionMatch[0];
+            } else {
+              // 兜底：如果锚点没匹配到，返回原始文件内容（已有修复前的行为）
+              console.warn(`[EPUB] 锚点 ${anchor} 在 ${hrefWithoutAnchor} 中未找到，返回全文`);
+            }
+          }
+
           res.json({ success: true, data: { content: chapterContent, chapter } });
         } else {
           res.json({ success: true, data: { content: null, chapter, note: 'EPUB 章节内容需由前端通过 epubjs 加载' } });

@@ -77,6 +77,7 @@
  * 1.36.1 (2026-07-12): [FEATURE] 后端新增 reparse API，可对已有书籍手动触发重新解析（旧书升级解析）
  * 1.36.2 (2026-07-12): [BUGFIX+FEATURE] 修复搜索跳转高亮bug（setSearchQuery清空后RAF回调读到的query为空，导致高亮错误）+ 搜索候选从10个增加到20个
  * 1.37.0 (2026-07-12): [FEATURE] 阅读页 TOC 目录面板新增「刷新章节」按钮 — 调用 reparse API 重新解析已有 EPUB 书籍章节，无需用户删除重传
+ * 1.37.1 (2026-07-12): [BUGFIX] 修复 EPUB 合集型书籍（含锚点 href）章节跳转后内容加载失败 — 后端移除 href 中 # 锚点部分读取文件 + 按锚点提取对应章节 HTML 片段
  */
 
-export const APP_VERSION = '1.37.0';
+export const APP_VERSION = '1.37.1';
