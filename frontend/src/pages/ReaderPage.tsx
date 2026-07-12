@@ -165,89 +165,103 @@ function ReaderPage() {
   // ── 睡眠计时器 ──
   const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
 
-  // ── 书籍内容搜索 ──
+  // ── 书籍内容搜索（全书） ──
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<{ index: number; text: string; offset: number }[]>([]);
+  const [searchResults, setSearchResults] = useState<{ index: number; text: string; offset: number; chapterIdx: number; chapterTitle: string }[]>([]);
   const [searchActiveIdx, setSearchActiveIdx] = useState(-1);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  /** 缓存全书各章节的文本内容（懒加载），key=chapter.id, value={text, chapterIdx} */
+  const fullBookTextCache = useRef<Map<string, { text: string; order: number }>>(new Map());
+  const [isSearchingFullBook, setIsSearchingFullBook] = useState(false);
 
-  /** 在当前章节文本中搜索关键词 */
-  const performSearch = useCallback((query: string) => {
-    if (!query || !txtContent) {
+  /** 懒加载全书所有章节内容 */
+  const ensureFullBookLoaded = useCallback(async (): Promise<Map<string, { text: string; order: number }>> => {
+    const cache = fullBookTextCache.current;
+    // 检查是否所有章节都已缓存
+    const uncached = chapters.filter(ch => !cache.has(ch.id));
+    if (uncached.length === 0) return cache;
+
+    setIsSearchingFullBook(true);
+    try {
+      await Promise.all(uncached.map(async (ch) => {
+        try {
+          // 优先用预加载缓存
+          const preloaded = preloadedChaptersRef.current.get(ch.id);
+          let content: string;
+          if (preloaded) {
+            content = preloaded.content;
+            preloadedChaptersRef.current.delete(ch.id);
+          } else {
+            const res = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`);
+            content = res.data.data?.content || '';
+            if (book?.format === 'epub') {
+              content = stripHtml(content);
+            }
+          }
+          cache.set(ch.id, { text: content, order: ch.order });
+        } catch {
+          cache.set(ch.id, { text: '', order: ch.order });
+        }
+      }));
+    } finally {
+      setIsSearchingFullBook(false);
+    }
+    return cache;
+  }, [chapters, bookId, book]);
+
+  /** 在全书中搜索关键词（最多10个分布到各章的匹配） */
+  const performSearch = useCallback(async (query: string) => {
+    if (!query) {
       setSearchResults([]);
       setSearchActiveIdx(-1);
       return;
     }
-    const results: { index: number; text: string; offset: number }[] = [];
+
+    // 确保全书内容已加载
+    const fullCache = await ensureFullBookLoaded();
     const lowerQuery = query.toLowerCase();
-    const lowerContent = txtContent.toLowerCase();
-    let searchPos = 0;
-    let matchCount = 0;
-    while (matchCount < 10) {
-      const pos = lowerContent.indexOf(lowerQuery, searchPos);
-      if (pos === -1) break;
-      // 取匹配位置前后各20个字符作为上下文
-      const start = Math.max(0, pos - 20);
-      const end = Math.min(txtContent.length, pos + query.length + 20);
-      let context = txtContent.slice(start, end);
-      if (start > 0) context = '…' + context;
-      if (end < txtContent.length) context = context + '…';
-      results.push({ index: matchCount, text: context, offset: pos });
-      searchPos = pos + query.length;
-      matchCount++;
+
+    // 分章节搜索，每章最多找几个，均匀分布
+    const results: { index: number; text: string; offset: number; chapterIdx: number; chapterTitle: string }[] = [];
+    let globalMatchCount = 0;
+
+    for (let ci = 0; ci < chapters.length && globalMatchCount < 10; ci++) {
+      const ch = chapters[ci];
+      const cached = fullCache.get(ch.id);
+      if (!cached || !cached.text) continue;
+
+      const lowerContent = cached.text.toLowerCase();
+      let searchPos = 0;
+
+      while (globalMatchCount < 10) {
+        const pos = lowerContent.indexOf(lowerQuery, searchPos);
+        if (pos === -1) break;
+
+        const start = Math.max(0, pos - 20);
+        const end = Math.min(cached.text.length, pos + query.length + 20);
+        let context = cached.text.slice(start, end);
+        if (start > 0) context = '…' + context;
+        if (end < cached.text.length) context = context + '…';
+
+        results.push({
+          index: globalMatchCount,
+          text: context,
+          offset: pos,
+          chapterIdx: ci,
+          chapterTitle: ch.title,
+        });
+        searchPos = pos + query.length;
+        globalMatchCount++;
+      }
     }
+
     setSearchResults(results);
     setSearchActiveIdx(results.length > 0 ? 0 : -1);
-  }, [txtContent]);
+  }, [chapters, ensureFullBookLoaded]);
 
-  /** 跳转到搜索结果位置 */
-  const handleSearchJump = useCallback((offset: number) => {
-    setShowSearch(false);
-    setSearchQuery('');
-    setSearchResults([]);
-    // 滚动到匹配位置
-    const container = epubTextScrollRef.current || txtScrollRef.current;
-    if (!container) return;
-    // 在内容中查找匹配位置对应的文本节点
-    // 策略：将容器内所有文本节点串联，找到 offset 对应的节点
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
-    let charCount = 0;
-    let targetNode: Text | null = null;
-    let targetOffset = 0;
-    while (walker.nextNode()) {
-      const node = walker.currentNode as Text;
-      const nodeLen = node.textContent?.length || 0;
-      if (charCount + nodeLen > offset) {
-        targetNode = node;
-        targetOffset = offset - charCount;
-        break;
-      }
-      charCount += nodeLen;
-    }
-    if (targetNode) {
-      // 创建 Range 来选择匹配文本
-      const range = document.createRange();
-      range.setStart(targetNode, targetOffset);
-      range.setEnd(targetNode, targetOffset + searchQuery.length);
-      // 滚动到该位置
-      const rect = range.getBoundingClientRect();
-      if (rect) {
-        container.scrollBy({ top: rect.top - container.clientHeight / 3, behavior: 'smooth' });
-      }
-      // 临时高亮
-      const highlightSpan = document.createElement('mark');
-      highlightSpan.className = 'bg-yellow-300 dark:bg-yellow-600 rounded px-0.5 transition-all duration-1000';
-      try {
-        range.surroundContents(highlightSpan);
-        setTimeout(() => {
-          highlightSpan.classList.remove('bg-yellow-300', 'dark:bg-yellow-600');
-          highlightSpan.classList.add('bg-yellow-100', 'dark:bg-yellow-800');
-        }, 2000);
-      } catch { /* 跨节点环绕可能失败，静默 */ }
-    }
-    setSearchActiveIdx(-1);
-  }, [searchQuery]);
+  /** 跳转到搜索结果位置（先切换章节，再滚动到匹配位置） */
+  // handleSearchJump 定义见 navigateToChapter 之后（约 1090 行附近）
   const sleepTimerEndRef = useRef<number | null>(null);
   const sleepTimerIntervalRef = useRef<any>(null);
   
@@ -1031,6 +1045,63 @@ function ReaderPage() {
       }
     }
   };
+
+  /** 跳转到搜索结果位置（先切换章节，再滚动到匹配位置） */
+  const handleSearchJump = useCallback(async (result: { offset: number; chapterIdx: number; chapterTitle: string }) => {
+    setShowSearch(false);
+    setSearchQuery('');
+    setSearchResults([]);
+
+    const targetChapter = chapters[result.chapterIdx];
+    if (!targetChapter) return;
+
+    // 如果目标不是当前章节，先切换章节
+    if (currentChapter?.id !== targetChapter.id) {
+      await navigateToChapter(targetChapter);
+    }
+
+    // 等渲染完成后滚动到匹配位置
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const container = epubTextScrollRef.current || txtScrollRef.current;
+        if (!container) return;
+
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+        let charCount = 0;
+        let targetNode: Text | null = null;
+        let targetOffset = 0;
+        while (walker.nextNode()) {
+          const node = walker.currentNode as Text;
+          const nodeLen = node.textContent?.length || 0;
+          if (charCount + nodeLen > result.offset) {
+            targetNode = node;
+            targetOffset = result.offset - charCount;
+            break;
+          }
+          charCount += nodeLen;
+        }
+        if (targetNode) {
+          const range = document.createRange();
+          range.setStart(targetNode, targetOffset);
+          range.setEnd(targetNode, targetOffset + searchQuery.length);
+          const rect = range.getBoundingClientRect();
+          if (rect) {
+            container.scrollBy({ top: rect.top - container.clientHeight / 3, behavior: 'smooth' });
+          }
+          const highlightSpan = document.createElement('mark');
+          highlightSpan.className = 'bg-yellow-300 dark:bg-yellow-600 rounded px-0.5 transition-all duration-1000';
+          try {
+            range.surroundContents(highlightSpan);
+            setTimeout(() => {
+              highlightSpan.classList.remove('bg-yellow-300', 'dark:bg-yellow-600');
+              highlightSpan.classList.add('bg-yellow-100', 'dark:bg-yellow-800');
+            }, 2000);
+          } catch { /* 跨节点环绕可能失败，静默 */ }
+        }
+        setSearchActiveIdx(-1);
+      });
+    });
+  }, [chapters, currentChapter, navigateToChapter, searchQuery]);
 
   // TXT next/prev chapter
   const goToNextChapter = async (_fromAutoScroll?: boolean) => {
@@ -2143,8 +2214,8 @@ function ReaderPage() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => { setSearchQuery(e.target.value); performSearch(e.target.value); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && searchResults.length > 0) { handleSearchJump(searchResults[0].offset); } if (e.key === 'Escape') { setShowSearch(false); setSearchQuery(''); setSearchResults([]); } }}
-                  placeholder="搜索当前章节…"
+                  onKeyDown={(e) => { if (e.key === 'Enter' && searchResults.length > 0) { handleSearchJump(searchResults[0]); } if (e.key === 'Escape') { setShowSearch(false); setSearchQuery(''); setSearchResults([]); } }}
+                  placeholder="搜索全书…"
                   className="flex-1 bg-transparent outline-none text-sm py-1.5 text-gray-800 dark:text-gray-200 placeholder-gray-400"
                   autoFocus
                 />
@@ -2157,18 +2228,30 @@ function ReaderPage() {
               </div>
               {/* 搜索结果列表 */}
               <div className="max-h-64 overflow-y-auto">
-                {searchQuery && searchResults.length === 0 && (
+                {searchQuery && isSearchingFullBook && searchResults.length === 0 && (
+                  <div className="px-4 py-6 text-center text-sm text-gray-400">
+                    <span className="animate-pulse">正在搜索全书…</span>
+                  </div>
+                )}
+                {searchQuery && !isSearchingFullBook && searchResults.length === 0 && (
                   <div className="px-4 py-6 text-center text-sm text-gray-400">未找到匹配结果</div>
                 )}
                 {searchResults.map((result, i) => (
                   <button
                     key={i}
-                    onClick={() => handleSearchJump(result.offset)}
+                    onClick={() => handleSearchJump(result)}
                     className={`w-full text-left px-4 py-2.5 text-sm border-b border-gray-100 dark:border-gray-700 last:border-b-0 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors duration-150 ${
                       searchActiveIdx === i ? 'bg-blue-50 dark:bg-blue-900/20' : ''
                     }`}
                   >
-                    <span className="block text-xs text-gray-400 mb-0.5">匹配 {i + 1}</span>
+                    <span className="block text-xs text-gray-400 mb-0.5">
+                      匹配 {i + 1}
+                      {result.chapterTitle && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                          {result.chapterTitle}
+                        </span>
+                      )}
+                    </span>
                     <span className="text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{
                       __html: result.text.replace(
                         new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
