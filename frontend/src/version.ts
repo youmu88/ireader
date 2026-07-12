@@ -99,4 +99,4 @@
  *   3) 修复 ttsGenerationService 后台预合成时也写入 tts_global_resources，实现跨用户共享
  *   4) 运行 refresh SQL 脚本刷新所有书籍的语音合成进度
  */
-export const APP_VERSION = '2.1.0';
+export const APP_VERSION = '2.2.0';

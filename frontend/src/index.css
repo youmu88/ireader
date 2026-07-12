@@ -396,6 +396,116 @@ button, a, [role="button"] {
 }
 
 /* ── iOS 风格阅读排版增强 ── */
+/* ═══════════════════════════════════════
+   模拟书籍翻页动画（3D 卷页效果）
+   ═══════════════════════════════════════ */
+
+/* ── 翻页容器：透视 + 防文本选中 ── */
+.page-turn-container {
+  perspective: 2000px;
+  transform-style: preserve-3d;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── 翻页动画基类 ── */
+.page-turn {
+  backface-visibility: hidden;
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 0.25s ease-out;
+  will-change: transform, opacity;
+}
+
+/* ── 下一页动画（左滑）：当前页向左翻出 ── */
+.page-turn-next-leave {
+  transform: translateX(-40%) rotateY(-18deg) scale(0.92);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ── 下一页动画（左滑）：新页从右侧翻入 ── */
+.page-turn-next-enter {
+  animation: pageTurnNextEnter 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes pageTurnNextEnter {
+  0% {
+    transform: translateX(60%) rotateY(12deg) scale(0.94);
+    opacity: 0.3;
+  }
+  40% {
+    transform: translateX(8%) rotateY(3deg) scale(0.99);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateX(0) rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+}
+
+/* ── 上一页动画（右滑）：当前页向右翻出 ── */
+.page-turn-prev-leave {
+  transform: translateX(40%) rotateY(18deg) scale(0.92);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ── 上一页动画（右滑）：新页从左侧翻入 ── */
+.page-turn-prev-enter {
+  animation: pageTurnPrevEnter 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes pageTurnPrevEnter {
+  0% {
+    transform: translateX(-60%) rotateY(-12deg) scale(0.94);
+    opacity: 0.3;
+  }
+  40% {
+    transform: translateX(-8%) rotateY(-3deg) scale(0.99);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateX(0) rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+}
+
+/* ── 翻页阴影效果──在翻页时显示当前页背面的阴影 ── */
+.page-turn-shadow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  transition: opacity 0.3s ease-out;
+}
+
+/* ── 减少动效模式：禁用翻页动画 ── */
+@media (prefers-reduced-motion: reduce) {
+  .page-turn-next-leave,
+  .page-turn-prev-leave {
+    opacity: 0;
+    transform: none !important;
+  }
+  .page-turn-next-enter,
+  .page-turn-prev-enter {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* ── 低性能设备禁用翻页动画 ── */
+.low-perf .page-turn-next-leave,
+.low-perf .page-turn-prev-leave {
+  opacity: 0;
+  transform: none !important;
+}
+.low-perf .page-turn-next-enter,
+.low-perf .page-turn-prev-enter {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
 :root {
   --reader-letter-spacing: 0.01em;
   --reader-bg: #ffffff;

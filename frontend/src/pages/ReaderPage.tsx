@@ -149,7 +149,7 @@ function ReaderPage() {
   /** 是否正在拖拽进度条（防止 mouseup 未触发导致的卡住） */
   const isDraggingRef = useRef(false);
 
-  // ── 睡眠计时器 ──
+
 
   // ── 全屏阅读：点击屏幕切换UI显示 ──
   const handleTapReader = useCallback(() => {
@@ -179,6 +179,101 @@ function ReaderPage() {
     isChapterMatch: boolean;
   }
   const [showSearch, setShowSearch] = useState(false);
+  const showSearchRef = useRef(false);
+  useEffect(() => { showSearchRef.current = showSearch; }, [showSearch]);
+
+  // ── 触摸滑动翻页 ──
+  const [pageTurnAnim, setPageTurnAnim] = useState<'none' | 'next-leave' | 'next-enter' | 'prev-leave' | 'prev-enter'>('none');
+  const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  /** 执行翻页：更新 pageIndex 或切换章节 */
+  const performPageTurn = useCallback((direction: 'prev' | 'next') => {
+    // TTS 朗读中、搜索打开时禁止翻页（避免打断）
+    if (ttsState !== 'idle' || showSearchRef.current) return;
+    if (book?.format !== 'txt') return; // 仅 TXT 模式支持翻页动画
+    if (readingMode !== 'paginated') return; // 仅翻页模式下启用
+
+    const doTurn = async () => {
+      if (direction === 'next') {
+        if (pageIndex < totalPages - 1) {
+          // 章节内下一页
+          setPageTurnAnim('next-leave');
+          await new Promise(r => setTimeout(r, 220));
+          setPageIndex(i => i + 1);
+          setPageTurnAnim('next-enter');
+          await new Promise(r => setTimeout(r, 450));
+          setPageTurnAnim('none');
+        } else {
+          // 章节末 → 下一章
+          const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
+          if (idx < chapters.length - 1) {
+            setPageTurnAnim('next-leave');
+            await new Promise(r => setTimeout(r, 220));
+            setPageIndex(0);
+            await navigateToChapter(chapters[idx + 1]);
+            setPageTurnAnim('next-enter');
+            await new Promise(r => setTimeout(r, 450));
+            setPageTurnAnim('none');
+          }
+        }
+      } else {
+        if (pageIndex > 0) {
+          // 章节内上一页
+          setPageTurnAnim('prev-leave');
+          await new Promise(r => setTimeout(r, 220));
+          setPageIndex(i => i - 1);
+          setPageTurnAnim('prev-enter');
+          await new Promise(r => setTimeout(r, 450));
+          setPageTurnAnim('none');
+        } else {
+          // 章节首页 → 上一章
+          const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
+          if (idx > 0) {
+            setPageTurnAnim('prev-leave');
+            await new Promise(r => setTimeout(r, 220));
+            // 跳到上一章，从第一页开始
+            await navigateToChapter(chapters[idx - 1]);
+            setPageTurnAnim('prev-enter');
+            await new Promise(r => setTimeout(r, 450));
+            setPageTurnAnim('none');
+          }
+        }
+      }
+    };
+    doTurn();
+  }, [pageIndex, totalPages, chapters, currentChapter, ttsState, book, readingMode]);
+
+  /** 触摸开始：记录起始位置 */
+  const handleSwipeStart = useCallback((clientX: number, clientY: number) => {
+    swipeStartRef.current = { x: clientX, y: clientY, time: Date.now() };
+  }, []);
+
+  /** 触摸结束：判断滑动方向 */
+  const handleSwipeEnd = useCallback((clientX: number, clientY: number) => {
+    const start = swipeStartRef.current;
+    if (!start) return;
+    const dx = clientX - start.x;
+    const dy = clientY - start.y;
+    const dt = Date.now() - start.time;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    swipeStartRef.current = null;
+
+    // ⭐ 正在翻页动画中、TTS 或搜索打开时，不处理滑动
+    if (pageTurnAnim !== 'none') return;
+    if (ttsState !== 'idle' || showSearchRef.current) return;
+
+    // 滑动距离 > 50px 且水平方向 > 垂直方向 → 翻页
+    if (absDx > 50 && absDx > absDy * 1.5 && dt < 500) {
+      if (dx < 0) {
+        // 左滑 → 下一页
+        performPageTurn('next');
+      } else {
+        // 右滑 → 上一页
+        performPageTurn('prev');
+      }
+    }
+  }, [pageTurnAnim, ttsState, performPageTurn]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchActiveIdx, setSearchActiveIdx] = useState(-1);
@@ -2205,7 +2300,14 @@ function stripHtml(html: string): string {
         </button>
         {/* Reader Content - full screen, no fixed toolbar */}
         <div className="h-full flex flex-col">
-          <div className="flex-1 flex overflow-hidden relative" onClick={handleTapReader}>
+          <div
+            className={`flex-1 flex overflow-hidden relative page-turn-container ${pageTurnAnim !== 'none' ? 'page-turn' : ''}`}
+            onClick={handleTapReader}
+            onTouchStart={(e) => { handleSwipeStart(e.touches[0].clientX, e.touches[0].clientY); }}
+            onTouchEnd={(e) => { handleSwipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY); }}
+            onMouseDown={(e) => { handleSwipeStart(e.clientX, e.clientY); }}
+            onMouseUp={(e) => { handleSwipeEnd(e.clientX, e.clientY); }}
+          >
         {/* TOC Sidebar */}
         {showToc && (
           <div onClick={(e) => e.stopPropagation()} className="w-64 sm:w-72 overflow-y-auto absolute sm:relative z-20 inset-y-0 left-0 shadow-lg sm:shadow-none" style={{background: 'var(--color-bg-card)', borderRight: '0.5px solid var(--color-border)'}}>
