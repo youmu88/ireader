@@ -518,6 +518,36 @@ function ReaderPage() {
 
   // ⭐ TTS 预热：loadBook 完成后提前初始化播放器（跳过 init 网络请求 + 预载 IDB 缓存）
   const warmupTriggered = useRef(false);
+  // ── 重新解析书籍章节（刷新目录） ──
+  const [isReparsing, setIsReparsing] = useState(false);
+  const handleReparse = useCallback(async () => {
+    if (!bookId || !book || book.format !== 'epub' || isReparsing) return;
+    if (!window.confirm('重新解析将刷新全部章节信息，确定继续？')) return;
+    setIsReparsing(true);
+    try {
+      await axios.post(`/api/books/${bookId}/reparse`);
+      // 刷新后重新获取章节列表（不触发全屏 loading）
+      const [bookRes, chaptersRes] = await Promise.all([
+        axios.get(`/api/books/${bookId}`),
+        axios.get(`/api/books/${bookId}/chapters`),
+      ]);
+      const newBookData = bookRes.data?.data;
+      const newChapters = chaptersRes.data?.data || [];
+      if (newBookData) setBook(newBookData);
+      if (newChapters.length > 0) {
+        setChapters(newChapters);
+        // 尝试保持当前章节（如果 ID 变了则跳到第一章）
+        const stillExists = newChapters.some((c: Chapter) => c.id === currentChapter?.id);
+        if (!stillExists && currentChapter) {
+          await loadChapterContent(newChapters[0], undefined, newBookData?.format === 'epub');
+        }
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.error || '章节刷新失败，请稍后重试');
+    } finally {
+      setIsReparsing(false);
+    }
+  }, [bookId, book, isReparsing, currentChapter]);
   useEffect(() => {
     if (warmupTriggered.current) return;
     if (loading || !currentChapter || !bookId || !book) return;
@@ -2032,8 +2062,26 @@ function ReaderPage() {
         {/* TOC Sidebar */}
         {showToc && (
           <div onClick={(e) => e.stopPropagation()} className="w-64 sm:w-72 overflow-y-auto absolute sm:relative z-20 inset-y-0 left-0 shadow-lg sm:shadow-none" style={{background: 'var(--color-bg-card)', borderRight: '0.5px solid var(--color-border)'}}>
-            <div className="p-3 font-semibold text-sm" style={{borderBottom: '0.5px solid var(--color-border)'}}>
-              章节目录
+            <div className="p-3 font-semibold text-sm flex items-center justify-between" style={{borderBottom: '0.5px solid var(--color-border)'}}>
+              <span>章节目录</span>
+              {book?.format === 'epub' && (
+                <button
+                  onClick={handleReparse}
+                  disabled={isReparsing}
+                  className="text-xs px-2 py-1 rounded-md font-normal transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed tap-active"
+                  style={{
+                    background: 'var(--color-bg-alt)',
+                    color: 'var(--color-text-secondary)',
+                  }}
+                  title="重新解析书籍章节（旧书目录刷新）"
+                >
+                  {isReparsing ? (
+                    <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />刷新中</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新章节</span>
+                  )}
+                </button>
+              )}
             </div>
             {chapters.map((ch) => (
               <button
