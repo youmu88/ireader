@@ -530,6 +530,70 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   });
 
   // ── POST /api/books/:id/cache - 缓存书籍内容（全书或 N 章节） ──
+  // ── POST /api/books/:id/reparse - 重新解析已有书籍章节 ──
+  router.post('/:id/reparse', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const bookId = req.params.id;
+      const book = db.select().from(books).where(sql`id = ${bookId} AND user_id = ${userId}`).get();
+      if (!book) throw new AppError(404, '图书不存在');
+      if (book.format !== 'epub') throw new AppError(400, '仅支持重新解析 EPUB 格式图书');
+
+      const bookDir = path.join(booksDir, bookId);
+      const sourcePath = path.join(bookDir, path.basename(book.filePath!));
+
+      if (!fs.existsSync(sourcePath)) {
+        throw new AppError(404, '原始文件不存在，无法重新解析');
+      }
+
+      // 重新解析
+      const parseResult = await import('../parser/index.js').then(m => m.parseBook(sourcePath, book.format!, bookDir));
+
+      // 删除旧章节
+      db.delete(bookChapters).where(sql`book_id = ${bookId}`).run();
+
+      // 插入新章节
+      for (const chapter of parseResult.chapters) {
+        db.insert(bookChapters).values({
+          id: uuidv4(),
+          bookId,
+          title: chapter.title,
+          href: (chapter as any).href || null,
+          startOffset: (chapter as any).startOffset ?? null,
+          endOffset: (chapter as any).endOffset ?? null,
+          order: chapter.order,
+          level: chapter.level,
+        }).run();
+      }
+
+      // 更新书籍元数据
+      const updateData: any = {
+        title: parseResult.title,
+        author: parseResult.author || book.author,
+        status: 'ready',
+        updatedAt: new Date().toISOString(),
+      };
+      if (parseResult.coverPath) {
+        const coverSrc = path.join(bookDir, 'extracted', parseResult.coverPath);
+        const coverExt = path.extname(coverSrc) || '.jpg';
+        const coverDest = path.join(bookDir, `cover${coverExt}`);
+        if (fs.existsSync(coverSrc)) {
+          fs.copyFileSync(coverSrc, coverDest);
+          updateData.coverPath = coverDest;
+        }
+      }
+      db.update(books).set(updateData).where(sql`id = ${bookId}`).run();
+
+      // 获取新章节返回
+      const chapters = db.select().from(bookChapters).where(sql`book_id = ${bookId}`).orderBy(sql`"order" ASC`).all();
+
+      res.json({ success: true, data: { chapters, total: chapters.length, message: `重新解析完成，共 ${chapters.length} 章` } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ── POST /api/books/:id/cache - 缓存书籍内容（全书或 N 章节） ──
   router.post('/:id/cache', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.userId;

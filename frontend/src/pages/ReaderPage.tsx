@@ -2298,16 +2298,27 @@ function ReaderPage() {
             <div className="relative z-10 pointer-events-none">
               <div className="pointer-events-auto glass-bar rounded-2xl shadow-2xl mx-auto max-w-3xl animate-slide-up" onClick={(e) => e.stopPropagation()}>
                   <div className="p-5 space-y-4">
-                    {/* ── 第一行：返回 + 书名 + 目录 ── */}
+                    {/* ── 第一行：返回 + 搜索 + 书名 + 目录 ── */}
                     <div className="flex items-center justify-between">
-                      <button
-                        onClick={() => navigate('/')}
-                        className="flex items-center gap-1.5 text-base rounded-full px-4 py-2 transition-all duration-200 tap-active"
-                      style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><polyline points="15 18 9 12 15 6"/></svg> 返回
-                      </button>
-                      <h2 className="text-base font-medium truncate max-w-[50%] text-center"
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => navigate('/')}
+                          className="flex items-center gap-1.5 text-base rounded-full px-4 py-2 transition-all duration-200 tap-active"
+                        style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><polyline points="15 18 9 12 15 6"/></svg> 返回
+                        </button>
+                        {/* 🔍 搜索 — 在返回按钮之后 */}
+                        <button
+                          onClick={() => { setShowSearch(true); setShowUi(false); setTimeout(() => searchInputRef.current?.focus(), 100); }}
+                          className="w-9 h-9 rounded-full flex items-center justify-center"
+                          style={{ background: 'var(--color-bg-alt)' }}
+                          title="搜索"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        </button>
+                      </div>
+                      <h2 className="text-base font-medium truncate max-w-[45%] text-center"
                         style={{ color: 'var(--color-text-secondary)' }}>
                         {(displayChapter || currentChapter)?.title || book?.title || ''}
                       </h2>
@@ -2328,15 +2339,7 @@ function ReaderPage() {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
-                          <button
-                        onClick={() => { setShowSearch(true); setShowUi(false); setTimeout(() => searchInputRef.current?.focus(), 100); }}
-                        className="w-9 h-9 rounded-full flex items-center justify-center"
-                        style={{ background: 'var(--color-bg-alt)' }}
-                        title="搜索"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                      </button>
-                      {/* ⏮ 上一章 */}
+                          {/* ⏮ 上一章 */}
                           <button onClick={handlePrevChapter} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="上一章">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                           </button>

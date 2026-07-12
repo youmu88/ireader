@@ -76,4 +76,4 @@
  * 1.36.0 (2026-07-12): [FEATURE] 支持"单文件合集"型EPUB解析 — 从TOC navMap提取锚点章节（#toc_X），解决多本书合集中章节解析为3个的问题，百妖谱从3章→267章
  */
 
-export const APP_VERSION = '1.36.0';
+export const APP_VERSION = '1.36.1';
