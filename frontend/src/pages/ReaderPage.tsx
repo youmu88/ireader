@@ -183,7 +183,12 @@ function ReaderPage() {
   useEffect(() => { showSearchRef.current = showSearch; }, [showSearch]);
 
   // ── 触摸滑动翻页 ──
-  const [pageTurnAnim, setPageTurnAnim] = useState<'none' | 'next-leave' | 'next-enter' | 'prev-leave' | 'prev-enter'>('none');
+  // pageTurnAnim 状态语义重构（v2.2.3）：
+  //   'none' → 无动画；'next' → 正在翻到下一页；'prev' → 正在翻到上一页
+  // 翻页动画采用双缓冲架构：同时渲染旧页（leave 动画）和新页（enter 动画），
+  // 旧页内容 = 当前 pageIndex，新页内容 = pageTurnTarget（提前计算的目标页）。
+  const [pageTurnAnim, setPageTurnAnim] = useState<'none' | 'next' | 'prev'>('none');
+  const [pageTurnTarget, setPageTurnTarget] = useState<number>(0);
   const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   /** 执行翻页：更新 pageIndex 或切换章节 */
   const performPageTurn = useCallback((direction: 'prev' | 'next') => {
@@ -195,45 +200,40 @@ function ReaderPage() {
     const doTurn = async () => {
       if (direction === 'next') {
         if (pageIndex < totalPages - 1) {
-          // 章节内下一页
-          setPageTurnAnim('next-leave');
-          await new Promise(r => setTimeout(r, 220));
-          setPageIndex(i => i + 1);
-          setPageTurnAnim('next-enter');
-          await new Promise(r => setTimeout(r, 450));
+          // 章节内下一页：旧页=pageIndex，新页=pageIndex+1
+          setPageTurnTarget(pageIndex + 1);
+          setPageTurnAnim('next');
+          await new Promise(r => setTimeout(r, 600));
+          setPageIndex(pageIndex + 1);
           setPageTurnAnim('none');
         } else {
           // 章节末 → 下一章
           const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
           if (idx < chapters.length - 1) {
-            setPageTurnAnim('next-leave');
-            await new Promise(r => setTimeout(r, 220));
+            setPageTurnTarget(0);
+            setPageTurnAnim('next');
+            await new Promise(r => setTimeout(r, 600));
             setPageIndex(0);
             await navigateToChapter(chapters[idx + 1]);
-            setPageTurnAnim('next-enter');
-            await new Promise(r => setTimeout(r, 450));
             setPageTurnAnim('none');
           }
         }
       } else {
         if (pageIndex > 0) {
-          // 章节内上一页
-          setPageTurnAnim('prev-leave');
-          await new Promise(r => setTimeout(r, 220));
-          setPageIndex(i => i - 1);
-          setPageTurnAnim('prev-enter');
-          await new Promise(r => setTimeout(r, 450));
+          // 章节内上一页：旧页=pageIndex，新页=pageIndex-1
+          setPageTurnTarget(pageIndex - 1);
+          setPageTurnAnim('prev');
+          await new Promise(r => setTimeout(r, 600));
+          setPageIndex(pageIndex - 1);
           setPageTurnAnim('none');
         } else {
           // 章节首页 → 上一章
           const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
           if (idx > 0) {
-            setPageTurnAnim('prev-leave');
-            await new Promise(r => setTimeout(r, 220));
-            // 跳到上一章，从第一页开始
+            setPageTurnTarget(0);
+            setPageTurnAnim('prev');
+            await new Promise(r => setTimeout(r, 600));
             await navigateToChapter(chapters[idx - 1]);
-            setPageTurnAnim('prev-enter');
-            await new Promise(r => setTimeout(r, 450));
             setPageTurnAnim('none');
           }
         }
@@ -2165,6 +2165,14 @@ function stripHtml(html: string): string {
 
   /** 根据 pageIndex 获取分页后的 TXT 内容 */
   const getPaginatedContent = useCallback((content: string, page: number, total: number): string => {
+    if (readingMode !== 'paginated' || total <= 1) return content;
+    const lines = content.split('\n');
+    const linesPerPage = Math.max(1, Math.ceil(lines.length / total));
+    const start = page * linesPerPage;
+    const end = Math.min(start + linesPerPage, lines.length);
+    return lines.slice(start, end).join('\n');
+  }, [readingMode]);
+
   // ⭐ 在 TXT 内容渲染完成后恢复滚动位置（修复 requestAnimationFrame 时机不对的问题）
   useEffect(() => {
     if (pendingScrollRestorePct == null) return;
@@ -2178,13 +2186,6 @@ function stripHtml(html: string): string {
     });
     return () => cancelAnimationFrame(raf);
   }, [txtContent, pendingScrollRestorePct]);
-    if (readingMode !== 'paginated' || total <= 1) return content;
-    const lines = content.split('\n');
-    const linesPerPage = Math.max(1, Math.ceil(lines.length / total));
-    const start = page * linesPerPage;
-    const end = Math.min(start + linesPerPage, lines.length);
-    return lines.slice(start, end).join('\n');
-  }, [readingMode]);
 
   // TXT 分页模式：根据内容长度估算总页数
   useEffect(() => {
@@ -2301,7 +2302,7 @@ function stripHtml(html: string): string {
         {/* Reader Content - full screen, no fixed toolbar */}
         <div className="h-full flex flex-col">
           <div
-            className={`flex-1 flex overflow-hidden relative page-turn-container ${pageTurnAnim !== 'none' ? 'page-turn page-turn-' + pageTurnAnim : ''}`}
+            className={`flex-1 flex overflow-hidden relative page-turn-container${pageTurnAnim !== 'none' ? ' page-turn-active' : ''}`}
             onClick={handleTapReader}
             onTouchStart={(e) => { handleSwipeStart(e.touches[0].clientX, e.touches[0].clientY); }}
             onTouchEnd={(e) => { handleSwipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY); }}
@@ -2473,30 +2474,81 @@ function stripHtml(html: string): string {
                 </h2>
               </div>
             )}
-            <div
-              ref={txtPageRef}
-              className={`text-gray-800 dark:text-gray-200 whitespace-pre-wrap ${
-                readingMode === 'paginated' ? 'flex-1 overflow-hidden' : ''
-              } ${pageTurnAnim !== 'none' ? 'page-turn page-turn-' + pageTurnAnim : ''}`}
-              style={{
-                fontSize: `${fontSize}px`,
-                fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
-                lineHeight,
-                letterSpacing: `${letterSpacing}em`,
-              }}
-            >
-              {chapterLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <span className="text-gray-400 animate-pulse">加载中...</span>
+            {/* ── 翻页动画双缓冲层（v2.2.3）：同时渲染旧页 leave + 新页 enter ── */}
+            {pageTurnAnim !== 'none' && readingMode === 'paginated' ? (
+              <div
+                ref={txtPageRef}
+                className="flex-1 relative overflow-hidden page-turn-container"
+                style={{
+                  perspective: '2000px',
+                  transformStyle: 'preserve-3d',
+                }}
+              >
+                {/* 旧页：当前 pageIndex 内容，播放 leave 动画 */}
+                <div
+                  className={`page-turn-layer page-turn-${pageTurnAnim}-leave`}
+                  style={{
+                    fontSize: `${fontSize}px`,
+                    fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
+                    lineHeight,
+                    letterSpacing: `${letterSpacing}em`,
+                    position: 'absolute', inset: 0,
+                    padding: '0 12px',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
+                    {chapterLoading ? (
+                      <div className="flex items-center justify-center py-12"><span className="text-gray-400 animate-pulse">加载中...</span></div>
+                    ) : getPaginatedContent(txtContent, pageIndex, totalPages)}
+                  </div>
                 </div>
-              ) : (
-                readingMode === 'paginated'
-                  ? getPaginatedContent(txtContent, pageIndex, totalPages)
-                  : ttsState !== 'idle' && activeSegmentIndex >= 0
-                    ? renderHighlightedContent(txtContent)
-                    : txtContent
-              )}
-            </div>
+                {/* 新页：目标 pageTurnTarget 内容，播放 enter 动画 */}
+                <div
+                  className={`page-turn-layer page-turn-${pageTurnAnim}-enter`}
+                  style={{
+                    fontSize: `${fontSize}px`,
+                    fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
+                    lineHeight,
+                    letterSpacing: `${letterSpacing}em`,
+                    position: 'absolute', inset: 0,
+                    padding: '0 12px',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
+                    {chapterLoading ? (
+                      <div className="flex items-center justify-center py-12"><span className="text-gray-400 animate-pulse">加载中...</span></div>
+                    ) : getPaginatedContent(txtContent, pageTurnTarget, totalPages)}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
+                ref={txtPageRef}
+                className={`text-gray-800 dark:text-gray-200 whitespace-pre-wrap ${
+                  readingMode === 'paginated' ? 'flex-1 overflow-hidden' : ''
+                }`}
+                style={{
+                  fontSize: `${fontSize}px`,
+                  fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
+                  lineHeight,
+                  letterSpacing: `${letterSpacing}em`,
+                }}
+              >
+                {chapterLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <span className="text-gray-400 animate-pulse">加载中...</span>
+                  </div>
+                ) : (
+                  readingMode === 'paginated'
+                    ? getPaginatedContent(txtContent, pageIndex, totalPages)
+                    : ttsState !== 'idle' && activeSegmentIndex >= 0
+                      ? renderHighlightedContent(txtContent)
+                      : txtContent
+                )}
+              </div>
+            )}
             {/* 底部哨兵元素：用于 IntersectionObserver 检测滚动到末尾 */}
             <div ref={bottomSentinelRef} className="h-4" />
           </div>
