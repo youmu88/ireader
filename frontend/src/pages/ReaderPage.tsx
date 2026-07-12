@@ -2301,7 +2301,7 @@ function stripHtml(html: string): string {
         {/* Reader Content - full screen, no fixed toolbar */}
         <div className="h-full flex flex-col">
           <div
-            className={`flex-1 flex overflow-hidden relative page-turn-container ${pageTurnAnim !== 'none' ? 'page-turn' : ''}`}
+            className={`flex-1 flex overflow-hidden relative page-turn-container ${pageTurnAnim !== 'none' ? 'page-turn page-turn-' + pageTurnAnim : ''}`}
             onClick={handleTapReader}
             onTouchStart={(e) => { handleSwipeStart(e.touches[0].clientX, e.touches[0].clientY); }}
             onTouchEnd={(e) => { handleSwipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY); }}
@@ -2477,7 +2477,7 @@ function stripHtml(html: string): string {
               ref={txtPageRef}
               className={`text-gray-800 dark:text-gray-200 whitespace-pre-wrap ${
                 readingMode === 'paginated' ? 'flex-1 overflow-hidden' : ''
-              } ${pageTurnAnim !== 'none' ? 'page-turn ' + pageTurnAnim : ''}`}
+              } ${pageTurnAnim !== 'none' ? 'page-turn page-turn-' + pageTurnAnim : ''}`}
               style={{
                 fontSize: `${fontSize}px`,
                 fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',

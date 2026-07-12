@@ -91,6 +91,7 @@
  * 1.40.1 (2026-07-12): [BUGFIX] 修复TTS语音进度计算虚假+任务卡死无限重试 — progress使用实际分片数计算，实时更新totalChunks；recoverStuckJobs重算totalChunks并限制最多恢复3次
  * 1.40.2 (2026-07-12): [PERF+Bugfix] 缓存全书跳过已缓存章节 + 清除缓存改用游标批量删除大幅提速
  * 2.2.1 (2026-07-12): [BUGFIX] 修复翻页动画不生效 — pageTurnAnim 类名未应用到 TXT 内容元素
+* 2.2.2 (2026-07-12): [BUGFIX] 修复翻页动画 CSS 类名拼接错误 — 'page-turn ' + pageTurnAnim 生成 page-turn next-leave，CSS 选择器 .page-turn-next-leave 无法匹配（连字符 vs 空格），改为 page-turn page-turn-{anim} 格式
  *   1) handleCacheFullBook 前置检查：文字+语音已全缓存时直接跳过，不触发进度动画
  *   2) clearBookTTSAudioCache / clearBookChapterCache 改用 IDB 游标批量删除替代逐条 for 循环删除
  * 2.0.0 (2026-07-12): [ARCH] 全局引用系统 — 相同书籍/TTS语音全局只存一份，引用计数隔离，30天自动清理
@@ -100,4 +101,4 @@
  *   3) 修复 ttsGenerationService 后台预合成时也写入 tts_global_resources，实现跨用户共享
  *   4) 运行 refresh SQL 脚本刷新所有书籍的语音合成进度
  */
-export const APP_VERSION = '2.2.1';
+export const APP_VERSION = '2.2.2';
