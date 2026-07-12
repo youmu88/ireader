@@ -70,9 +70,10 @@ describe('E2E Full Flow Acceptance', () => {
     app.use(errorHandler);
 
     // Register + Login to get auth token
+    // 使用白名单内的邮箱注册以获取 token
     const registerRes = await request(app)
       .post('/api/auth/register')
-      .send({ username: 'e2e-user', password: 'e2epass123' });
+      .send({ email: 'youmu88@gmail.com', password: 'e2epass123' });
     authToken = registerRes.body.data.token;
   });
 

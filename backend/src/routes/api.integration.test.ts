@@ -38,7 +38,7 @@ describe('API Integration', () => {
     // Register test user and get token
     const registerRes = await request(app)
       .post('/api/auth/register')
-      .send({ username: `integ-user`, password: 'test123456', displayName: '测试用户' });
+      .send({ email: `youmu88@gmail.com`, password: 'test123456', displayName: '测试用户' });
     expect(registerRes.status).toBe(201);
     authToken = registerRes.body.data.token;
     testUserId = registerRes.body.data.userId;
@@ -68,24 +68,25 @@ describe('API Integration', () => {
     it('POST /api/auth/login should login', async () => {
       const res = await request(app)
         .post('/api/auth/login')
-        .send({ username: `integ-user`, password: 'test123456' });
+        .send({ email: `youmu88@gmail.com`, password: 'test123456' });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.token).toBeTruthy();
-      expect(res.body.data.user.username).toBe(`integ-user`);
+      expect(res.body.data.user.email).toBe(`youmu88@gmail.com`);
+      expect(res.body.data.user.username).toBe('youmu88');
     });
 
-    it('POST /api/auth/register should reject duplicate username', async () => {
+    it('POST /api/auth/register should reject duplicate email', async () => {
       const res = await request(app)
         .post('/api/auth/register')
-        .send({ username: `integ-user`, password: 'test123456' });
+        .send({ email: `youmu88@gmail.com`, password: 'test123456' });
       expect(res.status).toBe(409);
     });
 
     it('POST /api/auth/login should reject wrong password', async () => {
       const res = await request(app)
         .post('/api/auth/login')
-        .send({ username: `integ-user`, password: 'wrongpass' });
+        .send({ email: `youmu88@gmail.com`, password: 'wrongpass' });
       expect(res.status).toBe(401);
     });
 
@@ -94,7 +95,8 @@ describe('API Integration', () => {
         .get('/api/auth/me')
         .set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
-      expect(res.body.data.username).toBe(`integ-user`);
+      expect(res.body.data.username).toBe('youmu88');
+      expect(res.body.data.email).toBe('youmu88@gmail.com');
     });
   });
 

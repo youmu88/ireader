@@ -7,7 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
@@ -28,8 +28,8 @@ export default function LoginPage() {
 
     try {
       const errMsg = isRegister
-        ? await register(username, password, displayName || undefined)
-        : await login(username, password);
+        ? await register(email, password, displayName || undefined)
+        : await login(email, password);
 
       if (errMsg) {
         setError(errMsg);
@@ -75,25 +75,23 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* 用户名 */}
+            {/* 邮箱 / 用户名 */}
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>
-                用户名
+                {isRegister ? '邮箱' : '邮箱 / 用户名'}
               </label>
               <input
                 type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl text-sm outline-none border transition-all duration-200"
                 style={{
                   background: 'var(--color-bg-alt)',
                   color: 'var(--color-text)',
                   borderColor: 'var(--color-border)',
                 }}
-                placeholder="请输入用户名"
+                placeholder={isRegister ? '请输入邮箱' : '邮箱或用户名'}
                 required
-                minLength={3}
-                maxLength={30}
                 onFocus={(e) => { e.target.style.borderColor = 'var(--color-primary)'; }}
                 onBlur={(e) => { e.target.style.borderColor = 'var(--color-border)'; }}
               />

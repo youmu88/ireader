@@ -69,6 +69,7 @@
  *   2) SW预缓存修复：addAll→Promise.allSettled 逐个缓存，避免单资源失败全缓存泡汤
  *   3) ReaderPage loadBook离线降级：API请求失败时从 IndexedDB 读取书籍信息和章节列表
  *   4) offlineCacheService 新增 getOfflineBookInfo：从 cacheMeta 提取书籍基本信息供离线使用
+ * 1.33.0 (2026-07-12): [FEATURE] 安全账号白名单 — 注册白名单邮箱限制（secUserEmail.json），仅白名单内邮箱可注册；登录支持 email/username 双模式兼容老用户
  */
 
-export const APP_VERSION = '1.32.1';
+export const APP_VERSION = '1.33.0';

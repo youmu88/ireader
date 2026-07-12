@@ -39,7 +39,7 @@ describe('TTS Routes', () => {
     // Register a test user and get token
     const registerRes = await request(app)
       .post('/api/auth/register')
-      .send({ username: 'tts-test-user', password: 'test123456' });
+      .send({ email: '276935214@qq.com', password: 'test123456' });
     authToken = registerRes.body.data.token;
   });
 

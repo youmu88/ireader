@@ -24,6 +24,7 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
+      email TEXT,
       password_hash TEXT NOT NULL,
       display_name TEXT,
       created_at TEXT NOT NULL,
@@ -212,6 +213,19 @@ migrateOldTables(sqlite);
     }
   } catch (err) {
     console.error('[迁移] books pinned 列补充失败:', (err as Error).message);
+  }
+
+  // ── 迁移：users 表增加 email 列（安全账号白名单功能） ──
+  try {
+    const userCols = sqlite.prepare("PRAGMA table_info('users')").all() as { name: string }[];
+    const hasEmail = userCols.some(c => c.name === 'email');
+    if (!hasEmail) {
+      console.log('[迁移] users 缺少 email 列，正在补充...');
+      sqlite.exec(`ALTER TABLE users ADD COLUMN email TEXT;`);
+      console.log('[迁移] users email 列补充完成 ✅');
+    }
+  } catch (err) {
+    console.error('[迁移] users email 列补充失败:', (err as Error).message);
   }
 
 

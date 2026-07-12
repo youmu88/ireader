@@ -21,8 +21,8 @@ interface AuthContextType {
   loading: boolean;
   isAuthenticated: boolean;
   isOfflineMode: boolean;
-  login: (username: string, password: string) => Promise<string | null>;
-  register: (username: string, password: string, displayName?: string) => Promise<string | null>;
+  login: (email: string, password: string) => Promise<string | null>;
+  register: (email: string, password: string, displayName?: string) => Promise<string | null>;
   logout: () => void;
   enterOfflineMode: () => void;
   exitOfflineMode: () => void;
@@ -102,9 +102,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [handleUnauthorized, navigate]);
 
-  const login = useCallback(async (username: string, password: string): Promise<string | null> => {
+  const login = useCallback(async (email: string, password: string): Promise<string | null> => {
     try {
-      const res = await loginApi(username, password);
+      const res = await loginApi(email, password);
       if (res.success && res.data) {
         setToken(res.data.token);
         setUser(res.data.user);
@@ -117,9 +117,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const register = useCallback(
-    async (username: string, password: string, displayName?: string): Promise<string | null> => {
+    async (email: string, password: string, displayName?: string): Promise<string | null> => {
       try {
-        const res = await registerApi(username, password, displayName);
+        const res = await registerApi(email, password, displayName);
         if (res.success && res.data) {
           return null;
         }

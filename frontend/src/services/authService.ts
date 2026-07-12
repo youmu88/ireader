@@ -8,6 +8,7 @@ const TOKEN_KEY = 'ireader_auth_token';
 export interface UserInfo {
   userId: string;
   username: string;
+  email?: string | null;
   displayName: string | null;
   createdAt: string;
 }
@@ -37,17 +38,17 @@ export function removeToken(): void {
 
 // ── API 调用 ──
 
-export async function loginApi(username: string, password: string): Promise<AuthResponse> {
-  const res = await axios.post('/api/auth/login', { username, password });
+export async function loginApi(email: string, password: string): Promise<AuthResponse> {
+  const res = await axios.post('/api/auth/login', { email, password });
   return res.data;
 }
 
 export async function registerApi(
-  username: string,
+  email: string,
   password: string,
   displayName?: string,
 ): Promise<AuthResponse> {
-  const res = await axios.post('/api/auth/register', { username, password, displayName });
+  const res = await axios.post('/api/auth/register', { email, password, displayName });
   return res.data;
 }
 
