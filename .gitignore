@@ -8,3 +8,12 @@ dist/
 
 # 自动触发部署日志
 logs/triggered-deploy/
+
+# 数据库文件
+~/.ireader/data/*.sqlite*
+*.sqlite-shm
+*.sqlite-wal
+
+# 临时脚本
+backend/reparse_cli.ts
+backend/update_chapters.ts
