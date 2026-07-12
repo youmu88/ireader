@@ -149,7 +149,6 @@ async function supplementGlobalTts() {
             userId: YOUMU88_ID,
             globalResourceId: resourceId,
             localCacheId: null,
-            bookId: YOUMU88_LOCAL_BOOK_ID,
             refCount: 1,
             deletedAt: null,
             createdAt: now,
