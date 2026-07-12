@@ -60,6 +60,7 @@ const activeJobs = new Set<string>();
 
 /**
  * 恢复卡住的任务：检查长时间 running 无进展的任务，重置为 pending
+ * 每次恢复时重新计算 totalChunks（章节可能已变动），并限制最大恢复次数
  */
 function recoverStuckJobs(db: any): number {
   const cutoff = new Date(Date.now() - STUCK_JOB_TIMEOUT_MS).toISOString();
@@ -68,13 +69,40 @@ function recoverStuckJobs(db: any): number {
     .all() as GenerationJob[];
 
   for (const job of stuckJobs) {
-    console.log(`[TTS] 恢复卡住的任务 ${job.id} (book: ${job.bookId}, 上次更新: ${job.updatedAt})`);
+    // 检查恢复次数：error 字段累加 "任务超时自动恢复" 次数
+    const recoveryCount = (job.error?.match(/任务超时自动恢复/g) || []).length;
+    const MAX_RECOVERIES = 3; // 最多自动恢复 3 次，避免无限死循环
+
+    if (recoveryCount >= MAX_RECOVERIES) {
+      console.log(`[TTS] 任务 ${job.id} (book: ${job.bookId}) 已自动恢复 ${recoveryCount} 次，超过上限，标记为失败`);
+      db.update(ttsGenerationJobs)
+        .set({
+          status: 'failed',
+          error: `任务超时已达上限(${MAX_RECOVERIES}次)，人工介入`,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(sql`id = ${job.id}`)
+        .run();
+      continue;
+    }
+
+    // 重新计算 totalChunks（章节可能已更新）
+    const chapters = db.select().from(bookChapters)
+      .where(sql`book_id = ${job.bookId}`)
+      .all();
+    const newTotalChunks = chapters.reduce((sum: number, ch: any) => {
+      const estSize = ch.endOffset ? (ch.endOffset - (ch.startOffset || 0)) : 2000;
+      return sum + Math.max(1, Math.ceil(estSize / 200));
+    }, 0);
+
+    console.log(`[TTS] 恢复卡住的任务 ${job.id} (book: ${job.bookId}, 上次更新: ${job.updatedAt}, 重算 totalChunks: ${newTotalChunks})`);
     db.update(ttsGenerationJobs)
       .set({
         status: 'pending',
         progress: 0,
         completedChunks: 0,
-        error: '任务超时自动恢复',
+        totalChunks: newTotalChunks,
+        error: (job.error || '') + (job.error ? '; ' : '') + `任务超时自动恢复(第${recoveryCount + 1}次)`,
         updatedAt: new Date().toISOString(),
       })
       .where(sql`id = ${job.id}`)
@@ -375,12 +403,15 @@ async function processJob(
         }
 
         completedChunks++;
-        const progress = Math.min(100, Math.round((completedChunks / job.totalChunks) * 100));
+        // 用实际总片数 chapterChunks 计算进度，避免 totalChunks（创建时估算值）偏差导致进度虚假
+        const actualTotal = Math.max(job.totalChunks, chapterChunks);
+        const progress = Math.min(100, Math.round((completedChunks / actualTotal) * 100));
 
         db.update(ttsGenerationJobs)
           .set({
             progress,
             completedChunks,
+            totalChunks: actualTotal, // 实时更新 totalChunks 为实际值
             updatedAt: new Date().toISOString(),
           })
           .where(sql`id = ${job.id}`)
