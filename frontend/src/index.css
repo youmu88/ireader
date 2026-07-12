@@ -395,138 +395,26 @@ button, a, [role="button"] {
               border-color 0.2s ease-out;
 }
 
-/* ── iOS 风格阅读排版增强 ── */
 /* ═══════════════════════════════════════
-   模拟书籍翻页动画（3D 卷页效果）
+   PageTurnCanvas 翻页动画（v2.3.0：JS 引擎驱动）
+   使用 requestAnimationFrame 逐帧控制 CSS 3D 变换。
+   旧的 @keyframes 动画和 .page-turn-* 类已全部移除。
    ═══════════════════════════════════════ */
 
-/* ── 翻页容器：透视 + 防文本选中 ── */
-.page-turn-container {
-  perspective: 2000px;
-  transform-style: preserve-3d;
-  overflow: hidden;
-  position: relative;
-}
-
-/* ── 翻页动画层基类（v2.2.3：双缓冲架构，每层独立动画） ── */
-.page-turn-layer {
-  backface-visibility: hidden;
-  will-change: transform, opacity;
-}
-
-/* ── 下一页动画（左滑）：旧页向左翻出 ── */
-.page-turn-next-leave {
-  animation: pageTurnNextLeave 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-@keyframes pageTurnNextLeave {
-  0% {
-    transform: translateX(0) rotateY(0deg) scale(1);
-    opacity: 1;
-  }
-  100% {
-    transform: translateX(-40%) rotateY(-18deg) scale(0.92);
-    opacity: 0.3;
-  }
-}
-
-/* ── 下一页动画（左滑）：新页从右侧翻入 ── */
-.page-turn-next-enter {
-  animation: pageTurnNextEnter 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-@keyframes pageTurnNextEnter {
-  0% {
-    transform: translateX(60%) rotateY(12deg) scale(0.94);
-    opacity: 0.3;
-  }
-  40% {
-    transform: translateX(8%) rotateY(3deg) scale(0.99);
-    opacity: 0.8;
-  }
-  100% {
-    transform: translateX(0) rotateY(0deg) scale(1);
-    opacity: 1;
-  }
-}
-
-/* ── 上一页动画（右滑）：旧页向右翻出 ── */
-.page-turn-prev-leave {
-  animation: pageTurnPrevLeave 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-@keyframes pageTurnPrevLeave {
-  0% {
-    transform: translateX(0) rotateY(0deg) scale(1);
-    opacity: 1;
-  }
-  100% {
-    transform: translateX(40%) rotateY(18deg) scale(0.92);
-    opacity: 0.3;
-  }
-}
-
-/* ── 上一页动画（右滑）：新页从左侧翻入 ── */
-.page-turn-prev-enter {
-  animation: pageTurnPrevEnter 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-@keyframes pageTurnPrevEnter {
-  0% {
-    transform: translateX(-60%) rotateY(-12deg) scale(0.94);
-    opacity: 0.3;
-  }
-  40% {
-    transform: translateX(-8%) rotateY(-3deg) scale(0.99);
-    opacity: 0.8;
-  }
-  100% {
-    transform: translateX(0) rotateY(0deg) scale(1);
-    opacity: 1;
-  }
-}
-
-/* ── 翻页进行中时外层容器的轻微缩放 ── */
-.page-turn-active {
-  /* 保留外层容器，为未来可能的折叠阴影等效果留位置 */
-}
-
-/* ── 翻页阴影效果 ── */
-.page-turn-shadow {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 2;
-  transition: opacity 0.3s ease-out;
-}
-
-/* ── 减少动效模式：禁用翻页动画 ── */
+/* ── 减少动效模式：跳过翻页动画，直接切换内容 ── */
 @media (prefers-reduced-motion: reduce) {
-  .page-turn-next-leave,
-  .page-turn-prev-leave {
-    opacity: 0;
-    transform: none !important;
-  }
-  .page-turn-next-enter,
-  .page-turn-prev-enter {
+  .page-turn-container * {
     animation: none !important;
-    opacity: 1 !important;
-    transform: none !important;
+    transition: none !important;
   }
 }
 
-/* ── 低性能设备禁用翻页动画 ── */
-.low-perf .page-turn-next-leave,
-.low-perf .page-turn-prev-leave {
-  opacity: 0;
-  transform: none !important;
-}
-.low-perf .page-turn-next-enter,
-.low-perf .page-turn-prev-enter {
+/* ── 低性能设备同样跳过动画 ── */
+.low-perf .page-turn-container * {
   animation: none !important;
-  opacity: 1 !important;
-  transform: none !important;
+  transition: none !important;
 }
+
 :root {
   --reader-letter-spacing: 0.01em;
   --reader-bg: #ffffff;

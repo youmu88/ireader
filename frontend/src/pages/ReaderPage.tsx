@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import PageTurnCanvas from '../components/PageTurnCanvas';
 import {
   cacheBookChapters,
   cacheSingleChapter,
@@ -136,6 +137,8 @@ function ReaderPage() {
   const loadingNextChapterRef = useRef(false);
   const bottomSentinelRef = useRef<HTMLDivElement>(null);
   const goToNextChapterRef = useRef<((_fromAutoScroll?: boolean) => Promise<void>) | null>(null);
+  /** navigateToChapter ref — 用于翻页动画回调中访问（避免闭包过期） */
+  const navigateToChapterRef = useRef<((chapter: Chapter, _append?: boolean) => Promise<void>) | null>(null);
   /** TTS 自动进入下一章 — ref 包装避免闭包过期 */
   const advanceToNextChapterTTSRef = useRef<((player: any) => Promise<void>) | null>(null);
   const epubTextScrollRef = useRef<HTMLDivElement>(null);
@@ -182,65 +185,177 @@ function ReaderPage() {
   const showSearchRef = useRef(false);
   useEffect(() => { showSearchRef.current = showSearch; }, [showSearch]);
 
-  // ── 触摸滑动翻页 ──
-  // pageTurnAnim 状态语义重构（v2.2.3）：
-  //   'none' → 无动画；'next' → 正在翻到下一页；'prev' → 正在翻到上一页
-  // 翻页动画采用双缓冲架构：同时渲染旧页（leave 动画）和新页（enter 动画），
-  // 旧页内容 = 当前 pageIndex，新页内容 = pageTurnTarget（提前计算的目标页）。
-  const [pageTurnAnim, setPageTurnAnim] = useState<'none' | 'next' | 'prev'>('none');
-  const [pageTurnTarget, setPageTurnTarget] = useState<number>(0);
+  // ── 翻页动画引擎（v2.3.0：全面重写） ──
+  // 使用 PageTurnCanvas 组件驱动 JS requestAnimationFrame 逐帧 CSS 3D 翻页
+  // 架构：isPageTurning 门控 + pageTurnSnapshot 传参 → PageTurnCanvas 渲染动画
+  const [isPageTurning, setIsPageTurning] = useState(false);
+  const [pageTurnDirection, setPageTurnDirection] = useState<'next' | 'prev'>('next');
+  const [pageTurnSnapshot, setPageTurnSnapshot] = useState<{
+    currentContent: React.ReactNode;
+    nextContent: React.ReactNode;
+  } | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
-  /** 执行翻页：更新 pageIndex 或切换章节 */
-  const performPageTurn = useCallback((direction: 'prev' | 'next') => {
-    // TTS 朗读中、搜索打开时禁止翻页（避免打断）
-    if (ttsState !== 'idle' || showSearchRef.current) return;
-    if (book?.format !== 'txt') return; // 仅 TXT 模式支持翻页动画
-    if (readingMode !== 'paginated') return; // 仅翻页模式下启用
 
-    const doTurn = async () => {
-      if (direction === 'next') {
+  /** 渲染指定页的内容（用于快照） */
+  const renderPageContent = useCallback((pageIdx: number): React.ReactNode => {
+    if (book?.format === 'txt') {
+      // 内联分页逻辑（避免引用后定义的 getPaginatedContent）
+      const lines = txtContent.split('\n');
+      const perPage = Math.max(10, Math.ceil(lines.length / totalPages));
+      const start = pageIdx * perPage;
+      const end = Math.min(start + perPage, lines.length);
+      const pageContent = lines.slice(start, end).join('\n');
+      return (
+        <div className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap"
+          style={{
+            fontSize: `${fontSize}px`,
+            fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
+            lineHeight,
+            letterSpacing: `${letterSpacing}em`,
+            padding: '12px',
+          }}>
+          {readingMode !== 'paginated' || totalPages <= 1 ? txtContent : pageContent}
+        </div>
+      );
+    }
+    // EPUB：渲染当前章节的 HTML 内容
+    if (book?.format === 'epub') {
+      return (
+        <div className="text-gray-800 dark:text-gray-200"
+          style={{
+            fontSize: `${fontSize}px`,
+            fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
+            lineHeight,
+            letterSpacing: `${letterSpacing}em`,
+            padding: '12px',
+          }}>
+          {epubDisplayHtml ? (
+            <div className="epub-content" dangerouslySetInnerHTML={{ __html: epubDisplayHtml }} />
+          ) : txtContent ? (
+            <div className="whitespace-pre-line">{txtContent}</div>
+          ) : (
+            <div className="flex items-center justify-center py-12">
+              <span style={{ color: 'var(--color-text-muted)' }}>暂无内容</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+    return null;
+  }, [book, fontSize, fontFamily, lineHeight, letterSpacing, txtContent, totalPages, epubDisplayHtml, readingMode]);
+
+  /** 翻页动画完成回调 */
+  const handlePageTurnComplete = useCallback(() => {
+    setIsPageTurning(false);
+    setPageTurnSnapshot(null);
+  }, []);
+
+  /** 执行翻页：先计算目标页 → 设置快照 → 触发 PageTurnCanvas 动画 */
+  const performPageTurn = useCallback((direction: 'prev' | 'next') => {
+    // 门控：TTS 朗读中、搜索打开、已在翻页中时禁止
+    if (ttsState !== 'idle' || showSearchRef.current || isPageTurning) return;
+    if (readingMode !== 'paginated') return;
+
+    if (direction === 'next') {
+      if (book?.format === 'txt') {
         if (pageIndex < totalPages - 1) {
-          // 章节内下一页：旧页=pageIndex，新页=pageIndex+1
-          setPageTurnTarget(pageIndex + 1);
-          setPageTurnAnim('next');
-          await new Promise(r => setTimeout(r, 600));
-          setPageIndex(pageIndex + 1);
-          setPageTurnAnim('none');
+          // 章节内下一页
+          setPageTurnSnapshot({
+            currentContent: renderPageContent(pageIndex),
+            nextContent: renderPageContent(pageIndex + 1),
+          });
+          setPageTurnDirection('next');
+          setIsPageTurning(true);
+          // 动画完成后更新 pageIndex
+          setTimeout(() => {
+            setPageIndex(pageIndex + 1);
+          }, 600);
         } else {
           // 章节末 → 下一章
           const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
-          if (idx < chapters.length - 1) {
-            setPageTurnTarget(0);
-            setPageTurnAnim('next');
-            await new Promise(r => setTimeout(r, 600));
-            setPageIndex(0);
-            await navigateToChapter(chapters[idx + 1]);
-            setPageTurnAnim('none');
+          if (idx >= 0 && idx < chapters.length - 1) {
+            setPageTurnSnapshot({
+              currentContent: renderPageContent(pageIndex),
+              nextContent: <div style={{ padding: '12px' }}>
+                <h2 className="text-xl font-bold mb-4">{chapters[idx + 1].title}</h2>
+                <span className="text-gray-400">加载中...</span>
+              </div>,
+            });
+            setPageTurnDirection('next');
+            setIsPageTurning(true);
+            setTimeout(async () => {
+              setPageIndex(0);
+              await navigateToChapterRef.current!(chapters[idx + 1]);
+            }, 600);
           }
         }
-      } else {
-        if (pageIndex > 0) {
-          // 章节内上一页：旧页=pageIndex，新页=pageIndex-1
-          setPageTurnTarget(pageIndex - 1);
-          setPageTurnAnim('prev');
-          await new Promise(r => setTimeout(r, 600));
-          setPageIndex(pageIndex - 1);
-          setPageTurnAnim('none');
-        } else {
-          // 章节首页 → 上一章
-          const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
-          if (idx > 0) {
-            setPageTurnTarget(0);
-            setPageTurnAnim('prev');
-            await new Promise(r => setTimeout(r, 600));
-            await navigateToChapter(chapters[idx - 1]);
-            setPageTurnAnim('none');
-          }
+      } else if (book?.format === 'epub') {
+        // EPUB 翻页：切换章节
+        const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
+        if (idx >= 0 && idx < chapters.length - 1) {
+          setPageTurnSnapshot({
+            currentContent: renderPageContent(0),
+            nextContent: <div style={{ padding: '12px' }}>
+              <h2 className="text-xl font-bold mb-4">{chapters[idx + 1].title}</h2>
+              <span className="text-gray-400">加载中...</span>
+            </div>,
+          });
+          setPageTurnDirection('next');
+          setIsPageTurning(true);
+          setTimeout(async () => {
+            await navigateToChapterRef.current!(chapters[idx + 1]);
+          }, 600);
         }
       }
-    };
-    doTurn();
-  }, [pageIndex, totalPages, chapters, currentChapter, ttsState, book, readingMode]);
+    } else {
+      // direction === 'prev'
+      if (book?.format === 'txt') {
+        if (pageIndex > 0) {
+          setPageTurnSnapshot({
+            currentContent: renderPageContent(pageIndex),
+            nextContent: renderPageContent(pageIndex - 1),
+          });
+          setPageTurnDirection('prev');
+          setIsPageTurning(true);
+          setTimeout(() => {
+            setPageIndex(pageIndex - 1);
+          }, 600);
+        } else {
+          const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
+          if (idx > 0) {
+            setPageTurnSnapshot({
+              currentContent: renderPageContent(0),
+              nextContent: <div style={{ padding: '12px' }}>
+                <h2 className="text-xl font-bold mb-4">{chapters[idx - 1].title}</h2>
+                <span className="text-gray-400">加载中...</span>
+              </div>,
+            });
+            setPageTurnDirection('prev');
+            setIsPageTurning(true);
+            setTimeout(async () => {
+              await navigateToChapterRef.current!(chapters[idx - 1]);
+            }, 600);
+          }
+        }
+      } else if (book?.format === 'epub') {
+        const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
+        if (idx > 0) {
+          setPageTurnSnapshot({
+            currentContent: renderPageContent(0),
+            nextContent: <div style={{ padding: '12px' }}>
+              <h2 className="text-xl font-bold mb-4">{chapters[idx - 1].title}</h2>
+              <span className="text-gray-400">加载中...</span>
+            </div>,
+          });
+          setPageTurnDirection('prev');
+          setIsPageTurning(true);
+          setTimeout(async () => {
+            await navigateToChapterRef.current!(chapters[idx - 1]);
+          }, 600);
+        }
+      }
+    }
+  }, [ttsState, isPageTurning, readingMode, book, pageIndex, totalPages, chapters, currentChapter, renderPageContent]);
 
   /** 触摸开始：记录起始位置 */
   const handleSwipeStart = useCallback((clientX: number, clientY: number) => {
@@ -258,21 +373,20 @@ function ReaderPage() {
     const absDy = Math.abs(dy);
     swipeStartRef.current = null;
 
-    // ⭐ 正在翻页动画中、TTS 或搜索打开时，不处理滑动
-    if (pageTurnAnim !== 'none') return;
+    // 正在翻页动画中、TTS 或搜索打开时，不处理滑动
+    if (isPageTurning) return;
     if (ttsState !== 'idle' || showSearchRef.current) return;
+    if (readingMode !== 'paginated') return;
 
     // 滑动距离 > 50px 且水平方向 > 垂直方向 → 翻页
     if (absDx > 50 && absDx > absDy * 1.5 && dt < 500) {
       if (dx < 0) {
-        // 左滑 → 下一页
         performPageTurn('next');
       } else {
-        // 右滑 → 上一页
         performPageTurn('prev');
       }
     }
-  }, [pageTurnAnim, ttsState, performPageTurn]);
+  }, [isPageTurning, ttsState, readingMode, performPageTurn]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -1313,6 +1427,9 @@ function stripHtml(html: string): string {
     }
   };
 
+  // 保持 ref 指向最新函数，供翻页动画等异步回调使用
+  navigateToChapterRef.current = navigateToChapter;
+
   /** 跳转到搜索结果位置（先切换章节，再滚动到匹配位置） */
   const handleSearchJump = useCallback(async (result: { offset: number; chapterIdx: number; chapterTitle: string }) => {
     setShowSearch(false);
@@ -2302,13 +2419,24 @@ function stripHtml(html: string): string {
         {/* Reader Content - full screen, no fixed toolbar */}
         <div className="h-full flex flex-col">
           <div
-            className={`flex-1 flex overflow-hidden relative page-turn-container${pageTurnAnim !== 'none' ? ' page-turn-active' : ''}`}
+            className="flex-1 flex overflow-hidden relative"
             onClick={handleTapReader}
             onTouchStart={(e) => { handleSwipeStart(e.touches[0].clientX, e.touches[0].clientY); }}
             onTouchEnd={(e) => { handleSwipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY); }}
             onMouseDown={(e) => { handleSwipeStart(e.clientX, e.clientY); }}
             onMouseUp={(e) => { handleSwipeEnd(e.clientX, e.clientY); }}
           >
+            {/* ── PageTurnCanvas 翻页动画覆盖层 ── */}
+            {isPageTurning && pageTurnSnapshot && (
+              <PageTurnCanvas
+                direction={pageTurnDirection}
+                snapshot={{
+                  currentPage: pageTurnSnapshot.currentContent,
+                  nextPage: pageTurnSnapshot.nextContent,
+                }}
+                onComplete={handlePageTurnComplete}
+              />
+            )}
         {/* TOC Sidebar */}
         {showToc && (
           <div onClick={(e) => e.stopPropagation()} className="w-64 sm:w-72 overflow-y-auto absolute sm:relative z-20 inset-y-0 left-0 shadow-lg sm:shadow-none" style={{background: 'var(--color-bg-card)', borderRight: '0.5px solid var(--color-border)'}}>
@@ -2474,81 +2602,31 @@ function stripHtml(html: string): string {
                 </h2>
               </div>
             )}
-            {/* ── 翻页动画双缓冲层（v2.2.3）：同时渲染旧页 leave + 新页 enter ── */}
-            {pageTurnAnim !== 'none' && readingMode === 'paginated' ? (
-              <div
-                ref={txtPageRef}
-                className="flex-1 relative overflow-hidden page-turn-container"
-                style={{
-                  perspective: '2000px',
-                  transformStyle: 'preserve-3d',
-                }}
-              >
-                {/* 旧页：当前 pageIndex 内容，播放 leave 动画 */}
-                <div
-                  className={`page-turn-layer page-turn-${pageTurnAnim}-leave`}
-                  style={{
-                    fontSize: `${fontSize}px`,
-                    fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
-                    lineHeight,
-                    letterSpacing: `${letterSpacing}em`,
-                    position: 'absolute', inset: 0,
-                    padding: '0 12px',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
-                    {chapterLoading ? (
-                      <div className="flex items-center justify-center py-12"><span className="text-gray-400 animate-pulse">加载中...</span></div>
-                    ) : getPaginatedContent(txtContent, pageIndex, totalPages)}
-                  </div>
+            {/* ── 翻页动画已迁移至 PageTurnCanvas 组件（外层覆盖） ── */}
+            <div
+              ref={txtPageRef}
+              className={`text-gray-800 dark:text-gray-200 whitespace-pre-wrap ${
+                readingMode === 'paginated' ? 'flex-1 overflow-hidden' : ''
+              }`}
+              style={{
+                fontSize: `${fontSize}px`,
+                fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
+                lineHeight,
+                letterSpacing: `${letterSpacing}em`,
+              }}
+            >
+              {chapterLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <span className="text-gray-400 animate-pulse">加载中...</span>
                 </div>
-                {/* 新页：目标 pageTurnTarget 内容，播放 enter 动画 */}
-                <div
-                  className={`page-turn-layer page-turn-${pageTurnAnim}-enter`}
-                  style={{
-                    fontSize: `${fontSize}px`,
-                    fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
-                    lineHeight,
-                    letterSpacing: `${letterSpacing}em`,
-                    position: 'absolute', inset: 0,
-                    padding: '0 12px',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
-                    {chapterLoading ? (
-                      <div className="flex items-center justify-center py-12"><span className="text-gray-400 animate-pulse">加载中...</span></div>
-                    ) : getPaginatedContent(txtContent, pageTurnTarget, totalPages)}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div
-                ref={txtPageRef}
-                className={`text-gray-800 dark:text-gray-200 whitespace-pre-wrap ${
-                  readingMode === 'paginated' ? 'flex-1 overflow-hidden' : ''
-                }`}
-                style={{
-                  fontSize: `${fontSize}px`,
-                  fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
-                  lineHeight,
-                  letterSpacing: `${letterSpacing}em`,
-                }}
-              >
-                {chapterLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <span className="text-gray-400 animate-pulse">加载中...</span>
-                  </div>
-                ) : (
-                  readingMode === 'paginated'
-                    ? getPaginatedContent(txtContent, pageIndex, totalPages)
-                    : ttsState !== 'idle' && activeSegmentIndex >= 0
-                      ? renderHighlightedContent(txtContent)
-                      : txtContent
-                )}
-              </div>
-            )}
+              ) : (
+                readingMode === 'paginated'
+                  ? getPaginatedContent(txtContent, pageIndex, totalPages)
+                  : ttsState !== 'idle' && activeSegmentIndex >= 0
+                    ? renderHighlightedContent(txtContent)
+                    : txtContent
+              )}
+            </div>
             {/* 底部哨兵元素：用于 IntersectionObserver 检测滚动到末尾 */}
             <div ref={bottomSentinelRef} className="h-4" />
           </div>
@@ -2850,23 +2928,43 @@ function stripHtml(html: string): string {
                         {currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1} / ${chapters.length}` : ''}
                       </span>
                     </div>
-                    {book?.format === 'txt' && readingMode === 'paginated' && (
-                      <div className="flex items-center justify-between mt-1">
-                          <button
-                            onClick={() => { if (pageIndex > 0) setPageIndex(i => i - 1); else goToPrevChapter(); }}
-                            disabled={pageIndex === 0 && chapters.findIndex(c => c.id === currentChapter?.id) === 0}
-                                                          className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
-                              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                          ><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="15 18 9 12 15 6"/></svg> 上一页</button>
-                        <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{pageIndex + 1} / {totalPages}</span>
-                          <button
-                            onClick={() => { if (pageIndex < totalPages - 1) setPageIndex(i => i + 1); else goToNextChapter(); }}
-                            disabled={pageIndex >= totalPages - 1 && chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1}
-                            className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
-                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                          >下一页 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="9 18 15 12 9 6"/></svg></button>
-                      </div>
-                    )}
+                     {book?.format && readingMode === 'paginated' && (
+                       <div className="flex items-center justify-between mt-1">
+                         {book?.format === 'txt' ? (
+                           <>
+                             <button
+                               onClick={() => performPageTurn('prev')}
+                               disabled={pageIndex === 0 && chapters.findIndex(c => c.id === currentChapter?.id) === 0}
+                               className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
+                               style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                             ><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="15 18 9 12 15 6"/></svg> 上一页</button>
+                             <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{pageIndex + 1} / {totalPages}</span>
+                             <button
+                               onClick={() => performPageTurn('next')}
+                               disabled={pageIndex >= totalPages - 1 && chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1}
+                               className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
+                               style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                             >下一页 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="9 18 15 12 9 6"/></svg></button>
+                           </>
+                         ) : (
+                           <>
+                             <button
+                               onClick={() => performPageTurn('prev')}
+                               disabled={chapters.findIndex(c => c.id === currentChapter?.id) === 0}
+                               className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
+                               style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                             ><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="15 18 9 12 15 6"/></svg> 上一章</button>
+                             <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1} / ${chapters.length}` : ''}</span>
+                             <button
+                               onClick={() => performPageTurn('next')}
+                               disabled={chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1}
+                               className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
+                               style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                             >下一章 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="9 18 15 12 9 6"/></svg></button>
+                           </>
+                         )}
+                       </div>
+                     )}
                   </div>
 
                   {/* ── 缓存管理 ── */}

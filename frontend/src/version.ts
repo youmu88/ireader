@@ -94,6 +94,14 @@
 * 2.2.2 (2026-07-12): [BUGFIX] 修复翻页动画 CSS 类名拼接错误 — 'page-turn ' + pageTurnAnim 生成 page-turn next-leave，CSS 选择器 .page-turn-next-leave 无法匹配（连字符 vs 空格），改为 page-turn page-turn-{anim} 格式
  *   1) handleCacheFullBook 前置检查：文字+语音已全缓存时直接跳过，不触发进度动画
  *   2) clearBookTTSAudioCache / clearBookChapterCache 改用 IDB 游标批量删除替代逐条 for 循环删除
+ * 2.3.0 (2026-07-12): [FEATURE] 翻页动画引擎全面重写 — 从零实现 PageTurnCanvas 组件
+ *   - 删除旧的 CSS @keyframes 双缓冲翻页体系（v2.2.3 引入的诸多补丁）
+ *   - 新建 PageTurnCanvas 组件，使用 requestAnimationFrame + 逐帧 CSS 3D 变换实现真实翻页感
+ *   - 旧页层：transform-origin: left center，rotateY 0° → -90° + 暗化 + 缩放
+ *   - 新页层：transform-origin: right center，rotateY 90° → 0° + 亮度恢复 + 复原
+ *   - 支持 TXT 章节内分页翻页 + 章节间翻页 + EPUB 章节间翻页
+ *   - 手势滑动触发（水平滑动 > 50px）、浮动菜单翻页按钮支持
+ *   - 保留 reduced-motion 和 low-perf 无障碍兼容
  * 2.0.0 (2026-07-12): [ARCH] 全局引用系统 — 相同书籍/TTS语音全局只存一份，引用计数隔离，30天自动清理
  * 2.0.1 (2026-07-12): [MIGRATION] 存量数据迁移完成 + 全局TTS映射修复 + 后台合成补录全局资源
  *   1) 运行 migrate-global-refs.ts 完成 268 本书 → 264 全局书籍 + 268 引用的迁移
@@ -101,4 +109,4 @@
  *   3) 修复 ttsGenerationService 后台预合成时也写入 tts_global_resources，实现跨用户共享
  *   4) 运行 refresh SQL 脚本刷新所有书籍的语音合成进度
  */
-export const APP_VERSION = '2.2.3';
+export const APP_VERSION = '2.3.0';
