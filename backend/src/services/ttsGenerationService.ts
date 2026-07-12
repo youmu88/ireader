@@ -394,6 +394,52 @@ async function processJob(
           if (result.success && result.audio) {
             // 保存到 TTS 缓存（按用户隔离）
             saveToCache(db, dataDir, chunk, job.voice, job.speed, result.audio, 'wav', job.userId, job.bookId, job.chapterId);
+
+            // ⭐ 同时写入全局资源（便于跨用户共享）
+            try {
+              const { findTtsGlobalResource, createTtsGlobalResource } = await import('./globalResourceService.js');
+              const textHash = (crypto as any).createHash('md5').update(`${job.voice}|${job.speed}|${chunk}`).digest('hex');
+
+              // localBookId → globalBookId 映射
+              const { userBookRefs } = await import('../db/schema.js');
+              const userRef = db.select().from(userBookRefs).where(
+                sql`local_book_id = ${job.bookId} AND deleted_at IS NULL`
+              ).get() as any;
+              const globalBookId = userRef?.globalBookId || job.bookId;
+
+              const existing = findTtsGlobalResource(db, textHash, job.voice, job.speed, globalBookId);
+              if (!existing) {
+                // 复制音频到全局目录
+                const globalAudioDir = path.join(dataDir, 'tts-global');
+                if (!fs.existsSync(globalAudioDir)) fs.mkdirSync(globalAudioDir, { recursive: true });
+                const globalAudioPath = path.join(globalAudioDir, `${textHash}.wav`);
+                if (!fs.existsSync(globalAudioPath)) {
+                  fs.writeFileSync(globalAudioPath, result.audio);
+                }
+                createTtsGlobalResource(db, globalBookId, job.chapterId || null, textHash, job.voice, job.speed, globalAudioPath, result.audio.length);
+              }
+              // 为用户创建 TTS 引用
+              const { ttsRefs } = await import('../db/schema.js');
+              const refExists = db.select().from(ttsRefs).where(
+                sql`user_id = ${job.userId} AND global_resource_id = ${existing?.id || textHash}`
+              ).get();
+              if (!refExists) {
+                const { v4: uuidv4 } = await import('uuid');
+                db.insert(ttsRefs).values({
+                  id: uuidv4(),
+                  userId: job.userId,
+                  globalResourceId: existing?.id,
+                  localCacheId: null,
+                  bookId: job.bookId,
+                  refCount: 1,
+                  createdAt: new Date().toISOString(),
+                  deletedAt: null,
+                } as any).run();
+              }
+            } catch (err) {
+              // 全局资源写入失败不应中断主流程
+              console.warn(`[TTS] 写入全局资源失败(非致命):`, (err as Error).message);
+            }
           } else if (result && !result.success) {
             console.warn(`[TTS] 段落合成失败: ${result.error || '未知错误'} (book: ${job.bookId.slice(0,8)})`);
           }

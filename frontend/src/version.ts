@@ -93,5 +93,10 @@
  *   1) handleCacheFullBook 前置检查：文字+语音已全缓存时直接跳过，不触发进度动画
  *   2) clearBookTTSAudioCache / clearBookChapterCache 改用 IDB 游标批量删除替代逐条 for 循环删除
  * 2.0.0 (2026-07-12): [ARCH] 全局引用系统 — 相同书籍/TTS语音全局只存一份，引用计数隔离，30天自动清理
+ * 2.0.1 (2026-07-12): [MIGRATION] 存量数据迁移完成 + 全局TTS映射修复 + 后台合成补录全局资源
+ *   1) 运行 migrate-global-refs.ts 完成 268 本书 → 264 全局书籍 + 268 引用的迁移
+ *   2) 修复 POST /api/tts 和 batch-cache 中全局TTS查找/创建用的 bookId 映射（local→global）
+ *   3) 修复 ttsGenerationService 后台预合成时也写入 tts_global_resources，实现跨用户共享
+ *   4) 运行 refresh SQL 脚本刷新所有书籍的语音合成进度
  */
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.0.1';

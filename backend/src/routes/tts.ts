@@ -8,7 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { sql } from 'drizzle-orm';
 import { getSources, getVoices, checkHealth, synthesize } from '../services/ttsProxyService.js';
-import { ttsSettings, ttsCache, ttsGenerationJobs, books, ttsGlobalResources, ttsRefs } from '../db/schema.js';
+import { ttsSettings, ttsCache, ttsGenerationJobs, books, ttsGlobalResources, ttsRefs, userBookRefs } from '../db/schema.js';
 import { findCache, isCacheValid, saveToCache, clearAllCache, evictStaleCache, findCachedSegmentsByBook } from '../services/ttsCacheService.js';
 import { findTtsGlobalResource, createTtsGlobalResource, createTtsRef, removeTtsRef } from '../services/globalResourceService.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -60,13 +60,19 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     const apiKey = userSettings?.apiKey || undefined;
     const source = tts_source || userSettings?.source || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
 
-    // ⭐ 全局资源查找：按 text_hash + voice + speed + book_id
+    // ⭐ 全局资源查找：全局资源表的 book_id 是 globalBookId，需要映射
     if (!no_cache && dataDir && book_id) {
       try {
         const textHash = crypto.createHash('md5').update(`${voice || 'zh-CN-XiaoxiaoNeural'}|${speed || 1.0}|${input}`).digest('hex');
 
+        // localBookId → globalBookId 映射
+        const userRef = db.select().from(userBookRefs).where(
+          sql`local_book_id = ${book_id} AND deleted_at IS NULL`
+        ).get() as any;
+        const globalBookId = userRef?.globalBookId || book_id;
+
         // 先查全局资源（同书+同文本+同音色共享）
-        const globalRes = findTtsGlobalResource(db, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, book_id);
+        const globalRes = findTtsGlobalResource(db, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalBookId);
         if (globalRes && fs.existsSync(globalRes.audioPath)) {
           // 创建/更新用户的 tts_ref
           const existingRef = db.select().from(ttsRefs).where(
@@ -117,7 +123,15 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         const textHash = crypto.createHash('md5').update(`${voice || 'zh-CN-XiaoxiaoNeural'}|${speed || 1.0}|${input}`).digest('hex');
 
         // 检查全局是否已有（防并发重复写入）
-        let globalRes = findTtsGlobalResource(db, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, book_id);
+        // 先做 localBookId → globalBookId 映射
+        const globalBookId2 = (() => {
+          const ref = db.select().from(userBookRefs).where(
+            sql`local_book_id = ${book_id} AND deleted_at IS NULL`
+          ).get() as any;
+          return ref?.globalBookId || book_id;
+        })();
+
+        let globalRes = findTtsGlobalResource(db, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalBookId2);
         if (!globalRes && book_id) {
           // 存到全局目录
           const audioFormat = response_format || 'wav';
@@ -127,7 +141,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           const globalAudioPath = path.join(globalAudioDir, `${textHash}${audioExt}`);
           fs.writeFileSync(globalAudioPath, result.audio);
 
-          globalRes = createTtsGlobalResource(db, book_id, null, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalAudioPath, result.audio.length);
+          globalRes = createTtsGlobalResource(db, globalBookId2, null, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalAudioPath, result.audio.length);
         }
 
         if (globalRes) {
@@ -283,10 +297,16 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       const voice = (req.query.voice as string) || 'zh-CN-XiaoxiaoNeural';
       const speed = parseFloat(req.query.speed as string) || 1.0;
 
-      // 1. 查全局资源（全局 TTS + 用户有引用）
+      // 1. 查全局资源：需要将 localBookId → globalBookId
+      const userRef = db.select()
+        .from(userBookRefs)
+        .where(sql`local_book_id = ${bookId} AND deleted_at IS NULL`)
+        .get() as any;
+      const globalBookId = userRef?.globalBookId || bookId;
+
       const globalEntries = db.select()
         .from(ttsGlobalResources)
-        .where(sql`book_id = ${bookId} AND voice = ${voice} AND speed = ${speed} AND deleted_at IS NULL`)
+        .where(sql`book_id = ${globalBookId} AND voice = ${voice} AND speed = ${speed} AND deleted_at IS NULL`)
         .all() as any[];
 
       const segments: any[] = [];
