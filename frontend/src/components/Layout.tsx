@@ -110,7 +110,7 @@ function Layout() {
                 )}
               </Link>
 
-              {/* 右侧：导航操作（双端图标一致：书架 → 语音合成 → 设置） */}
+              {/* 右侧：导航操作（双端图标一致：书架 → 设置 → 语音合成） */}
               <nav className="flex items-center gap-1 sm:gap-2">
                 {/* 书架按钮（移动端纯图标 + 桌面端图标文字） */}
                 <Link
@@ -133,27 +133,6 @@ function Layout() {
                   <span className="hidden sm:inline">书架</span>
                 </Link>
 
-                {/* 语音合成（麦克风图标）—— 双端统一 */}
-                <button
-                  onClick={openTtsQueue}
-                  className="relative w-9 h-9 flex items-center justify-center rounded-full tap-icon"
-                  style={{ color: 'var(--color-text-secondary)' }}
-                  title="语音合成"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="9" y="2" width="6" height="11" rx="3" ry="3" />
-                    <path d="M5 10v1a7 7 0 0 0 14 0v-1" />
-                    <line x1="12" y1="19" x2="12" y2="23" />
-                    <line x1="8" y1="23" x2="16" y2="23" />
-                  </svg>
-                  {activeJobCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white rounded-full animate-pop-in"
-                      style={{ background: 'var(--color-primary)' }}>
-                      {activeJobCount > 99 ? '99+' : activeJobCount}
-                    </span>
-                  )}
-                </button>
-
                 {/* 设置按钮（移动端纯图标 + 桌面端图标文字） */}
                 <Link
                   to="/settings"
@@ -174,6 +153,27 @@ function Layout() {
                   </svg>
                   <span className="hidden sm:inline">设置</span>
                 </Link>
+
+                {/* 语音合成（麦克风图标）—— 双端统一 */}
+                <button
+                  onClick={openTtsQueue}
+                  className="relative w-9 h-9 flex items-center justify-center rounded-full tap-icon"
+                  style={{ color: 'var(--color-text-secondary)' }}
+                  title="语音合成"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="2" width="6" height="11" rx="3" ry="3" />
+                    <path d="M5 10v1a7 7 0 0 0 14 0v-1" />
+                    <line x1="12" y1="19" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
+                  </svg>
+                  {activeJobCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white rounded-full animate-pop-in"
+                      style={{ background: 'var(--color-primary)' }}>
+                      {activeJobCount > 99 ? '99+' : activeJobCount}
+                    </span>
+                  )}
+                </button>
 
                 {/* 桌面端：用户信息 + 主题切换 + 退出 */}
                 <div className="hidden sm:flex items-center gap-2 ml-1 pl-2"

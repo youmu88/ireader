@@ -87,6 +87,7 @@
  *   4) stripHtml 从 useCallback 提取为模块级函数，消除 hoisting 问题
  * 1.38.1 (2026-07-12): [BUGFIX] 修复合集型EPUB书籍TTS语音生成无法读取章节内容 — 锚点(href含#)章节提取锚点对应文本合成语音，任务运行中根据实际分片数更新totalChunks
  * 1.39.0 (2026-07-12): [FEATURE] 导航栏布局优化 — 书架/语音合成/设置三图标顺序统一，补齐移动端缺失的书架图标，双端图标样式一致
+ * 1.40.0 (2026-07-12): [FEATURE] 导航栏顺序调整为书架→设置→语音合成
  */
 
-export const APP_VERSION = '1.39.0';
+export const APP_VERSION = '1.40.0';
