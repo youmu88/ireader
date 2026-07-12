@@ -226,7 +226,7 @@ function ReaderPage() {
     const results: { index: number; text: string; offset: number; chapterIdx: number; chapterTitle: string }[] = [];
     let globalMatchCount = 0;
 
-    for (let ci = 0; ci < chapters.length && globalMatchCount < 10; ci++) {
+    for (let ci = 0; ci < chapters.length && globalMatchCount < 20; ci++) {
       const ch = chapters[ci];
       const cached = fullCache.get(ch.id);
       if (!cached || !cached.text) continue;
@@ -234,7 +234,7 @@ function ReaderPage() {
       const lowerContent = cached.text.toLowerCase();
       let searchPos = 0;
 
-      while (globalMatchCount < 10) {
+      while (globalMatchCount < 20) {
         const pos = lowerContent.indexOf(lowerQuery, searchPos);
         if (pos === -1) break;
 
@@ -1049,7 +1049,6 @@ function ReaderPage() {
   /** 跳转到搜索结果位置（先切换章节，再滚动到匹配位置） */
   const handleSearchJump = useCallback(async (result: { offset: number; chapterIdx: number; chapterTitle: string }) => {
     setShowSearch(false);
-    setSearchQuery('');
     setSearchResults([]);
 
     const targetChapter = chapters[result.chapterIdx];
@@ -1061,6 +1060,10 @@ function ReaderPage() {
     }
 
     // 等渲染完成后滚动到匹配位置
+    const query = searchQuery;
+    // 在切换章节/跳转后才清空搜索查询（确保 RAF 回调中能读到正确的 query）
+    setTimeout(() => setSearchQuery(''), 200);
+
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const container = epubTextScrollRef.current || txtScrollRef.current;
@@ -1083,7 +1086,7 @@ function ReaderPage() {
         if (targetNode) {
           const range = document.createRange();
           range.setStart(targetNode, targetOffset);
-          range.setEnd(targetNode, targetOffset + searchQuery.length);
+          range.setEnd(targetNode, targetOffset + query.length);
           const rect = range.getBoundingClientRect();
           if (rect) {
             container.scrollBy({ top: rect.top - container.clientHeight / 3, behavior: 'smooth' });
