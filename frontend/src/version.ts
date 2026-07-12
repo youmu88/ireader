@@ -70,10 +70,8 @@
  *   3) ReaderPage loadBook离线降级：API请求失败时从 IndexedDB 读取书籍信息和章节列表
  *   4) offlineCacheService 新增 getOfflineBookInfo：从 cacheMeta 提取书籍基本信息供离线使用
  * 1.33.0 (2026-07-12): [FEATURE] 安全账号白名单 — 注册白名单邮箱限制（secUserEmail.json），仅白名单内邮箱可注册；登录支持 email/username 双模式兼容老用户
- */
-
  * 1.33.1 (2026-07-12): [BUGFIX] 修复白名单配置未部署 — deploy.sh 未拷贝 secUserEmail.json 到部署目录，导致后端加载白名单失败，所有邮箱被拒绝注册
+ * 1.34.0 (2026-07-12): [FEATURE] 语音播放停止后清除播放位置，再次播放从新位置开始 + 书籍内搜索与跳转
  */
 
-export const APP_VERSION = '1.33.1';
-export const APP_VERSION = '1.33.0';
+export const APP_VERSION = '1.34.0';

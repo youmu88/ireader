@@ -164,6 +164,90 @@ function ReaderPage() {
 
   // ── 睡眠计时器 ──
   const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
+
+  // ── 书籍内容搜索 ──
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<{ index: number; text: string; offset: number }[]>([]);
+  const [searchActiveIdx, setSearchActiveIdx] = useState(-1);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  /** 在当前章节文本中搜索关键词 */
+  const performSearch = useCallback((query: string) => {
+    if (!query || !txtContent) {
+      setSearchResults([]);
+      setSearchActiveIdx(-1);
+      return;
+    }
+    const results: { index: number; text: string; offset: number }[] = [];
+    const lowerQuery = query.toLowerCase();
+    const lowerContent = txtContent.toLowerCase();
+    let searchPos = 0;
+    let matchCount = 0;
+    while (matchCount < 10) {
+      const pos = lowerContent.indexOf(lowerQuery, searchPos);
+      if (pos === -1) break;
+      // 取匹配位置前后各20个字符作为上下文
+      const start = Math.max(0, pos - 20);
+      const end = Math.min(txtContent.length, pos + query.length + 20);
+      let context = txtContent.slice(start, end);
+      if (start > 0) context = '…' + context;
+      if (end < txtContent.length) context = context + '…';
+      results.push({ index: matchCount, text: context, offset: pos });
+      searchPos = pos + query.length;
+      matchCount++;
+    }
+    setSearchResults(results);
+    setSearchActiveIdx(results.length > 0 ? 0 : -1);
+  }, [txtContent]);
+
+  /** 跳转到搜索结果位置 */
+  const handleSearchJump = useCallback((offset: number) => {
+    setShowSearch(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    // 滚动到匹配位置
+    const container = epubTextScrollRef.current || txtScrollRef.current;
+    if (!container) return;
+    // 在内容中查找匹配位置对应的文本节点
+    // 策略：将容器内所有文本节点串联，找到 offset 对应的节点
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+    let charCount = 0;
+    let targetNode: Text | null = null;
+    let targetOffset = 0;
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text;
+      const nodeLen = node.textContent?.length || 0;
+      if (charCount + nodeLen > offset) {
+        targetNode = node;
+        targetOffset = offset - charCount;
+        break;
+      }
+      charCount += nodeLen;
+    }
+    if (targetNode) {
+      // 创建 Range 来选择匹配文本
+      const range = document.createRange();
+      range.setStart(targetNode, targetOffset);
+      range.setEnd(targetNode, targetOffset + searchQuery.length);
+      // 滚动到该位置
+      const rect = range.getBoundingClientRect();
+      if (rect) {
+        container.scrollBy({ top: rect.top - container.clientHeight / 3, behavior: 'smooth' });
+      }
+      // 临时高亮
+      const highlightSpan = document.createElement('mark');
+      highlightSpan.className = 'bg-yellow-300 dark:bg-yellow-600 rounded px-0.5 transition-all duration-1000';
+      try {
+        range.surroundContents(highlightSpan);
+        setTimeout(() => {
+          highlightSpan.classList.remove('bg-yellow-300', 'dark:bg-yellow-600');
+          highlightSpan.classList.add('bg-yellow-100', 'dark:bg-yellow-800');
+        }, 2000);
+      } catch { /* 跨节点环绕可能失败，静默 */ }
+    }
+    setSearchActiveIdx(-1);
+  }, [searchQuery]);
   const sleepTimerEndRef = useRef<number | null>(null);
   const sleepTimerIntervalRef = useRef<any>(null);
   
@@ -1429,14 +1513,8 @@ function ReaderPage() {
       // Start periodic TTS progress saving (also persists to localStorage)
       startTtsProgressSaver(bookId, currentChapter.id, currentChapter?.title || '', player);
 
-      // ⭐ 方案2b：先 play() 再 jumpToSegment — 避免 play() 重置 currentIndex
+      // ⭐ 从第0段开始播放（停止后再次播放不跳转到旧位置）
       await player.play();
-
-      // ⭐ 恢复 TTS 位置：play() 完成后跳转到上次保存的分段
-      const savedPos = savedTtsProgressRef.current;
-      if (savedPos && savedPos.chapterId === currentChapter?.id && savedPos.segmentIndex >= 0) {
-        await player.jumpToSegment(savedPos.segmentIndex);
-      }
     } catch (err) {
       console.error('TTS 启动失败:', err);
       setTtsError('语音播放启动失败：TTS 后端服务不可用（默认 Kokoro :8880 未运行），请在设置中切换到 Edge-TTS 或启动 Kokoro 服务');
@@ -1494,14 +1572,9 @@ function ReaderPage() {
 
 
   const handleStopTTS = useCallback(() => {
-    // Save current TTS position before stopping
-    if (ttsPlayerRef.current && currentChapter) {
-      const idx = ttsPlayerRef.current.getCurrentIndex();
-      const total = ttsPlayerRef.current.getTotalChunks();
-      if (idx >= 0 && total > 0) {
-        saveTtsProgress(currentChapter.id, idx, (idx + 1) / total);
-      }
-    }
+    // ⭐ 停止时不清除播放器内部进度（避免影响暂停/恢复），
+    //    但清除内存中的已保存进度 ref，使下次播放不从旧位置续播
+    savedTtsProgressRef.current = null;
     // ⭐ 清除 localStorage 播放持久化记录（用户主动停止，不再需要恢复）
     try {
       localStorage.removeItem('ireader_last_playback');
@@ -1522,7 +1595,7 @@ function ReaderPage() {
     setTtsProgress(0);
     setTtsSegmentText('');
     setActiveSegmentIndex(-1);
-  }, [currentChapter, saveTtsProgress]);
+  }, []);
 
   /** 拖动 TTS 进度条 seek */
   const handleTTSSeek = useCallback(async (progress: number) => {
@@ -2058,6 +2131,63 @@ function ReaderPage() {
           </div>
         )}
 
+        {/* ── 搜索浮层 ── */}
+        {showSearch && (
+          <div className="absolute inset-0 z-40 flex items-start justify-center pt-16" onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]); }}>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-lg mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              {/* 搜索输入框 */}
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-gray-400"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); performSearch(e.target.value); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && searchResults.length > 0) { handleSearchJump(searchResults[0].offset); } if (e.key === 'Escape') { setShowSearch(false); setSearchQuery(''); setSearchResults([]); } }}
+                  placeholder="搜索当前章节…"
+                  className="flex-1 bg-transparent outline-none text-sm py-1.5 text-gray-800 dark:text-gray-200 placeholder-gray-400"
+                  autoFocus
+                />
+                <button
+                  onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]); }}
+                  className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+              {/* 搜索结果列表 */}
+              <div className="max-h-64 overflow-y-auto">
+                {searchQuery && searchResults.length === 0 && (
+                  <div className="px-4 py-6 text-center text-sm text-gray-400">未找到匹配结果</div>
+                )}
+                {searchResults.map((result, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleSearchJump(result.offset)}
+                    className={`w-full text-left px-4 py-2.5 text-sm border-b border-gray-100 dark:border-gray-700 last:border-b-0 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors duration-150 ${
+                      searchActiveIdx === i ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                    }`}
+                  >
+                    <span className="block text-xs text-gray-400 mb-0.5">匹配 {i + 1}</span>
+                    <span className="text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{
+                      __html: result.text.replace(
+                        new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
+                        '<mark class="bg-yellow-300 dark:bg-yellow-600 text-gray-900 dark:text-gray-100 rounded px-0.5">$1</mark>'
+                      )
+                    }} />
+                  </button>
+                ))}
+              </div>
+              {searchResults.length > 0 && (
+                <div className="px-4 py-2 text-xs text-gray-400 border-t border-gray-200 dark:border-gray-700 text-center">
+                  共 {searchResults.length} 个匹配结果，点击跳转
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TTS 朗读进度指示（浮层） */}
         {/* TTS 朗读进度指示（浮层） */}
         {ttsState !== 'idle' && ttsSegmentText && (
           <div className="absolute bottom-0 left-0 right-0 pointer-events-none">
@@ -2115,7 +2245,15 @@ function ReaderPage() {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
-                          {/* ⏮ 上一章 */}
+                          <button
+                        onClick={() => { setShowSearch(true); setShowUi(false); setTimeout(() => searchInputRef.current?.focus(), 100); }}
+                        className="w-9 h-9 rounded-full flex items-center justify-center"
+                        style={{ background: 'var(--color-bg-alt)' }}
+                        title="搜索"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                      </button>
+                      {/* ⏮ 上一章 */}
                           <button onClick={handlePrevChapter} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="上一章">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                           </button>
