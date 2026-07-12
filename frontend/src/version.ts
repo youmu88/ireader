@@ -122,4 +122,4 @@
  *   4) 运行 refresh SQL 脚本刷新所有书籍的语音合成进度
  * 2.5.0 (2026-07-12): CSS multi-column 翻页全面替换自建分页引擎 — A1方案落地
  */
-export const APP_VERSION = '2.5.0';
+export const APP_VERSION = '2.5.1';

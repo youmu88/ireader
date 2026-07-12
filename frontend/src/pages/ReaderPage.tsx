@@ -2529,7 +2529,9 @@ function stripHtml(html: string): string {
                 (epubPageContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
               }
             }}
-            className={`flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto reading-container ${readingMode === 'scroll' ? 'overflow-y-auto' : 'overflow-hidden'}`}
+            className={`px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto reading-container ${
+              readingMode === 'scroll' ? 'flex-1 overflow-y-auto' : 'flex-1 overflow-hidden flex flex-col'
+            }`}
             data-l-spacing={letterSpacing}
             style={readingMode === 'paginated' ? { touchAction: 'none', overscrollBehavior: 'none' } : undefined}
           >
@@ -2547,6 +2549,7 @@ function stripHtml(html: string): string {
                 fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
                 lineHeight,
                 letterSpacing: `${letterSpacing}em`,
+                ...(readingMode === 'paginated' ? { flex: 1, minHeight: 0, overflow: 'hidden' } : {}),
               }}
             >
               {chapterLoading ? (
