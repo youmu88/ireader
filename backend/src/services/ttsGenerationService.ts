@@ -13,6 +13,27 @@ import { parseTxt, getChapterContent } from '../parser/index.js';
 import path from 'path';
 import fs from 'fs';
 
+/** 转义正则特殊字符 */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** 去除 HTML 标签，保留文本内容 */
+function stripHtmlTags(html: string): string {
+  return html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#\d+;/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // ===== 类型定义 =====
 
 export interface GenerationJob {
@@ -236,6 +257,7 @@ async function processJob(
     }
 
     let completedChunks = 0;
+    let chapterChunks = 0; // 实际总片数（用于更新 totalChunks）
 
     for (const chapter of chapters) {
       // 获取章节文本
@@ -247,9 +269,43 @@ async function processJob(
         }
       } else {
         if (chapter.href) {
-          const extractedPath = path.join(path.dirname(book.filePath), 'extracted', chapter.href);
+          // 处理含锚点 (#) 的 href，常见于合集型 EPUB（所有章节指向同一文件的不同锚点）
+          const hrefPath = chapter.href.split('#')[0]; // 去掉锚点部分，只保留文件路径
+          let basePath = chapter.href;
+          if (hrefPath) {
+            basePath = hrefPath;
+          }
+          const extractedPath = path.join(path.dirname(book.filePath), 'extracted', basePath);
           if (fs.existsSync(extractedPath)) {
-            chapterText = fs.readFileSync(extractedPath, 'utf-8');
+            const fullContent = fs.readFileSync(extractedPath, 'utf-8');
+
+            // 如果 href 包含锚点 (#)，尝试提取锚点对应区段的文本
+            const anchorId = chapter.href.includes('#') ? chapter.href.split('#')[1] : null;
+            if (anchorId) {
+              // 尝试匹配 <section id="toc_X"> 或 <div id="toc_X"> 或任意 id="toc_X" 标签
+              // 提取从该锚点开始到下一个相同层级标签或文件末尾之间的内容
+              const anchorRegex = new RegExp(
+                `<[^>]+?id=(["'])${escapeRegex(anchorId)}\\1[^>]*>([\\s\\S]*?)(?=<[^>]+?id=(["'])[^>"']+\\3[^>]*>|$)`,
+                'i'
+              );
+              const anchorMatch = fullContent.match(anchorRegex);
+              if (anchorMatch) {
+                chapterText = stripHtmlTags(anchorMatch[2]);
+              } else {
+                // 降级：尝试仅查找 id 并提取其后内容到下一个块级标签
+                const fallbackMatch = fullContent.match(
+                  new RegExp(`id=(["'])${escapeRegex(anchorId)}\\1[^>]*>([\\s\\S]*?)(?:<[^>]+?id=(["'])|$)`, 'i')
+                );
+                if (fallbackMatch) {
+                  chapterText = stripHtmlTags(fallbackMatch[2]);
+                }
+              }
+            }
+
+            // 如果没有锚点 或 锚点解析失败，使用完整文件内容
+            if (!chapterText) {
+              chapterText = stripHtmlTags(fullContent);
+            }
           }
         }
       }
@@ -257,7 +313,9 @@ async function processJob(
       if (!chapterText) {
         // 使用与 totalChunks 估算相同的逻辑计算空章节应计分片数
         const estSize = chapter.endOffset ? (chapter.endOffset - (chapter.startOffset || 0)) : 2000;
-        completedChunks += Math.max(1, Math.ceil(estSize / 200));
+        const estimatedChunks = Math.max(1, Math.ceil(estSize / 200));
+        chapterChunks += estimatedChunks;
+        completedChunks += estimatedChunks;
         continue;
       }
 
@@ -275,6 +333,9 @@ async function processJob(
         }
       }
       if (current.trim()) chunks.push(current.trim());
+
+      // 记录当前章节实际分片数（用于更新 totalChunks）
+      chapterChunks += chunks.length;
 
       // 加载用户自定义 TTS API 配置
       const userSettings = db.select().from(ttsSettings).where(sql`user_id = ${job.userId}`).get();
@@ -341,6 +402,7 @@ async function processJob(
       .set({
         status: 'completed',
         progress: 100,
+        totalChunks: Math.max(job.totalChunks, chapterChunks),
         completedChunks,
         updatedAt: new Date().toISOString(),
       })
