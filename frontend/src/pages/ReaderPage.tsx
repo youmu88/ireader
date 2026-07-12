@@ -199,6 +199,14 @@ function ReaderPage() {
   /** 执行翻页 — ref 包装，让 handleSwipeEnd 等前面定义的函数也能引用 */
   const performPageTurnRef = useRef<(direction: 'prev' | 'next') => Promise<void>>(async () => {});
   const [isPageTurning, setIsPageTurning] = useState(false);
+  /** ── ref 同步最新状态（供 useCallback([]) 内部闭包读取） ── */
+  const readingModeRef = useRef(readingMode);
+  const ttsStateRef = useRef(ttsState);
+  const isPageTurningRef = useRef(isPageTurning);
+  // 同步 ref 与 state，供 useCallback([]) 内部闭包读取最新值
+  useEffect(() => { readingModeRef.current = readingMode; }, [readingMode]);
+  useEffect(() => { ttsStateRef.current = ttsState; }, [ttsState]);
+  useEffect(() => { isPageTurningRef.current = isPageTurning; }, [isPageTurning]);
   const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
   /** 触摸开始：记录起始位置 */
@@ -1175,6 +1183,9 @@ function stripHtml(html: string): string {
       isAppendingRef.current = false;
     }
   }, [chapters, book, fetchChapterText, buildChapterSeparatorHtml, textToHtml]);
+  // ref 包装，供 performPageTurn（useCallback([]) 固定版本）调用最新版
+  const appendNextContentRef = useRef<typeof appendNextContent>(appendNextContent);
+  appendNextContentRef.current = appendNextContent;
 
   /**
    * 向前插入上一章内容到 column 容器的开头（增量向前加载）
@@ -1215,10 +1226,9 @@ function stripHtml(html: string): string {
       isAppendingRef.current = false;
     }
   }, [chapters, book, fetchChapterText, buildChapterSeparatorHtml, textToHtml]);
-
-  /**
-   * 初始化/重置内容缓冲区：从指定章节开始，加载内容到 column 容器
-   */
+  // ref 包装，供 performPageTurn（useCallback([]) 固定版本）调用最新版
+  const prependPrevContentRef = useRef<typeof prependPrevContent>(prependPrevContent);
+  prependPrevContentRef.current = prependPrevContent;
   const initContentBuffer = useCallback(async (startChapter: Chapter) => {
     const container = columnContentRef.current;
     if (!container) return;
@@ -1276,8 +1286,8 @@ function stripHtml(html: string): string {
    * 到末尾时自动追加内容，到开头时自动插入前一章
    */
   const performPageTurn = useCallback(async (direction: 'prev' | 'next') => {
-    if (ttsState !== 'idle' || showSearchRef.current || isPageTurning) return;
-    if (readingMode !== 'paginated') return;
+    if (ttsStateRef.current !== 'idle' || showSearchRef.current || isPageTurningRef.current) return;
+    if (readingModeRef.current !== 'paginated') return;
     if (isAppendingRef.current) return;
 
     const el = columnPageRef.current;
@@ -1296,7 +1306,7 @@ function stripHtml(html: string): string {
           setPageIndex(prev => prev + 1);
           setTimeout(() => { suppressScrollSyncRef.current = false; }, 400);
         } else {
-          const appended = await appendNextContent();
+          const appended = await appendNextContentRef.current();
           if (appended) {
             requestAnimationFrame(() => {
               suppressScrollSyncRef.current = true;
@@ -1316,7 +1326,7 @@ function stripHtml(html: string): string {
           setPageIndex(prev => Math.max(0, prev - 1));
           setTimeout(() => { suppressScrollSyncRef.current = false; }, 400);
         } else {
-          const prepended = await prependPrevContent();
+          const prepended = await prependPrevContentRef.current();
           if (prepended) {
             requestAnimationFrame(() => {
               suppressScrollSyncRef.current = true;
