@@ -51,6 +51,51 @@ function buildTocTitleMap(tocItems: any[]): Map<string, string> {
 }
 
 /**
+ * Extract individual chapters from EPUB TOC (navMap) for "single-file" EPUBs
+ * where all content is in one XHTML file referenced via anchors (#toc_X).
+ *
+ * These EPUBs have a flat spine (few items) but rich TOC hierarchy.
+ * Typical examples: book collections/compilations merged into one file.
+ */
+function extractTocChapters(tocItems: any[], baseOrder: number, seenHrefs: Set<string>): EpubChapter[] {
+  const chapters: EpubChapter[] = [];
+  let order = baseOrder;
+
+  function walk(items: any[], depth: number) {
+    for (const item of items) {
+      if (item.href && item.title) {
+        const resolved = item.href.startsWith('/') ? item.href.slice(1) : item.href;
+        const hasAnchor = resolved.includes('#');
+        const isLeaf = !item.subitems?.length;
+
+        // Only include items with anchors (anchored chapters within a single file)
+        // or leaf items deeper than root level
+        if (hasAnchor || (isLeaf && depth > 0)) {
+          // Skip if already seen via flow/spine
+          if (seenHrefs.has(resolved)) continue;
+          seenHrefs.add(resolved);
+
+          order++;
+          chapters.push({
+            id: `ch-toc-${order}`,
+            title: item.title,
+            href: resolved,
+            order,
+            level: Math.min(depth + 1, 9),
+          });
+        }
+      }
+      if (item.subitems?.length) {
+        walk(item.subitems, depth + 1);
+      }
+    }
+  }
+
+  walk(tocItems, 0);
+  return chapters;
+}
+
+/**
  * 使用内联 Python 代码修复被"二次包装"的 EPUB 文件（内容嵌套在子目录中）。
  * 通过 python3 -c 传递脚本，不依赖外部文件。
  * 修复逻辑：检测 ZIP 中所有文件是否在同一顶层目录下（如 `书名.epub/mimetype`），
@@ -263,7 +308,6 @@ export async function parseEpub(epubPath: string, outputDir: string): Promise<Ep
 
     // Detect level from TOC hierarchy if available
     let level = 1;
-    // Simple level heuristic: check if TOC has nesting for this href
     for (const tocItem of (epub.toc || [])) {
       if (tocItem.subitems?.length) {
         for (const sub of tocItem.subitems) {
@@ -286,6 +330,14 @@ export async function parseEpub(epubPath: string, outputDir: string): Promise<Ep
       level,
     });
   }
+
+  // ── Step 1b: Supplement chapters from TOC for "single-file" EPUBs ──
+  // Some EPUBs pack all content into one XHTML file with anchor references
+  // (e.g. book collections, compilations). Their spine has only 1-3 items
+  // but the TOC (navMap) has rich chapter hierarchy.
+  const tocChapters = extractTocChapters(epub.toc || [], order, seenHrefs);
+  chapters.push(...tocChapters);
+  order += tocChapters.length;
 
   // ── Step 2: Extract cover image path ──
   let coverPath: string | null = null;
