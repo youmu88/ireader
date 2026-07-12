@@ -162,6 +162,32 @@ export function saveToCache(
   return { id, textHash, voice, speed, audioPath, createdAt: now };
 }
 
+// ===== 批量查询 =====
+
+/**
+ * 按 bookId 查询所有已缓存的段落（支持 voice + speed 过滤）
+ * 用于前端缓存全书时批量拉取已预合成的音频
+ */
+export function findCachedSegmentsByBook(
+  db: ReturnType<typeof import('../db/init.js').initDatabase>,
+  bookId: string,
+  voice: string,
+  speed: number,
+  userId?: string,
+): CacheEntry[] {
+  let query: any = db.select()
+    .from(ttsCache)
+    .where(sql`book_id = ${bookId} AND voice = ${voice} AND speed = ${speed}`)
+    .orderBy(sql`chapter_id ASC, created_at ASC`);
+  if (userId) {
+    query = query.where(sql`user_id = ${userId}`);
+  }
+  const results = query.all();
+  // 过滤掉无效缓存（文件不存在或 hash 不匹配）
+  return results.filter((entry: any) => isCacheValid(entry));
+}
+
+
 // ===== 清理缓存 =====
 
 /**

@@ -94,4 +94,4 @@
  *   2) clearBookTTSAudioCache / clearBookChapterCache 改用 IDB 游标批量删除替代逐条 for 循环删除
  */
 
-export const APP_VERSION = '1.40.2';
+export const APP_VERSION = '1.41.0';

@@ -11,6 +11,7 @@ import {
   getOfflineBookInfo,
   clearBookChapterCache,
   clearBookTTSAudioCache,
+  downloadBatchCachedAudio,
 } from '../services/offlineCacheService';
 import axios from 'axios';
 import {
@@ -486,6 +487,21 @@ function ReaderPage() {
         const MAX_CONCURRENT = 6; // 全局并发池上限
         let totalCached = 0;
 
+        // ⭐ 阶段2a：先尝试批量拉取服务端已缓存的（后台预合成）音频
+        // 这样已预合成的段落就走批量下载，不走逐段 POST /api/tts
+        setCacheProgressText('检测服务端缓存...');
+        const batchDownloaded = await downloadBatchCachedAudio(
+          bookId, effectiveVoice, effectiveSpeed, chapters,
+                      (_chId, _segIdx) => {
+            // 每下载一段，更新一下进度（粗略按章节算）
+            if (!chapterMarkedDoneForBatch) chapterMarkedDoneForBatch = new Set();
+          },
+        );
+        if (batchDownloaded > 0) {
+          console.log(`批量拉取预合成语音完成：${batchDownloaded} 段`);
+        }
+        let chapterMarkedDoneForBatch: Set<string> | undefined;
+
         // 收集所有章节的所有段落任务
         interface CacheTask {
           chapter: typeof chapters[0];
@@ -553,7 +569,7 @@ function ReaderPage() {
           };
           const workers = Array.from({ length: Math.min(MAX_CONCURRENT, totalSegments) }, () => next());
           await Promise.all(workers);
-          console.log(`全书缓存完成：共合成 ${totalCached} 段语音（${completedChapterCount}章）`);
+          console.log(`全书缓存完成：共拉取 ${batchDownloaded} 段预合成 + 新合成 ${totalCached} 段语音（${completedChapterCount}章）`);
         }
       }
 

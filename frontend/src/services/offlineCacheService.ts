@@ -621,7 +621,6 @@ export async function getBookCacheDetailedStats(bookId: string): Promise<BookCac
 }
 
 /**
-/**
  * 清除一本书的所有缓存（章节内容 + TTS 音频 + 元数据）
  */
 export async function clearBookCache(bookId: string): Promise<void> {
@@ -807,4 +806,89 @@ export function onNetworkChange(callback: (online: boolean) => void): () => void
     window.removeEventListener('online', handleOnline);
     window.removeEventListener('offline', handleOffline);
   };
+}
+
+
+/**
+ * 批量下载一本书已预合成的 TTS 音频到 IndexedDB
+ * 替代逐段 POST /api/tts，直接调用后端缓存下载接口
+ * @returns 成功下载的段落数
+ */
+export async function downloadBatchCachedAudio(
+  bookId: string,
+  voice: string,
+  speed: number,
+  chapters: { id: string; title: string; order: number }[],
+  onProgress?: (chapterId: string, segIdx: number) => void,
+): Promise<number> {
+  try {
+    const res = await fetch(`/api/tts/batch-cache/${bookId}?voice=${encodeURIComponent(voice)}&speed=${speed}`);
+    if (!res.ok) return 0;
+    const json = await res.json();
+    if (!json.success || !json.data || json.data.length === 0) return 0;
+
+    const segments: { chapterId: string; segIdx: number; audioUrl: string }[] = json.data.map((s: any) => {
+      // 从 chapterId 和 textHash 推断 segIdx（textHash 后两位作 segIdx 备用，优先解析）
+      // 但实际需要用章节段落顺序来映射，这里用 chapterId 分组后按出现顺序分配 segIdx
+      return {
+        chapterId: s.chapterId,
+        audioUrl: s.audioUrl,
+        segIdx: -1, // 稍后分配
+      };
+    });
+
+    // 按 chapterId 分组，按服务器返回顺序分配 segIdx
+    const byChapter = new Map<string, typeof segments>();
+    for (const seg of segments) {
+      if (!byChapter.has(seg.chapterId)) byChapter.set(seg.chapterId, []);
+      byChapter.get(seg.chapterId)!.push(seg);
+    }
+
+    // 将有效章节目映射到段落范围（按 chapters 顺序）
+    const chapterOrderMap = new Map<string, number>();
+    chapters.forEach((ch, idx) => chapterOrderMap.set(ch.id, idx));
+
+    // 并发下载所有段落（最大 6 并发）
+    const MAX_DOWNLOAD = 6;
+    let downloadedCount = 0;
+    const totalSegs = segments.length;
+    const audioItems: TTSAudioCacheInput[] = [];
+
+    let i = 0;
+    const next = async () => {
+      while (i < segments.length) {
+        const idx = i++;
+        const seg = segments[idx];
+        try {
+          const url = seg.audioUrl;
+          const audioRes = await fetch(url);
+          if (audioRes.ok) {
+            const arrayBuffer = await audioRes.arrayBuffer();
+            // 计算在当前章节中的 segIdx
+            const chapterSegs = byChapter.get(seg.chapterId) || [];
+            const segIdx = chapterSegs.indexOf(seg);
+            audioItems.push({
+              chapterId: seg.chapterId,
+              segmentIndex: segIdx >= 0 ? segIdx : idx,
+              audioData: arrayBuffer,
+            });
+            downloadedCount++;
+            onProgress?.(seg.chapterId, segIdx);
+          }
+        } catch { /* 单段下载失败跳过 */ }
+      }
+    };
+
+    const workers = Array.from({ length: Math.min(MAX_DOWNLOAD, totalSegs) }, () => next());
+    await Promise.all(workers);
+
+    // 批量写入 IndexedDB
+    if (audioItems.length > 0) {
+      await cacheTTSAudioBatch(bookId, audioItems);
+    }
+
+    return downloadedCount;
+  } catch {
+    return 0;
+  }
 }

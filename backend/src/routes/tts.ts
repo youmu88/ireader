@@ -8,7 +8,7 @@ import path from 'path';
 import { sql } from 'drizzle-orm';
 import { getSources, getVoices, checkHealth, synthesize } from '../services/ttsProxyService.js';
 import { ttsSettings, ttsCache, ttsGenerationJobs, books } from '../db/schema.js';
-import { findCache, isCacheValid, saveToCache, clearAllCache, evictStaleCache } from '../services/ttsCacheService.js';
+import { findCache, isCacheValid, saveToCache, clearAllCache, evictStaleCache, findCachedSegmentsByBook } from '../services/ttsCacheService.js';
 import { requireAuth } from '../middleware/auth.js';
 import { regenerateAllForNewVoice, createFullBookGenerationJob, cancelJob, cancelJobs, cancelAllUserJobs, deleteJobs, clearTerminatedJobs } from '../services/ttsGenerationService.js';
 
@@ -221,6 +221,66 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       res.status(500).json({ success: false, error: '清除缓存失败' });
     }
   });
+
+  // ── GET /api/tts/batch-cache/:bookId - 批量获取某本书所有已缓存的音频段落 ──
+  // 前端缓存全书时调用，跳过逐段 POST /api/tts，直接下载已预合成的音频文件
+  router.get('/batch-cache/:bookId', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.userId;
+      const { bookId } = req.params;
+      const voice = (req.query.voice as string) || 'zh-CN-XiaoxiaoNeural';
+      const speed = parseFloat(req.query.speed as string) || 1.0;
+
+      const entries = findCachedSegmentsByBook(db, bookId, voice, speed, userId);
+
+      // 按 chapterId 分组，输出每段的信息（不含音频数据，只含引用）
+      const segments = entries.map(entry => ({
+        chapterId: entry.chapterId,
+        textHash: entry.textHash,
+        audioUrl: `/api/tts/cache-file/${entry.id}`,  // 供前端下载
+        voice: entry.voice,
+        speed: entry.speed,
+        cachedAt: entry.createdAt,
+      }));
+
+      res.json({ success: true, data: segments, total: segments.length });
+    } catch (error: any) {
+      console.error('[TTS] 批量获取缓存失败:', error);
+      res.status(500).json({ success: false, error: '批量获取缓存失败' });
+    }
+  });
+
+  // ── GET /api/tts/cache-file/:cacheId - 下载指定缓存条目对应的音频文件 ──
+  router.get('/cache-file/:cacheId', requireAuth, (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.userId;
+      const { cacheId } = req.params;
+      const entry = db.select().from(ttsCache).where(sql`id = ${cacheId}`).get() as any;
+      if (!entry) {
+        res.status(404).json({ success: false, error: '缓存条目不存在' });
+        return;
+      }
+      // 用户隔离检查
+      if (entry.userId !== userId) {
+        res.status(403).json({ success: false, error: '无权访问' });
+        return;
+      }
+      if (!isCacheValid(entry)) {
+        res.status(404).json({ success: false, error: '缓存文件已失效' });
+        return;
+      }
+      const audioBuffer = fs.readFileSync(entry.audioPath);
+      const ext = path.extname(entry.audioPath).toLowerCase();
+      const contentType = ext === '.mp3' ? 'audio/mpeg' : 'audio/wav';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${entry.textHash}${ext}"`);
+      res.send(audioBuffer);
+    } catch (error: any) {
+      console.error('[TTS] 下载缓存文件失败:', error);
+      res.status(500).json({ success: false, error: '下载缓存文件失败' });
+    }
+  });
+
 
   // ── GET /api/tts/jobs - 获取当前用户所有 TTS 生成任务（含书名） ──
   router.get('/jobs', requireAuth, (req: Request, res: Response) => {
