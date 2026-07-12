@@ -2477,7 +2477,7 @@ function stripHtml(html: string): string {
               ref={txtPageRef}
               className={`text-gray-800 dark:text-gray-200 whitespace-pre-wrap ${
                 readingMode === 'paginated' ? 'flex-1 overflow-hidden' : ''
-              }`}
+              } ${pageTurnAnim !== 'none' ? 'page-turn ' + pageTurnAnim : ''}`}
               style={{
                 fontSize: `${fontSize}px`,
                 fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
