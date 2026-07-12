@@ -199,11 +199,25 @@ function ReaderPage() {
   /** 渲染指定页的内容（用于快照） */
   const renderPageContent = useCallback((pageIdx: number): React.ReactNode => {
     if (book?.format === 'txt') {
-      // 内联分页逻辑（避免引用后定义的 getPaginatedContent）
       const lines = txtContent.split('\n');
-      const perPage = Math.max(10, Math.ceil(lines.length / totalPages));
-      const start = pageIdx * perPage;
-      const end = Math.min(start + perPage, lines.length);
+      if (readingMode !== 'paginated' || totalPages <= 1 || lines.length === 0) {
+        // 非翻页模式或只有1页 → 显示全部内容
+        return (
+          <div className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap"
+            style={{
+              fontSize: `${fontSize}px`,
+              fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
+              lineHeight,
+              letterSpacing: `${letterSpacing}em`,
+              padding: '12px',
+            }}>
+            {txtContent}
+          </div>
+        );
+      }
+      const linesPerPage = Math.max(1, Math.ceil(lines.length / totalPages));
+      const start = pageIdx * linesPerPage;
+      const end = Math.min(start + linesPerPage, lines.length);
       const pageContent = lines.slice(start, end).join('\n');
       return (
         <div className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap"
@@ -214,7 +228,7 @@ function ReaderPage() {
             letterSpacing: `${letterSpacing}em`,
             padding: '12px',
           }}>
-          {readingMode !== 'paginated' || totalPages <= 1 ? txtContent : pageContent}
+          {pageContent}
         </div>
       );
     }
@@ -2284,6 +2298,7 @@ function stripHtml(html: string): string {
   const getPaginatedContent = useCallback((content: string, page: number, total: number): string => {
     if (readingMode !== 'paginated' || total <= 1) return content;
     const lines = content.split('\n');
+    if (lines.length === 0) return content;
     const linesPerPage = Math.max(1, Math.ceil(lines.length / total));
     const start = page * linesPerPage;
     const end = Math.min(start + linesPerPage, lines.length);
@@ -2304,18 +2319,40 @@ function stripHtml(html: string): string {
     return () => cancelAnimationFrame(raf);
   }, [txtContent, pendingScrollRestorePct]);
 
-  // TXT 分页模式：根据内容长度估算总页数
+  // ── 翻页容器高度 ref（用于动态计算总页数） ──
+  const pageContainerRef = useRef<HTMLDivElement>(null);
+
+  // TXT 分页模式：基于视口高度动态计算每页容纳行数 → 总页数
   useEffect(() => {
-    if (book?.format !== 'txt' || !txtContent) {
+    if (book?.format !== 'txt' || !txtContent || readingMode !== 'paginated') {
       setTotalPages(1);
       return;
     }
-    // 按每页约 50 行估算（基于 \n 行数），翻页模式下重置 pageIndex
-    const lineCount = txtContent.split('\n').length;
-    const pages = Math.max(1, Math.ceil(lineCount / 50));
+    const lines = txtContent.split('\n');
+    const lineCount = lines.length;
+    if (lineCount === 0) { setTotalPages(1); return; }
+
+    // 获取容器可用高度（去 padding 后），计算每屏行数
+    const container = pageContainerRef.current;
+    if (!container) {
+      // 容器尚未挂载，延迟重试
+      const timer = requestAnimationFrame(() => {
+        // 触发重算（依赖 txtContent/readingMode 不变但容器已就绪）
+        setTotalPages((prev) => prev); // dummy update 触发 re-render
+      });
+      const fallbackPages = Math.max(1, Math.ceil(lineCount / 40));
+      setTotalPages(fallbackPages);
+      return () => cancelAnimationFrame(timer);
+    }
+
+    const containerHeight = container.clientHeight;
+    // 每行像素高度 = fontSize * lineHeight
+    const linePixelHeight = fontSize * lineHeight;
+    const linesPerScreen = Math.max(5, Math.floor(containerHeight / linePixelHeight));
+    const pages = Math.max(1, Math.ceil(lineCount / linesPerScreen));
     setTotalPages(pages);
     if (pageIndex >= pages) setPageIndex(0);
-  }, [txtContent, book?.format, readingMode]);
+  }, [txtContent, book?.format, readingMode, fontSize, lineHeight]);
 
   // Cleanup on unmount — 使用 ref 避免闭包捕获到 null state
   useEffect(() => {
@@ -2490,8 +2527,9 @@ function stripHtml(html: string): string {
         {book?.format === 'epub' && !showEpubView && (
           <div
             ref={epubTextScrollRef}
-            className="flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto overflow-y-auto reading-container"
+            className={`flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto reading-container ${readingMode === 'scroll' ? 'overflow-y-auto' : 'overflow-hidden'}`}
             data-l-spacing={letterSpacing}
+            style={readingMode === 'paginated' ? { touchAction: 'none', overscrollBehavior: 'none' } : undefined}
           >
             {(displayChapter || currentChapter) && (
               <div className="mb-4">
@@ -2591,9 +2629,13 @@ function stripHtml(html: string): string {
         {/* TXT Reader */}
         {book?.format === 'txt' && (
           <div
-            ref={txtScrollRef}
+            ref={(el) => {
+              (txtScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+              (pageContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+            }}
             className={`flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto ${readingMode === 'scroll' ? 'overflow-y-auto' : 'overflow-hidden flex flex-col'}`}
             data-l-spacing={letterSpacing}
+            style={readingMode === 'paginated' ? { touchAction: 'none', overscrollBehavior: 'none' } : undefined}
           >
             {(displayChapter || currentChapter) && (
               <div className="mb-4">
@@ -2613,6 +2655,7 @@ function stripHtml(html: string): string {
                 fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
                 lineHeight,
                 letterSpacing: `${letterSpacing}em`,
+                ...(readingMode === 'paginated' ? { touchAction: 'none', overscrollBehavior: 'none' } : {}),
               }}
             >
               {chapterLoading ? (

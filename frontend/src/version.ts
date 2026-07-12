@@ -102,6 +102,9 @@
  *   - 支持 TXT 章节内分页翻页 + 章节间翻页 + EPUB 章节间翻页
  *   - 手势滑动触发（水平滑动 > 50px）、浮动菜单翻页按钮支持
  *   - 保留 reduced-motion 和 low-perf 无障碍兼容
+ * 2.3.1 (2026-07-12): [BUGFIX] 修复翻页模式两大核心缺陷：
+ *   1) 翻页变翻章：分页算法从固定50行/页改为视口高度动态计算（containerHeight / fontSize / lineHeight），短章也能正确分页
+ *   2) 翻页模式可滚动：翻页模式下为阅读容器加 touch-action:none + overscroll-behavior:none 禁用浏览器默认手势，EPUB 翻页模式也切换 overflow-hidden
  * 2.0.0 (2026-07-12): [ARCH] 全局引用系统 — 相同书籍/TTS语音全局只存一份，引用计数隔离，30天自动清理
  * 2.0.1 (2026-07-12): [MIGRATION] 存量数据迁移完成 + 全局TTS映射修复 + 后台合成补录全局资源
  *   1) 运行 migrate-global-refs.ts 完成 268 本书 → 264 全局书籍 + 268 引用的迁移
@@ -109,4 +112,4 @@
  *   3) 修复 ttsGenerationService 后台预合成时也写入 tts_global_resources，实现跨用户共享
  *   4) 运行 refresh SQL 脚本刷新所有书籍的语音合成进度
  */
-export const APP_VERSION = '2.3.0';
+export const APP_VERSION = '2.3.1';
