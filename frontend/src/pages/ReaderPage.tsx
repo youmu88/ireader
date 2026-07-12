@@ -891,7 +891,7 @@ function ReaderPage() {
   }, []);
 
   // Load chapter content
-  const loadChapterContent = async (chapter: Chapter, _offset?: number, _isEpub?: boolean, _append?: boolean) => {
+  const loadChapterContent = async (chapter: Chapter, _offset?: number, _isEpub?: boolean, _append?: boolean, _forcePlainText?: boolean) => {
     try {
       const isEpub = _isEpub ?? (book?.format === 'epub');
 
@@ -935,7 +935,7 @@ function ReaderPage() {
           if (isEpub) {
             epubHtml = sanitizeEpubHtml(rawContent, bookId!);
             content = stripHtml(rawContent);
-            if (!_append) setEpubDisplayHtml(epubHtml);
+            if (!_append && !_forcePlainText) setEpubDisplayHtml(epubHtml);
           } else {
             setEpubDisplayHtml('');
             content = rawContent;
@@ -964,10 +964,13 @@ function ReaderPage() {
         accumulatedIdsRef.current.add(chapter.id);
         setTxtContent(displayContent);
         // 手动跳转 EPUB：替换为当前章节的 HTML 版本
-        if (isEpub && epubHtml) {
+        // ⭐ 但在强制纯文本模式（搜索跳转）下跳过，确保 DOM 文本与搜索 offset 一致
+        if (!_forcePlainText && isEpub && epubHtml) {
           setEpubDisplayHtml(epubHtml);
-        } else if (isEpub) {
+        } else if (!_forcePlainText && isEpub) {
           setEpubDisplayHtml(displayContent);
+        } else if (_forcePlainText) {
+          setEpubDisplayHtml('');
         }
       }
     } catch (err: any) {
@@ -1086,7 +1089,12 @@ function ReaderPage() {
 
     // 如果目标不是当前章节，先切换章节
     if (currentChapter?.id !== targetChapter.id) {
-      await navigateToChapter(targetChapter);
+      // ⭐ 强制纯文本模式：让 loadChapterContent 不设置 epubDisplayHtml，
+      // 只设置 txtContent（纯文本），确保 DOM 中的文本与搜索 offset 完全一致
+      await loadChapterContent(targetChapter, undefined, undefined, false, true);
+    } else {
+      // ⭐ 当前章节时也重新加载为纯文本模式（可能有 epubDisplayHtml）
+      await loadChapterContent(targetChapter, undefined, undefined, false, true);
     }
 
     // 等渲染完成后滚动到匹配位置
@@ -1134,7 +1142,7 @@ function ReaderPage() {
         setSearchActiveIdx(-1);
       });
     });
-  }, [chapters, currentChapter, navigateToChapter, searchQuery]);
+  }, [chapters, currentChapter, loadChapterContent, searchQuery]);
 
   // TXT next/prev chapter
   const goToNextChapter = async (_fromAutoScroll?: boolean) => {
