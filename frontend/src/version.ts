@@ -79,6 +79,7 @@
  * 1.37.0 (2026-07-12): [FEATURE] 阅读页 TOC 目录面板新增「刷新章节」按钮 — 调用 reparse API 重新解析已有 EPUB 书籍章节，无需用户删除重传
  * 1.37.1 (2026-07-12): [BUGFIX] 修复 EPUB 合集型书籍（含锚点 href）章节跳转后内容加载失败 — 后端移除 href 中 # 锚点部分读取文件 + 按锚点提取对应章节 HTML 片段
  * 1.37.2 (2026-07-12): [BUGFIX] 修复搜索跳转与章节刷新跳转不一致 — 搜索跳转强制纯文本模式（清除 epubDisplayHtml），确保 DOM 文本与搜索 offset 对齐，TreeWalker 定位准确
+ * 1.37.3 (2026-07-12): [BUGFIX+PERF] 修复搜索持续显示"正在搜索全书..." — ensureFullBookLoaded 分批加载（每批5个并发）+ 请求超时30秒 + 搜索输入400ms防抖
  */
 
-export const APP_VERSION = '1.37.2';
+export const APP_VERSION = '1.37.3';

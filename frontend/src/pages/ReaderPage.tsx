@@ -174,8 +174,17 @@ function ReaderPage() {
   /** 缓存全书各章节的文本内容（懒加载），key=chapter.id, value={text, chapterIdx} */
   const fullBookTextCache = useRef<Map<string, { text: string; order: number }>>(new Map());
   const [isSearchingFullBook, setIsSearchingFullBook] = useState(false);
+  /** 搜索防抖定时器：输入停顿 400ms 后才执行全书搜索，避免每次敲字都触发 */
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /** 懒加载全书所有章节内容 */
+  // 组件卸载时清理搜索防抖定时器
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, []);
+
+  /** 懒加载全书所有章节内容（分批加载，避免大量并发导致后端文件 I/O 过载） */
   const ensureFullBookLoaded = useCallback(async (): Promise<Map<string, { text: string; order: number }>> => {
     const cache = fullBookTextCache.current;
     // 检查是否所有章节都已缓存
@@ -184,26 +193,32 @@ function ReaderPage() {
 
     setIsSearchingFullBook(true);
     try {
-      await Promise.all(uncached.map(async (ch) => {
-        try {
-          // 优先用预加载缓存
-          const preloaded = preloadedChaptersRef.current.get(ch.id);
-          let content: string;
-          if (preloaded) {
-            content = preloaded.content;
-            preloadedChaptersRef.current.delete(ch.id);
-          } else {
-            const res = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`);
-            content = res.data.data?.content || '';
-            if (book?.format === 'epub') {
-              content = stripHtml(content);
+      // 分批加载，每批最多 5 个并发请求
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < uncached.length; i += BATCH_SIZE) {
+        const batch = uncached.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async (ch) => {
+          try {
+            // 优先用预加载缓存
+            const preloaded = preloadedChaptersRef.current.get(ch.id);
+            let content: string;
+            if (preloaded) {
+              content = preloaded.content;
+              preloadedChaptersRef.current.delete(ch.id);
+            } else {
+              // 设置 30 秒超时，防止单个请求挂起阻塞整个搜索
+              const res = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`, { timeout: 30000 });
+              content = res.data.data?.content || '';
+              if (book?.format === 'epub') {
+                content = stripHtml(content);
+              }
             }
+            cache.set(ch.id, { text: content, order: ch.order });
+          } catch {
+            cache.set(ch.id, { text: '', order: ch.order });
           }
-          cache.set(ch.id, { text: content, order: ch.order });
-        } catch {
-          cache.set(ch.id, { text: '', order: ch.order });
-        }
-      }));
+        }));
+      }
     } finally {
       setIsSearchingFullBook(false);
     }
@@ -2272,7 +2287,14 @@ function ReaderPage() {
                   ref={searchInputRef}
                   type="text"
                   value={searchQuery}
-                  onChange={(e) => { setSearchQuery(e.target.value); performSearch(e.target.value); }}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSearchQuery(val);
+                    // 防抖：输入停顿 400ms 后才执行全书搜索
+                    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+                    if (!val) { setSearchResults([]); setSearchActiveIdx(-1); return; }
+                    searchTimerRef.current = setTimeout(() => performSearch(val), 400);
+                  }}
                   onKeyDown={(e) => { if (e.key === 'Enter' && searchResults.length > 0) { handleSearchJump(searchResults[0]); } if (e.key === 'Escape') { setShowSearch(false); setSearchQuery(''); setSearchResults([]); } }}
                   placeholder="搜索全书…"
                   className="flex-1 bg-transparent outline-none text-sm py-1.5 text-gray-800 dark:text-gray-200 placeholder-gray-400"
