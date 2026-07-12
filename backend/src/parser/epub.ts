@@ -335,9 +335,30 @@ export async function parseEpub(epubPath: string, outputDir: string): Promise<Ep
   // Some EPUBs pack all content into one XHTML file with anchor references
   // (e.g. book collections, compilations). Their spine has only 1-3 items
   // but the TOC (navMap) has rich chapter hierarchy.
+  //
+  // ⚠️ 关键优化：对于"单文件合集型"EPUB（所有 flow href 指向同一个文件，
+  // 如 index.html），Step 1a 生成的粗粒度条目（Chapter 1/2）是无用的旧版目录，
+  // 必须丢弃，只保留 Step 1b 从 TOC navMap 提取的锚点章节。
+  // 检测条件：seenHrefs 中唯一的 href（不含锚点部分）只有1个不同文件名。
   const tocChapters = extractTocChapters(epub.toc || [], order, seenHrefs);
-  chapters.push(...tocChapters);
-  order += tocChapters.length;
+
+  // 检测是否为"单文件合集型"：所有 flow 条目指向同一个基础文件
+  const flowHrefs = new Set(
+    (epub.flow || [])
+      .map((item: any) => item.href ? (item.href.startsWith('/') ? item.href.slice(1) : item.href).split('#')[0] : null)
+      .filter(Boolean)
+  );
+  const isSingleFileEpub = flowHrefs.size <= 1 && tocChapters.length > 0;
+
+  if (isSingleFileEpub) {
+    // ★ 单文件合集型：丢弃 Step 1a 的粗粒度流程章节，只保留 TOC 锚点章节
+    chapters.length = 0;
+    chapters.push(...tocChapters);
+  } else {
+    // 普通 EPUB：Step 1a + Step 1b 合并
+    chapters.push(...tocChapters);
+  }
+  order = chapters.length;
 
   // ── Step 2: Extract cover image path ──
   let coverPath: string | null = null;

@@ -165,17 +165,30 @@ function ReaderPage() {
   // ── 睡眠计时器 ──
   const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
 
-  // ── 书籍内容搜索（全书） ──
+  // ── 书籍内容搜索（全书·双线程架构） ──
+  // 线程1：目录章节名匹配（同步，最高优先级）
+  // 线程2：全文内容搜索（异步并发加载各章节后搜索）
+  interface SearchResult {
+    index: number;
+    text: string;
+    offset: number;
+    chapterIdx: number;
+    chapterTitle: string;
+    /** true=目录匹配（章节名命中），false=正文匹配 */
+    isChapterMatch: boolean;
+  }
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<{ index: number; text: string; offset: number; chapterIdx: number; chapterTitle: string }[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchActiveIdx, setSearchActiveIdx] = useState(-1);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  /** 缓存全书各章节的文本内容（懒加载），key=chapter.id, value={text, chapterIdx} */
+  /** 缓存全书各章节的文本内容（懒加载），key=chapter.id, value={text, order} */
   const fullBookTextCache = useRef<Map<string, { text: string; order: number }>>(new Map());
   const [isSearchingFullBook, setIsSearchingFullBook] = useState(false);
   /** 搜索防抖定时器：输入停顿 400ms 后才执行全书搜索，避免每次敲字都触发 */
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 当前搜索请求 ID（用于取消陈旧请求的结果更新） */
+  const searchReqIdRef = useRef(0);
 
   // 组件卸载时清理搜索防抖定时器
   useEffect(() => {
@@ -184,72 +197,111 @@ function ReaderPage() {
     };
   }, []);
 
-  /** 懒加载全书所有章节内容（分批加载，避免大量并发导致后端文件 I/O 过载） */
-  const ensureFullBookLoaded = useCallback(async (): Promise<Map<string, { text: string; order: number }>> => {
+  /**
+   * 🔍 搜索双线程架构
+   *
+   * 线程1（目录匹配）— 同步，最高优先级
+   *   - 在 chapters 数组的 title 中搜索关键词匹配
+   *   - 匹配到的章节直接作为"目录匹配"结果排在顶部
+   *   - 立即返回，无需等待内容加载
+   *
+   * 线程2（全文搜索）— 异步并发
+   *   - 分批并发加载所有未缓存章节的内容
+   *   - 在各章节的正文中搜索关键词
+   *   - 结果排在目录匹配之后，按章节顺序排列
+   *
+   * 设计原则：
+   * - 目录匹配结果优先级最高，标题命中的章节名直接展示
+   * - 全文搜索异步进行，结果逐步追加
+   * - 使用 searchReqIdRef 防止陈旧请求覆盖最新结果
+   */
+
+  /** 线程1：目录章节名匹配（同步搜索，最高优先级） */
+  const searchChapterTitles = useCallback((_query: string, lowerQuery: string): SearchResult[] => {
+    const results: SearchResult[] = [];
+    let matchIdx = 0;
+    for (let ci = 0; ci < chapters.length; ci++) {
+      const ch = chapters[ci];
+      const lowerTitle = ch.title.toLowerCase();
+      if (lowerTitle.includes(lowerQuery)) {
+        results.push({
+          index: matchIdx++,
+          text: ch.title,
+          offset: 0,
+          chapterIdx: ci,
+          chapterTitle: ch.title,
+          isChapterMatch: true,
+        });
+      }
+    }
+    return results;
+  }, [chapters]);
+
+  /** 线程2：全文内容搜索（异步，并发加载各章节后搜索） */
+  const searchFullText = useCallback(async (
+    query: string,
+    lowerQuery: string,
+    reqId: number,
+  ): Promise<SearchResult[]> => {
     const cache = fullBookTextCache.current;
     // 检查是否所有章节都已缓存
     const uncached = chapters.filter(ch => !cache.has(ch.id));
-    if (uncached.length === 0) return cache;
+    if (uncached.length > 0) {
+      setIsSearchingFullBook(true);
+      try {
+        // 分批加载，每批最多 5 个并发请求
+        const BATCH_SIZE = 5;
+        for (let i = 0; i < uncached.length; i += BATCH_SIZE) {
+          // 💡 中途如果用户清空了搜索或发起了新搜索，停止加载
+          if (searchReqIdRef.current !== reqId) return [];
 
-    setIsSearchingFullBook(true);
-    try {
-      // 分批加载，每批最多 5 个并发请求
-      const BATCH_SIZE = 5;
-      for (let i = 0; i < uncached.length; i += BATCH_SIZE) {
-        const batch = uncached.slice(i, i + BATCH_SIZE);
-        await Promise.all(batch.map(async (ch) => {
-          try {
-            // 优先用预加载缓存
-            const preloaded = preloadedChaptersRef.current.get(ch.id);
-            let content: string;
-            if (preloaded) {
-              content = preloaded.content;
-              preloadedChaptersRef.current.delete(ch.id);
-            } else {
-              // 设置 30 秒超时，防止单个请求挂起阻塞整个搜索
-              const res = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`, { timeout: 30000 });
-              content = res.data.data?.content || '';
-              if (book?.format === 'epub') {
-                content = stripHtml(content);
+          const batch = uncached.slice(i, i + BATCH_SIZE);
+          await Promise.all(batch.map(async (ch) => {
+            try {
+              if (cache.has(ch.id)) return; // 已被其他批次加载
+              // 优先用预加载缓存
+              const preloaded = preloadedChaptersRef.current.get(ch.id);
+              let content: string;
+              if (preloaded) {
+                content = preloaded.content;
+                preloadedChaptersRef.current.delete(ch.id);
+              } else {
+                const res = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`, { timeout: 30000 });
+                content = res.data.data?.content || '';
+                if (book?.format === 'epub') {
+                  content = stripHtml(content);
+                }
               }
+              cache.set(ch.id, { text: content, order: ch.order });
+            } catch {
+              cache.set(ch.id, { text: '', order: ch.order });
             }
-            cache.set(ch.id, { text: content, order: ch.order });
-          } catch {
-            cache.set(ch.id, { text: '', order: ch.order });
-          }
-        }));
+          }));
+        }
+      } finally {
+        // 💡 最后检查：如果过程中请求已过期，不更新 isSearchingFullBook
+        if (searchReqIdRef.current === reqId) {
+          setIsSearchingFullBook(false);
+        }
       }
-    } finally {
-      setIsSearchingFullBook(false);
-    }
-    return cache;
-  }, [chapters, bookId, book]);
-
-  /** 在全书中搜索关键词（最多10个分布到各章的匹配） */
-  const performSearch = useCallback(async (query: string) => {
-    if (!query) {
-      setSearchResults([]);
-      setSearchActiveIdx(-1);
-      return;
     }
 
-    // 确保全书内容已加载
-    const fullCache = await ensureFullBookLoaded();
-    const lowerQuery = query.toLowerCase();
+    // 💡 再检查一次：防止加载完成后请求已过期
+    if (searchReqIdRef.current !== reqId) return [];
 
-    // 分章节搜索，每章最多找几个，均匀分布
-    const results: { index: number; text: string; offset: number; chapterIdx: number; chapterTitle: string }[] = [];
-    let globalMatchCount = 0;
+    // 全文搜索正文
+    const results: SearchResult[] = [];
+    let matchIdx = 0;
 
-    for (let ci = 0; ci < chapters.length && globalMatchCount < 20; ci++) {
+    for (let ci = 0; ci < chapters.length && matchIdx < 20; ci++) {
       const ch = chapters[ci];
-      const cached = fullCache.get(ch.id);
+      const cached = cache.get(ch.id);
       if (!cached || !cached.text) continue;
 
       const lowerContent = cached.text.toLowerCase();
       let searchPos = 0;
 
-      while (globalMatchCount < 20) {
+      while (matchIdx < 20) {
         const pos = lowerContent.indexOf(lowerQuery, searchPos);
         if (pos === -1) break;
 
@@ -260,20 +312,65 @@ function ReaderPage() {
         if (end < cached.text.length) context = context + '…';
 
         results.push({
-          index: globalMatchCount,
+          index: matchIdx,
           text: context,
           offset: pos,
           chapterIdx: ci,
           chapterTitle: ch.title,
+          isChapterMatch: false,
         });
         searchPos = pos + query.length;
-        globalMatchCount++;
+        matchIdx++;
       }
     }
 
-    setSearchResults(results);
-    setSearchActiveIdx(results.length > 0 ? 0 : -1);
-  }, [chapters, ensureFullBookLoaded]);
+    return results;
+  }, [chapters, bookId, book, stripHtml]);
+
+  /** 合并后的搜索入口：线程1（目录匹配）+ 线程2（全文搜索） */
+  const performSearch = useCallback(async (query: string) => {
+    // 生成新的请求 ID，用于取消陈旧请求
+    const reqId = ++searchReqIdRef.current;
+
+    if (!query) {
+      setSearchResults([]);
+      setSearchActiveIdx(-1);
+      return;
+    }
+
+    const lowerQuery = query.toLowerCase();
+
+    // ★ 线程1：目录章节名匹配（同步，立即执行）
+    const titleResults = searchChapterTitles(query, lowerQuery);
+
+    // 直接展示目录匹配结果（让用户能立刻看到）
+    setSearchResults(titleResults);
+    setSearchActiveIdx(titleResults.length > 0 ? 0 : -1);
+
+    // ★ 线程2：全文内容搜索（异步执行）
+    searchFullText(query, lowerQuery, reqId).then((textResults) => {
+      // 请求已过期，丢弃结果
+      if (searchReqIdRef.current !== reqId) return;
+
+      // 合并结果：目录匹配（isChapterMatch=true）在前，正文匹配在后
+      // 目录匹配不重复（章节去重）
+      const titleChapterIdxSet = new Set(titleResults.map(r => r.chapterIdx));
+      const filteredTextResults = textResults.filter(r => !titleChapterIdxSet.has(r.chapterIdx));
+
+      // 调整 index 序号
+      const merged = [...titleResults];
+      for (const tr of filteredTextResults) {
+        tr.index = merged.length;
+        merged.push(tr);
+      }
+
+      setSearchResults(merged);
+      // 如果之前没有目录匹配但有条目匹配，activeIdx 设为0
+      if (merged.length > 0 && searchActiveIdx < 0) {
+        setSearchActiveIdx(0);
+      }
+    });
+  }, [searchChapterTitles, searchFullText]);
 
   /** 跳转到搜索结果位置（先切换章节，再滚动到匹配位置） */
   // handleSearchJump 定义见 navigateToChapter 之后（约 1090 行附近）
@@ -822,57 +919,56 @@ function ReaderPage() {
     }
   };
 
-  /** Strip HTML tags for plain text display */
-  const stripHtml = useCallback((html: string): string => {
-    let s = html;
-    // Convert block-level closing tags to newlines (preserves paragraph structure)
-    s = s.replace(/<\/(?:p|div|h[1-6]|blockquote|li|tr|th|td)>/gi, '\n');
-    // Convert <br> tags to newlines
-    s = s.replace(/<br\s*\/?>/gi, '\n');
-    // Also add newlines before block-level opening tags for extra spacing
-    s = s.replace(/<(?:p|div|h[1-6]|blockquote|li|tr|th|td)[^>]*>/gi, '\n');
-    // Remove head/script/style blocks
-    s = s.replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '');
-    s = s.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-    s = s.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-    // Remove all remaining HTML tags
-    s = s.replace(/<[^>]+>/g, '');
-    // Decode HTML entities (comprehensive, matching ttsPlayer.ts)
-    s = s.replace(/&nbsp;/g, '\u00A0')
-         .replace(/&amp;/g, '&')
-         .replace(/&lt;/g, '<')
-         .replace(/&gt;/g, '>')
-         .replace(/&quot;/g, '"')
-         .replace(/&apos;/g, "'")
-         .replace(/&mdash;/g, '\u2014')
-         .replace(/&ndash;/g, '\u2013')
-         .replace(/&hellip;/g, '\u2026')
-         .replace(/&lsquo;/g, '\u2018')
-         .replace(/&rsquo;/g, '\u2019')
-         .replace(/&ldquo;/g, '\u201C')
-         .replace(/&rdquo;/g, '\u201D')
-         .replace(/&laquo;/g, '\u00AB')
-         .replace(/&raquo;/g, '\u00BB')
-         .replace(/&copy;/g, '\u00A9')
-         .replace(/&reg;/g, '\u00AE')
-         .replace(/&trade;/g, '\u2122')
-         .replace(/&bull;/g, '\u2022')
-         .replace(/&middot;/g, '\u00B7')
-         .replace(/&euro;/g, '\u20AC')
-         .replace(/&pound;/g, '\u00A3')
-         .replace(/&yen;/g, '\u00A5')
-         .replace(/&#(\d+);/g, (_m: any, n: string) => String.fromCharCode(parseInt(n, 10)))
-         .replace(/&#x([0-9a-fA-F]+);/g, (_m: any, n: string) => String.fromCharCode(parseInt(n, 16)));
-    // Normalize: collapse multiple spaces but preserve single newlines
-    s = s.replace(/[ \t]+/g, ' ');
-    // Remove leading whitespace from each line (artifact of HTML indentation)
-    s = s.replace(/^[ \t]+/gm, '');
-    // Remove whitespace-only lines (reduces excessive blank lines from nested tags)
-    s = s.replace(/^[ \t]+$/gm, '');
-
-    s = s.replace(/\n{3,}/g, '\n\n');
-    return s.trim();
-  }, []);
+/** Strip HTML tags for plain text display */
+function stripHtml(html: string): string {
+  let s = html;
+  // Convert block-level closing tags to newlines (preserves paragraph structure)
+  s = s.replace(/<\/(?:p|div|h[1-6]|blockquote|li|tr|th|td)>/gi, '\n');
+  // Convert <br> tags to newlines
+  s = s.replace(/<br\s*\/?>/gi, '\n');
+  // Also add newlines before block-level opening tags for extra spacing
+  s = s.replace(/<(?:p|div|h[1-6]|blockquote|li|tr|th|td)[^>]*>/gi, '\n');
+  // Remove head/script/style blocks
+  s = s.replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '');
+  s = s.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  s = s.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+  // Remove all remaining HTML tags
+  s = s.replace(/<[^>]+>/g, '');
+  // Decode HTML entities (comprehensive, matching ttsPlayer.ts)
+  s = s.replace(/&nbsp;/g, '\u00A0')
+       .replace(/&amp;/g, '&')
+       .replace(/&lt;/g, '<')
+       .replace(/&gt;/g, '>')
+       .replace(/&quot;/g, '"')
+       .replace(/&apos;/g, "'")
+       .replace(/&mdash;/g, '\u2014')
+       .replace(/&ndash;/g, '\u2013')
+       .replace(/&hellip;/g, '\u2026')
+       .replace(/&lsquo;/g, '\u2018')
+       .replace(/&rsquo;/g, '\u2019')
+       .replace(/&ldquo;/g, '\u201C')
+       .replace(/&rdquo;/g, '\u201D')
+       .replace(/&laquo;/g, '\u00AB')
+       .replace(/&raquo;/g, '\u00BB')
+       .replace(/&copy;/g, '\u00A9')
+       .replace(/&reg;/g, '\u00AE')
+       .replace(/&trade;/g, '\u2122')
+       .replace(/&bull;/g, '\u2022')
+       .replace(/&middot;/g, '\u00B7')
+       .replace(/&euro;/g, '\u20AC')
+       .replace(/&pound;/g, '\u00A3')
+       .replace(/&yen;/g, '\u00A5')
+       .replace(/&#(\d+);/g, (_m: any, n: string) => String.fromCharCode(parseInt(n, 10)))
+       .replace(/&#x([0-9a-fA-F]+);/g, (_m: any, n: string) => String.fromCharCode(parseInt(n, 16)));
+  // Normalize: collapse multiple spaces but preserve single newlines
+  s = s.replace(/[ \t]+/g, ' ');
+  // Remove leading whitespace from each line (artifact of HTML indentation)
+  s = s.replace(/^[ \t]+/gm, '');
+  // Remove whitespace-only lines (reduces excessive blank lines from nested tags)
+  s = s.replace(/^[ \t]+$/gm, '');
+  s = s.replace(/\n{3,}/g, '\n\n');
+  return s.trim();
+}
 
   // Load chapter content
 
@@ -2317,6 +2413,12 @@ function ReaderPage() {
                 {searchQuery && !isSearchingFullBook && searchResults.length === 0 && (
                   <div className="px-4 py-6 text-center text-sm text-gray-400">未找到匹配结果</div>
                 )}
+                {/* 目录匹配分隔线（有正文匹配时显示） */}
+                {searchResults.some(r => r.isChapterMatch) && searchResults.some(r => !r.isChapterMatch) && (
+                  <div className="px-3 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/10 border-b border-blue-100 dark:border-blue-800/30">
+                    📖 章节匹配（最高优先级）
+                  </div>
+                )}
                 {searchResults.map((result, i) => (
                   <button
                     key={i}
@@ -2326,23 +2428,42 @@ function ReaderPage() {
                     }`}
                   >
                     <span className="block text-xs text-gray-400 mb-0.5">
-                      匹配 {i + 1}
+                      {result.isChapterMatch ? (
+                        <span className="inline-flex items-center gap-1">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-blue-500"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+                          章节匹配
+                        </span>
+                      ) : (
+                        <>匹配 {i + 1}</>
+                      )}
                       {result.chapterTitle && (
                         <span className="ml-2 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
                           {result.chapterTitle}
                         </span>
                       )}
                     </span>
-                    <span className="text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{
-                      __html: result.text.replace(
-                        new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
-                        '<mark class="bg-yellow-300 dark:bg-yellow-600 text-gray-900 dark:text-gray-100 rounded px-0.5">$1</mark>'
-                      )
-                    }} />
+                    {result.isChapterMatch ? (
+                      <span className="text-blue-700 dark:text-blue-300 font-medium">
+                        {result.chapterTitle}
+                      </span>
+                    ) : (
+                      <span className="text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{
+                        __html: result.text.replace(
+                          new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
+                          '<mark class="bg-yellow-300 dark:bg-yellow-600 text-gray-900 dark:text-gray-100 rounded px-0.5">$1</mark>'
+                        )
+                      }} />
+                    )}
                   </button>
                 ))}
+                {/* 全文搜索进行中提示 */}
+                {searchQuery && isSearchingFullBook && searchResults.length > 0 && (
+                  <div className="px-3 py-2 text-xs text-center text-gray-400 border-t border-gray-100 dark:border-gray-700">
+                    <span className="animate-pulse">正在深入搜索全文内容…</span>
+                  </div>
+                )}
               </div>
-              {searchResults.length > 0 && (
+              {searchResults.length > 0 && !isSearchingFullBook && (
                 <div className="px-4 py-2 text-xs text-gray-400 border-t border-gray-200 dark:border-gray-700 text-center">
                   共 {searchResults.length} 个匹配结果，点击跳转
                 </div>
