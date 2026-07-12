@@ -494,24 +494,30 @@ export async function getAllCachedBookStatuses(): Promise<BookCacheStatus[]> {
  */
 export async function clearBookChapterCache(bookId: string): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(['bookChapters', 'cacheMeta'], 'readwrite');
-  const chapterStore = tx.objectStore('bookChapters');
-  const metaStore = tx.objectStore('cacheMeta');
-
-  const chapterKeys = await chapterStore.index('bookId').getAllKeys(bookId);
-  for (const key of chapterKeys) {
-    await chapterStore.delete(key);
+  // ⓵ 用游标批量删除 bookChapters，避免大量逐条 delete
+  {
+    const tx = db.transaction('bookChapters', 'readwrite');
+    const store = tx.objectStore('bookChapters');
+    const index = store.index('bookId');
+    let cursor = await index.openCursor(bookId);
+    while (cursor) {
+      cursor.delete();
+      cursor = await cursor.continue();
+    }
+    await tx.done;
   }
-
-  // 更新元数据：重置章节缓存数
-  const existingMeta = await metaStore.get(bookId) as CacheMeta | undefined;
-  if (existingMeta) {
-    existingMeta.cachedChapters = 0;
-    existingMeta.lastCachedAt = Date.now();
-    await metaStore.put(existingMeta);
+  // ⓶ 单独事务更新元数据
+  {
+    const tx = db.transaction('cacheMeta', 'readwrite');
+    const metaStore = tx.objectStore('cacheMeta');
+    const existingMeta = await metaStore.get(bookId) as CacheMeta | undefined;
+    if (existingMeta) {
+      existingMeta.cachedChapters = 0;
+      existingMeta.lastCachedAt = Date.now();
+      await metaStore.put(existingMeta);
+    }
+    await tx.done;
   }
-
-  await tx.done;
 }
 
 /**
@@ -519,24 +525,30 @@ export async function clearBookChapterCache(bookId: string): Promise<void> {
  */
 export async function clearBookTTSAudioCache(bookId: string): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(['ttsAudio', 'cacheMeta'], 'readwrite');
-  const audioStore = tx.objectStore('ttsAudio');
-  const metaStore = tx.objectStore('cacheMeta');
-
-  const audioKeys = await audioStore.index('bookId').getAllKeys(bookId);
-  for (const key of audioKeys) {
-    await audioStore.delete(key);
+  // ⓵ 用游标批量删除 ttsAudio，不逐条 delete（大书可能有数千条分段，逐条极慢）
+  {
+    const tx = db.transaction('ttsAudio', 'readwrite');
+    const store = tx.objectStore('ttsAudio');
+    const index = store.index('bookId');
+    let cursor = await index.openCursor(bookId);
+    while (cursor) {
+      cursor.delete();
+      cursor = await cursor.continue();
+    }
+    await tx.done;
   }
-
-  // 更新元数据：重置音频缓存数
-  const existingMeta = await metaStore.get(bookId) as CacheMeta | undefined;
-  if (existingMeta) {
-    existingMeta.cachedAudioSegments = 0;
-    existingMeta.lastCachedAt = Date.now();
-    await metaStore.put(existingMeta);
+  // ⓶ 单独事务更新元数据（避免长时间占用写锁导致其他操作阻塞）
+  {
+    const tx = db.transaction('cacheMeta', 'readwrite');
+    const metaStore = tx.objectStore('cacheMeta');
+    const existingMeta = await metaStore.get(bookId) as CacheMeta | undefined;
+    if (existingMeta) {
+      existingMeta.cachedAudioSegments = 0;
+      existingMeta.lastCachedAt = Date.now();
+      await metaStore.put(existingMeta);
+    }
+    await tx.done;
   }
-
-  await tx.done;
 }
 
 export interface BookCacheDetailedStats {

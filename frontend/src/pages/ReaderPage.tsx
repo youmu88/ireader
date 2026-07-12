@@ -430,28 +430,40 @@ function ReaderPage() {
   /** 缓存全书到客户端（文字 + 逐段预合成语音并缓存到本地 IndexedDB） */
   const handleCacheFullBook = useCallback(async () => {
     if (!bookId || !book || !chapters.length) return;
+
+    // ⭐ 前置检查：先看当前缓存状态（复用已有 cacheStatus 或重新获取）
+    const currentStats = cacheStatus ?? await getBookCacheDetailedStats(bookId);
+    const textAlreadyCached = currentStats && chapters.length > 0 && currentStats.chapterCount >= chapters.length;
+    // 文字+语音都已全缓存 → 直接跳过，不触发任何动画
+    if (textAlreadyCached && currentStats!.audioChapterCount >= chapters.length) {
+      console.log('全书文字+语音已全部缓存，跳过全书缓存');
+      return;
+    }
+
     setCachingInProgress(true);
-    setCacheProgressText('');
+    setCacheProgressText(textAlreadyCached ? '合成语音 0/' + chapters.length + ' 章' : '');
     try {
-      // 阶段1：批量获取并缓存所有章节文字内容
-      const totalCh = chapters.length;
+      // 阶段1：批量获取并缓存所有章节文字内容（已全部缓存时跳过）
       const chapterData: { chapterId: string; title: string; order: number; content: string }[] = [];
-      for (let ci = 0; ci < totalCh; ci++) {
-        const ch = chapters[ci];
-        setCacheProgressText(`获取章节 ${ci + 1}/${totalCh}`);
-        const res = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`);
-        const rawContent = res.data.data?.content || '';
-        // 内联的 HTML 标签剥离函数（避免在 useCallback 前引用 stripHtml）
-        const simpleStrip = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#(\d+);/g, (_m: string, n: string) => String.fromCharCode(parseInt(n, 10))).trim();
-        const content = book.format === 'epub' ? simpleStrip(rawContent) : rawContent;
-        chapterData.push({
-          chapterId: ch.id,
-          title: ch.title,
-          order: ch.order,
-          content,
-        });
+      if (!textAlreadyCached) {
+        const totalCh = chapters.length;
+        for (let ci = 0; ci < totalCh; ci++) {
+          const ch = chapters[ci];
+          setCacheProgressText(`获取章节 ${ci + 1}/${totalCh}`);
+          const res = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`);
+          const rawContent = res.data.data?.content || '';
+          // 内联的 HTML 标签剥离函数（避免在 useCallback 前引用 stripHtml）
+          const simpleStrip = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#(\d+);/g, (_m: string, n: string) => String.fromCharCode(parseInt(n, 10))).trim();
+          const content = book.format === 'epub' ? simpleStrip(rawContent) : rawContent;
+          chapterData.push({
+            chapterId: ch.id,
+            title: ch.title,
+            order: ch.order,
+            content,
+          });
+        }
+        await cacheBookChapters(bookId, book.title, chapterData);
       }
-      await cacheBookChapters(bookId, book.title, chapterData);
 
       // 阶段2：全局并发池逐段合成语音并缓存到 IndexedDB
       // 将所有段落任务放入全局队列，跨章并发，充分利用并发能力

@@ -89,6 +89,9 @@
  * 1.39.0 (2026-07-12): [FEATURE] 导航栏布局优化 — 书架/语音合成/设置三图标顺序统一，补齐移动端缺失的书架图标，双端图标样式一致
  * 1.40.0 (2026-07-12): [FEATURE] 导航栏顺序调整为书架→设置→语音合成
  * 1.40.1 (2026-07-12): [BUGFIX] 修复TTS语音进度计算虚假+任务卡死无限重试 — progress使用实际分片数计算，实时更新totalChunks；recoverStuckJobs重算totalChunks并限制最多恢复3次
+ * 1.40.2 (2026-07-12): [PERF+Bugfix] 缓存全书跳过已缓存章节 + 清除缓存改用游标批量删除大幅提速
+ *   1) handleCacheFullBook 前置检查：文字+语音已全缓存时直接跳过，不触发进度动画
+ *   2) clearBookTTSAudioCache / clearBookChapterCache 改用 IDB 游标批量删除替代逐条 for 循环删除
  */
 
-export const APP_VERSION = '1.40.1';
+export const APP_VERSION = '1.40.2';
