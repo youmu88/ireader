@@ -416,6 +416,14 @@ do_deploy() {
     cd "${SOURCE_DIR}"
   fi
 
+  # 拷贝白名单配置
+  if [ -f "${SOURCE_DIR}/backend/secUserEmail.json" ]; then
+    cp "${SOURCE_DIR}/backend/secUserEmail.json" "${APP_DIR}/backend/"
+    log "  → secUserEmail.json (白名单配置)"
+  fi
+
+  # 拷贝 frontend 构建产物
+  log "拷贝 frontend..."
   # 拷贝 frontend 构建产物
   log "拷贝 frontend..."
   mkdir -p "${APP_DIR}/frontend"

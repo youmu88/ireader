@@ -72,4 +72,8 @@
  * 1.33.0 (2026-07-12): [FEATURE] 安全账号白名单 — 注册白名单邮箱限制（secUserEmail.json），仅白名单内邮箱可注册；登录支持 email/username 双模式兼容老用户
  */
 
+ * 1.33.1 (2026-07-12): [BUGFIX] 修复白名单配置未部署 — deploy.sh 未拷贝 secUserEmail.json 到部署目录，导致后端加载白名单失败，所有邮箱被拒绝注册
+ */
+
+export const APP_VERSION = '1.33.1';
 export const APP_VERSION = '1.33.0';
