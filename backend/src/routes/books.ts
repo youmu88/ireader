@@ -4,25 +4,15 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { sql } from 'drizzle-orm';
-import { books, bookChapters, readingProgress, ttsGenerationJobs, ttsSettings, ttsCache } from '../db/schema.js';
+import { books, bookChapters, readingProgress, ttsGenerationJobs, ttsSettings, ttsCache, userBookRefs, globalBooks } from '../db/schema.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requireAuth } from '../middleware/auth.js';
 import { parseBook, getChapterContent, parseTxt } from '../parser/index.js';
 import { getBookCacheStats } from '../services/contentCacheService.js';
+import { computeFileHash, findGlobalBookByHash, createGlobalBook, createUserBookRef, findUserActiveBookRef, removeUserBookRef } from '../services/globalResourceService.js';
 import crypto from 'crypto';
 
-/**
- * 计算文件 SHA256 哈希（流式读取，适合大文件）
- */
-function computeFileHash(filePath: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = crypto.createHash('sha256');
-    const stream = fs.createReadStream(filePath);
-    stream.on('data', (chunk: Buffer) => hash.update(chunk));
-    stream.on('end', () => resolve(hash.digest('hex')));
-    stream.on('error', reject);
-  });
-}
+// computeFileHash 已迁移到 globalResourceService.js
 
 /**
  * Simple string hash (djb2) for deterministic hue generation.
@@ -117,98 +107,218 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   }
 
   /**
-   * Process a single uploaded file: save, parse, insert into DB.
-   * Returns the final book record or null on failure.
+   * 全局书库目录（统一存放全局唯一书籍的物理文件）
+   */
+  const globalBooksDir = path.join(dataDir, 'global-books');
+  if (!fs.existsSync(globalBooksDir)) {
+    fs.mkdirSync(globalBooksDir, { recursive: true });
+  }
+
+  /**
+   * 读取并返回书籍章节内容（用于复用全局书籍时直接复制章节）
+   */
+  async function extractAndSaveChapters(sourcePath: string, format: 'epub' | 'txt', bookDir: string): Promise<{
+    title: string;
+    author: string | null;
+    coverPath: string | null;
+    chapters: Array<{ title: string; href?: string; startOffset?: number; endOffset?: number; order: number; level: number }>;
+  }> {
+    const parseResult = await parseBook(sourcePath, format, bookDir);
+    // 尝试提取封面
+    let coverPath: string | null = null;
+    if (parseResult.coverPath) {
+      const coverSrc = path.join(bookDir, 'extracted', parseResult.coverPath);
+      const coverExt = path.extname(coverSrc) || '.jpg';
+      const coverDest = path.join(bookDir, `cover${coverExt}`);
+      if (fs.existsSync(coverSrc)) {
+        fs.copyFileSync(coverSrc, coverDest);
+        coverPath = coverDest;
+      }
+    }
+    return {
+      title: parseResult.title,
+      author: parseResult.author || null,
+      coverPath,
+      chapters: parseResult.chapters,
+    };
+  }
+
+  /**
+   * 处理单文件上传：全局引用逻辑
+   * - 先计算 fileHash
+   * - 若 global_books 已有相同 hash → 复用物理文件 + 引用+1，不重新存储/解压
+   * - 若没有 → 存储到全局目录，解析后存入全局书库
    */
   const processUpload = async (file: Express.Multer.File, now: string, userId: string): Promise<any> => {
     const { format, ext: detectedExt } = detectBookFormat(file.originalname);
     const storageExt = buildStorageExt(detectedExt);
     const bookId = uuidv4();
-    const bookDir = path.join(booksDir, bookId);
-    const targetPath = path.join(bookDir, `original${storageExt}`);
+    const localBookDir = path.join(booksDir, bookId);
 
-    // Create book directory
-    fs.mkdirSync(bookDir, { recursive: true });
+    // 先计算文件哈希（同步阻塞，因为上传响应需要知道是否复用）
+    const fileHash = await computeFileHash(file.path);
 
-    // Move uploaded file to book directory
-    fs.renameSync(file.path, targetPath);
+    // 查询全局书库
+    const existingGlobal = findGlobalBookByHash(db, fileHash);
 
-    // 先创建记录（不含 fileHash），上传响应不阻塞哈希计算
-    const bookRecord = {
-      id: bookId,
-      userId,
-      title: extractTitle(file.originalname),
-      author: null,
-      format,
-      categoryId: null,
-      filePath: targetPath,
-      coverPath: null,
-      fileHash: null,
-      size: file.size,
-      status: 'processing' as const,
-      parseError: null,
-      createdAt: now,
-      updatedAt: now,
-    };
+    if (existingGlobal) {
+      // ── 已有相同书籍，复用 ──
+      // 创建用户的 local book 记录（指向全局文件）
+      const targetPath = existingGlobal.filePath;
 
-    db.insert(books).values(bookRecord).run();
+      fs.mkdirSync(localBookDir, { recursive: true });
 
-    // 异步计算文件哈希（大文件不阻塞上传响应）
-    computeFileHash(targetPath).then(hash => {
-      db.update(books).set({ fileHash: hash, updatedAt: new Date().toISOString() })
-        .where(sql`id = ${bookId}`).run();
-    }).catch(err => {
-      console.error(`[异步哈希] 计算失败 (book: ${bookId}):`, err.message);
-    });
-
-    // Parse book (await since parseBook is async)
-    try {
-      const parseResult = await parseBook(targetPath, format!, bookDir);
-
-      // Update book metadata from parse result
-      const updateData: any = {
-        title: parseResult.title,
-        author: parseResult.author || bookRecord.author,
-        status: 'ready',
+      const bookRecord = {
+        id: bookId,
+        userId,
+        title: extractTitle(file.originalname),
+        author: existingGlobal.author,
+        format,
+        categoryId: null,
+        filePath: targetPath,
+        coverPath: existingGlobal.coverPath,
+        fileHash,
+        size: existingGlobal.size,
+        status: 'ready' as const,
+        parseError: null,
+        createdAt: now,
         updatedAt: now,
+        pinned: 0,
       };
+      db.insert(books).values(bookRecord).run();
 
-      if (parseResult.coverPath) {
-        // EPUB parser extracts files to {bookDir}/extracted/
-        const coverSrc = path.join(bookDir, 'extracted', parseResult.coverPath);
-        const coverExt = path.extname(coverSrc) || '.jpg';
-        const coverDest = path.join(bookDir, `cover${coverExt}`);
-        if (fs.existsSync(coverSrc)) {
-          fs.copyFileSync(coverSrc, coverDest);
-          updateData.coverPath = coverDest;
+      // 复制全局书籍的章节信息到当前用户的 book_chapters
+      const globalBookChapters = db.select().from(bookChapters)
+        .where(sql`book_id = (SELECT local_book_id FROM user_book_refs WHERE global_book_id = ${existingGlobal.id} LIMIT 1)`)
+        .all() as any[];
+      
+      if (globalBookChapters.length > 0) {
+        for (const ch of globalBookChapters) {
+          db.insert(bookChapters).values({
+            id: uuidv4(),
+            bookId,
+            title: ch.title,
+            href: ch.href,
+            startOffset: ch.startOffset,
+            endOffset: ch.endOffset,
+            order: ch.order,
+            level: ch.level,
+          }).run();
         }
+      } else {
+        // 没有任何引用时，需要重新解析（首次创建时已解析，不会走到这里）
+        // 但兜底：尝试本地解析
+        try {
+          const parseInfo = await extractAndSaveChapters(targetPath, format!, localBookDir);
+          for (const ch of parseInfo.chapters) {
+            db.insert(bookChapters).values({
+              id: uuidv4(),
+              bookId,
+              title: ch.title,
+              href: (ch as any).href || null,
+              startOffset: (ch as any).startOffset ?? null,
+              endOffset: (ch as any).endOffset ?? null,
+              order: ch.order,
+              level: ch.level,
+            }).run();
+          }
+        } catch { /* 静默 */ }
       }
 
-      db.update(books).set(updateData).where(sql`id = ${bookId}`).run();
+      // 创建用户引用
+      createUserBookRef(db, userId, existingGlobal.id, bookId);
 
-      // Insert chapters
-      for (const chapter of parseResult.chapters) {
+      // 清理临时上传文件
+      try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch { /* ignore */ }
+
+      return db.select().from(books).where(sql`id = ${bookId}`).get();
+    }
+
+    // ── 全新书籍：存储到全局目录并解析 ──
+    const gBookId = uuidv4();
+    const gBookDir = path.join(globalBooksDir, gBookId);
+    fs.mkdirSync(gBookDir, { recursive: true });
+    const globalTargetPath = path.join(gBookDir, `original${storageExt}`);
+
+    // 移动文件到全局目录
+    fs.renameSync(file.path, globalTargetPath);
+
+    // 创建全局书籍记录
+    const gBook = createGlobalBook(db, fileHash, extractTitle(file.originalname), null, format!, globalTargetPath, null, file.size);
+
+    // 解析书籍（提取章节、封面、元数据）
+    try {
+      const parseInfo = await extractAndSaveChapters(globalTargetPath, format!, gBookDir);
+
+      // 更新全局书籍元数据
+      db.update(globalBooks).set({
+        title: parseInfo.title,
+        author: parseInfo.author || gBook.author,
+        coverPath: parseInfo.coverPath,
+      } as any).where(sql`id = ${gBook.id}`).run();
+
+      // 创建用户的 local book 记录
+      fs.mkdirSync(localBookDir, { recursive: true });
+      const bookRecord = {
+        id: bookId,
+        userId,
+        title: parseInfo.title,
+        author: parseInfo.author,
+        format,
+        categoryId: null,
+        filePath: globalTargetPath,
+        coverPath: parseInfo.coverPath,
+        fileHash,
+        size: file.size,
+        status: 'ready' as const,
+        parseError: null,
+        createdAt: now,
+        updatedAt: now,
+        pinned: 0,
+      };
+      db.insert(books).values(bookRecord).run();
+
+      // 写入章节
+      for (const ch of parseInfo.chapters) {
         db.insert(bookChapters).values({
           id: uuidv4(),
           bookId,
-          title: chapter.title,
-          href: (chapter as any).href || null,
-          startOffset: (chapter as any).startOffset ?? null,
-          endOffset: (chapter as any).endOffset ?? null,
-          order: chapter.order,
-          level: chapter.level,
+          title: ch.title,
+          href: (ch as any).href || null,
+          startOffset: (ch as any).startOffset ?? null,
+          endOffset: (ch as any).endOffset ?? null,
+          order: ch.order,
+          level: ch.level,
         }).run();
       }
-    } catch (parseErr: any) {
-      // Mark as failed
-      db.update(books).set({
-        status: 'failed',
-        parseError: parseErr.message || '解析失败',
-        updatedAt: now,
-      }).where(sql`id = ${bookId}`).run();
-    }
 
-    return db.select().from(books).where(sql`id = ${bookId}`).get();
+      // 创建用户引用
+      createUserBookRef(db, userId, gBook.id, bookId);
+
+      return db.select().from(books).where(sql`id = ${bookId}`).get();
+    } catch (parseErr: any) {
+      // 解析失败时标记，保留文件但不创建引用
+      const bookRecord = {
+        id: bookId,
+        userId,
+        title: extractTitle(file.originalname),
+        author: null,
+        format,
+        categoryId: null,
+        filePath: globalTargetPath,
+        coverPath: null,
+        fileHash,
+        size: file.size,
+        status: 'failed' as const,
+        parseError: parseErr.message || '解析失败',
+        createdAt: now,
+        updatedAt: now,
+        pinned: 0,
+      };
+      fs.mkdirSync(localBookDir, { recursive: true });
+      db.insert(books).values(bookRecord).run();
+      return db.select().from(books).where(sql`id = ${bookId}`).get();
+    }
   };
 
   // ── POST /api/books/upload - 上传单本图书（前端队列逐本上传）──
@@ -525,27 +635,26 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     }
   });
 
-  // ── DELETE /api/books/:id - 删除图书 ──
+  // ── DELETE /api/books/:id - 删除图书（引用计数减1，物理文件延迟清理） ──
   router.delete('/:id', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.userId;
       const book = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
       if (!book) throw new AppError(404, '图书不存在');
 
-      // Delete reading progress
+      // 删除阅读进度（始终是用户独立的）
       db.delete(readingProgress).where(sql`book_id = ${req.params.id}`).run();
-      // Delete chapters
-      db.delete(bookChapters).where(sql`book_id = ${req.params.id}`).run();
-      // Delete book record
+
+      // 减少引用计数（标记删除，不删物理文件）
+      const removed = removeUserBookRef(db, userId, req.params.id);
+
+      // 删除 local book 记录
       db.delete(books).where(sql`id = ${req.params.id}`).run();
 
-      // Delete physical files
-      const bookDir = path.join(booksDir, req.params.id);
-      if (fs.existsSync(bookDir)) {
-        fs.rmSync(bookDir, { recursive: true, force: true });
-      }
+      // 注意：不删除物理文件，由定时清理任务处理
+      // 不删除 chapters（其他用户还在引用），只删阅读进度
 
-      res.json({ success: true, message: '图书已删除' });
+      res.json({ success: true, message: removed ? '图书已移除' : '图书已删除' });
     } catch (err) {
       next(err);
     }

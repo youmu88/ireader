@@ -145,7 +145,66 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       normal_chunk_max_size INTEGER NOT NULL DEFAULT 128,
       updated_at TEXT NOT NULL
     );
+      CREATE TABLE IF NOT EXISTS global_books (
+        id TEXT PRIMARY KEY,
+        file_hash TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        author TEXT,
+        format TEXT NOT NULL CHECK(format IN ('epub', 'txt')),
+        file_path TEXT NOT NULL,
+        cover_path TEXT,
+        size INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS user_book_refs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        global_book_id TEXT NOT NULL REFERENCES global_books(id) ON DELETE CASCADE,
+        local_book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        ref_count INTEGER NOT NULL DEFAULT 1,
+        deleted_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS tts_global_resources (
+        id TEXT PRIMARY KEY,
+        book_id TEXT NOT NULL REFERENCES global_books(id) ON DELETE CASCADE,
+        chapter_id TEXT,
+        text_hash TEXT NOT NULL,
+        voice TEXT NOT NULL,
+        speed REAL NOT NULL,
+        audio_path TEXT NOT NULL,
+        file_size INTEGER,
+        created_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS tts_refs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        global_resource_id TEXT NOT NULL REFERENCES tts_global_resources(id) ON DELETE CASCADE,
+        local_cache_id TEXT,
+        ref_count INTEGER NOT NULL DEFAULT 1,
+        deleted_at TEXT,
+        created_at TEXT NOT NULL
+      );
   `);
+
+  // ── 全局引用系统迁移：创建索引 ──
+  try {
+    sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_global_books_hash ON global_books(file_hash);
+      CREATE INDEX IF NOT EXISTS idx_user_book_refs_user ON user_book_refs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_book_refs_global ON user_book_refs(global_book_id);
+      CREATE INDEX IF NOT EXISTS idx_tts_global_resources_lookup ON tts_global_resources(text_hash, voice, speed, book_id);
+      CREATE INDEX IF NOT EXISTS idx_tts_refs_user ON tts_refs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_tts_refs_global ON tts_refs(global_resource_id);
+    `);
+  } catch (err) {
+    console.error('[迁移] 全局引用索引创建失败:', (err as Error).message);
+  }
 
   // ── 旧表迁移：检测并自动添加 user_id 列 ──
   // 注意：必须在 CREATE TABLE IF NOT EXISTS 之后运行，确保 users 表已存在

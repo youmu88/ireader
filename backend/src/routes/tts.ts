@@ -2,13 +2,15 @@
  * TTS 路由 — 提供语音服务选择、音色列表、连接测试、语音合成等 API
  * 所有 API 需要用户登录鉴权（用户隔离）
  */
+import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { sql } from 'drizzle-orm';
 import { getSources, getVoices, checkHealth, synthesize } from '../services/ttsProxyService.js';
-import { ttsSettings, ttsCache, ttsGenerationJobs, books } from '../db/schema.js';
+import { ttsSettings, ttsCache, ttsGenerationJobs, books, ttsGlobalResources, ttsRefs } from '../db/schema.js';
 import { findCache, isCacheValid, saveToCache, clearAllCache, evictStaleCache, findCachedSegmentsByBook } from '../services/ttsCacheService.js';
+import { findTtsGlobalResource, createTtsGlobalResource, createTtsRef, removeTtsRef } from '../services/globalResourceService.js';
 import { requireAuth } from '../middleware/auth.js';
 import { regenerateAllForNewVoice, createFullBookGenerationJob, cancelJob, cancelJobs, cancelAllUserJobs, deleteJobs, clearTerminatedJobs } from '../services/ttsGenerationService.js';
 
@@ -47,10 +49,10 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     res.json(result);
   });
 
-  // ── 语音合成代理（带缓存，按用户隔离；自动加载用户自定义 API 配置） ──
+  // ── 语音合成代理（带全局缓存；同时按同书+同文本+同音色共享） ──
   router.post('/', requireAuth, async (req: Request, res: Response) => {
     const userId = req.user!.userId;
-    const { input, voice, speed, response_format, tts_source, no_cache } = req.body;
+    const { input, voice, speed, response_format, tts_source, no_cache, book_id } = req.body;
 
     // 加载用户的 TTS 设置（获取自定义 API URL/Key）
     const userSettings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
@@ -58,7 +60,35 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     const apiKey = userSettings?.apiKey || undefined;
     const source = tts_source || userSettings?.source || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
 
-    // ⭐ 调试模式：no_cache=true 时跳过后端音频缓存，每次都实时合成
+    // ⭐ 全局资源查找：按 text_hash + voice + speed + book_id
+    if (!no_cache && dataDir && book_id) {
+      try {
+        const textHash = crypto.createHash('md5').update(`${voice || 'zh-CN-XiaoxiaoNeural'}|${speed || 1.0}|${input}`).digest('hex');
+
+        // 先查全局资源（同书+同文本+同音色共享）
+        const globalRes = findTtsGlobalResource(db, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, book_id);
+        if (globalRes && fs.existsSync(globalRes.audioPath)) {
+          // 创建/更新用户的 tts_ref
+          const existingRef = db.select().from(ttsRefs).where(
+            sql`user_id = ${userId} AND global_resource_id = ${globalRes.id} AND deleted_at IS NULL`
+          ).get();
+          if (!existingRef) {
+            createTtsRef(db, userId, globalRes.id, null);
+          }
+
+          const audioBuffer = fs.readFileSync(globalRes.audioPath);
+          const ext = path.extname(globalRes.audioPath).toLowerCase();
+          const contentType = ext === '.mp3' ? 'audio/mpeg' : 'audio/wav';
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Content-Length', audioBuffer.length);
+          res.setHeader('X-TTS-Cache', 'GLOBAL_HIT');
+          res.send(audioBuffer);
+          return;
+        }
+      } catch { /* 全局缓存读取失败，回退到本地缓存或实时合成 */ }
+    }
+
+    // ⭐ 回退到本地缓存（按用户隔离）
     if (!no_cache && dataDir) {
       try {
         const cached = findCache(db, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, userId);
@@ -68,7 +98,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           const contentType = ext === '.mp3' ? 'audio/mpeg' : 'audio/wav';
           res.setHeader('Content-Type', contentType);
           res.setHeader('Content-Length', audioBuffer.length);
-          res.setHeader('X-TTS-Cache', 'HIT');
+          res.setHeader('X-TTS-Cache', 'LOCAL_HIT');
           res.send(audioBuffer);
           return;
         }
@@ -81,10 +111,31 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       return;
     }
 
-    // 保存到缓存（按用户隔离，调试模式 no_cache 时不写入缓存）
+    // ⭐ 合成成功 → 保存到全局资源 + 本地缓存
     if (!no_cache && dataDir && result.audio) {
       try {
-        saveToCache(db, dataDir, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, result.audio, response_format || 'wav', userId);
+        const textHash = crypto.createHash('md5').update(`${voice || 'zh-CN-XiaoxiaoNeural'}|${speed || 1.0}|${input}`).digest('hex');
+
+        // 检查全局是否已有（防并发重复写入）
+        let globalRes = findTtsGlobalResource(db, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, book_id);
+        if (!globalRes && book_id) {
+          // 存到全局目录
+          const audioFormat = response_format || 'wav';
+          const audioExt = audioFormat === 'mp3' ? '.mp3' : '.wav';
+          const globalAudioDir = path.join(dataDir, 'tts-global');
+          if (!fs.existsSync(globalAudioDir)) fs.mkdirSync(globalAudioDir, { recursive: true });
+          const globalAudioPath = path.join(globalAudioDir, `${textHash}${audioExt}`);
+          fs.writeFileSync(globalAudioPath, result.audio);
+
+          globalRes = createTtsGlobalResource(db, book_id, null, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalAudioPath, result.audio.length);
+        }
+
+        if (globalRes) {
+          createTtsRef(db, userId, globalRes.id, null);
+        }
+
+        // 同时保持本地缓存（向后兼容）
+        saveToCache(db, dataDir, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, result.audio, response_format || 'wav', userId, book_id);
       } catch { /* 缓存写入失败不影响主流程 */ }
     }
 
@@ -224,6 +275,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
 
   // ── GET /api/tts/batch-cache/:bookId - 批量获取某本书所有已缓存的音频段落 ──
   // 前端缓存全书时调用，跳过逐段 POST /api/tts，直接下载已预合成的音频文件
+  // 现在支持从全局资源 + 本地缓存共同返回
   router.get('/batch-cache/:bookId', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.user!.userId;
@@ -231,17 +283,52 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       const voice = (req.query.voice as string) || 'zh-CN-XiaoxiaoNeural';
       const speed = parseFloat(req.query.speed as string) || 1.0;
 
-      const entries = findCachedSegmentsByBook(db, bookId, voice, speed, userId);
+      // 1. 查全局资源（全局 TTS + 用户有引用）
+      const globalEntries = db.select()
+        .from(ttsGlobalResources)
+        .where(sql`book_id = ${bookId} AND voice = ${voice} AND speed = ${speed} AND deleted_at IS NULL`)
+        .all() as any[];
 
-      // 按 chapterId 分组，输出每段的信息（不含音频数据，只含引用）
-      const segments = entries.map(entry => ({
-        chapterId: entry.chapterId,
-        textHash: entry.textHash,
-        audioUrl: `/api/tts/cache-file/${entry.id}`,  // 供前端下载
-        voice: entry.voice,
-        speed: entry.speed,
-        cachedAt: entry.createdAt,
-      }));
+      const segments: any[] = [];
+
+      for (const entry of globalEntries) {
+        if (!fs.existsSync(entry.audioPath)) continue;
+        // 检查用户是否有引用，没有则自动创建
+        const ref = db.select()
+          .from(ttsRefs)
+          .where(sql`user_id = ${userId} AND global_resource_id = ${entry.id} AND deleted_at IS NULL`)
+          .get();
+        if (!ref) {
+          createTtsRef(db, userId, entry.id, null);
+        }
+        segments.push({
+          chapterId: entry.chapterId,
+          textHash: entry.textHash,
+          audioUrl: `/api/tts/cache-file/${entry.id}`,
+          voice: entry.voice,
+          speed: entry.speed,
+          cachedAt: entry.createdAt,
+          source: 'global',
+        });
+      }
+
+      // 2. 补充本地缓存（未在全局资源表中的）
+      const localEntries = findCachedSegmentsByBook(db, bookId, voice, speed, userId);
+      for (const local of localEntries) {
+        // 去重：如果已包含相同 text_hash+voice+speed 的全局资源，跳过
+        const alreadyExists = segments.some(s => s.textHash === local.textHash && s.voice === local.voice && s.speed === local.speed);
+        if (!alreadyExists) {
+          segments.push({
+            chapterId: local.chapterId,
+            textHash: local.textHash,
+            audioUrl: `/api/tts/cache-file/${local.id}`,
+            voice: local.voice,
+            speed: local.speed,
+            cachedAt: local.createdAt,
+            source: 'local',
+          });
+        }
+      }
 
       res.json({ success: true, data: segments, total: segments.length });
     } catch (error: any) {
@@ -251,10 +338,32 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
   });
 
   // ── GET /api/tts/cache-file/:cacheId - 下载指定缓存条目对应的音频文件 ──
+  // 优先查全局资源，回退到本地缓存
   router.get('/cache-file/:cacheId', requireAuth, (req: Request, res: Response) => {
     try {
       const userId = req.user!.userId;
       const { cacheId } = req.params;
+
+      // 先查全局 TTS 资源
+      const globalEntry = db.select().from(ttsGlobalResources).where(sql`id = ${cacheId}`).get() as any;
+      if (globalEntry && fs.existsSync(globalEntry.audioPath)) {
+        // 检查用户是否有引用
+        const hasRef = db.select({ count: sql<number>`count(*)` })
+          .from(ttsRefs)
+          .where(sql`user_id = ${userId} AND global_resource_id = ${globalEntry.id} AND deleted_at IS NULL`)
+          .get()?.count ?? 0;
+        if (hasRef > 0) {
+          const audioBuffer = fs.readFileSync(globalEntry.audioPath);
+          const ext = path.extname(globalEntry.audioPath).toLowerCase();
+          const contentType = ext === '.mp3' ? 'audio/mpeg' : 'audio/wav';
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Content-Disposition', `attachment; filename="${globalEntry.textHash}${ext}"`);
+          res.send(audioBuffer);
+          return;
+        }
+      }
+
+      // 回退：本地 tts_cache
       const entry = db.select().from(ttsCache).where(sql`id = ${cacheId}`).get() as any;
       if (!entry) {
         res.status(404).json({ success: false, error: '缓存条目不存在' });

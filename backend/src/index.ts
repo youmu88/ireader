@@ -6,6 +6,7 @@ import { initDatabase } from './db/init.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import healthRouter from './routes/health.js';
 import { tryProcessQueue, createFullBookGenerationJob } from './services/ttsGenerationService.js';
+import { startCleanupScheduler } from './services/globalResourceService.js';
 import { books, ttsSettings, ttsGenerationJobs } from './db/schema.js';
 import { sql } from 'drizzle-orm';
 
@@ -53,6 +54,9 @@ app.get('*', (_req, res) => {
 
 // Error handler
 app.use(errorHandler);
+
+// 启动全局引用清理调度器（每小时扫描 ref_count=0 超过30天的资源）
+startCleanupScheduler(db, DATA_DIR);
 
 // 启动时扫描并处理未完成的 TTS 生成任务
 tryProcessQueue(db, DATA_DIR);

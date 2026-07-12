@@ -92,6 +92,6 @@
  * 1.40.2 (2026-07-12): [PERF+Bugfix] 缓存全书跳过已缓存章节 + 清除缓存改用游标批量删除大幅提速
  *   1) handleCacheFullBook 前置检查：文字+语音已全缓存时直接跳过，不触发进度动画
  *   2) clearBookTTSAudioCache / clearBookChapterCache 改用 IDB 游标批量删除替代逐条 for 循环删除
+ * 2.0.0 (2026-07-12): [ARCH] 全局引用系统 — 相同书籍/TTS语音全局只存一份，引用计数隔离，30天自动清理
  */
-
-export const APP_VERSION = '1.41.0';
+export const APP_VERSION = '2.0.0';

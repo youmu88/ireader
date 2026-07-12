@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "migrate:refs": "tsx src/scripts/migrate-global-refs.ts",
     "lint": "eslint src/"
   },
   "dependencies": {
