@@ -48,8 +48,16 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.8.3';
+export const APP_VERSION = '2.8.4';
 /**
+ * 2.8.4 (2026-07-13): [BUGFIX] 修复 deploy.sh 部署时 EADDRINUSE 冲突 — 停用 systemd 服务，统一后台进程管理
+ *   1) 根因：deploy.sh 的 stop_old_instance 用 kill_processes_on_port 杀掉旧进程后，
+ *      systemd（Restart=always + RestartSec=5）立即重新拉起旧版本进程，
+ *      新进程 bind 端口时产生 EADDRINUSE。
+ *   2) 修复：stop_old_instance 改为轮询循环（≤6次）：systemctl stop → sleep 5 →
+ *      kill_processes_on_port → 检查端口空闲。systemd 每次拉起旧进程都被新循环
+ *      杀掉并再次 stop，直到端口真正释放。start_service 也加固了端口二次确认。
+ *   3) 旧 PID 文件清理逻辑（方式2）保留作为降级兼容。
  * 2.8.3 (2026-07-13): [BUGFIX] 修复 2.8.0 重构引入的阅读器交互三大回归
  *   1) 上一章/下一章按钮失效（EPUB）：浮动翻页按钮原调用 goToNextChapter/goToPrevChapter（章节列表导航），
  *      对 epub.js 内部渲染的 EPUB 内容零响应 → 改为 EPUB 走 epubPageControlRef.current.next()/prev()。

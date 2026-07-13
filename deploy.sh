@@ -238,6 +238,43 @@ kill_processes_on_port() {
 # 停止旧实例
 # ============================================================
 stop_old_instance() {
+  # 方式0: 停掉 systemd 管理的 ireader 服务（如有）
+  # 背景：systemd 配置了 Restart=always + RestartSec=5，仅 systemctl stop 后 5 秒
+  #       systemd 自动重新拉起旧进程，导致后续 start_service 产生 EADDRINUSE。
+  # 方案：systemctl stop → systemctl reset-failed（重置重启计数）
+  #       → 持续轮询端口确保被释放，并循环检测 systemd 是否重新拉起，拉起则再停
+  #       → 确保退出函数时端口真正空闲。
+  local max_loop=6
+  local loop_count=0
+  while [ "${loop_count}" -lt "${max_loop}" ]; do
+    loop_count=$((loop_count + 1))
+
+    # 如果 systemd 服务存在且 active，先停掉
+    if systemctl is-active --quiet ireader.service 2>/dev/null; then
+      log "发现 systemd 管理的 ireader 服务，正在停用..."
+      systemctl stop ireader.service 2>/dev/null || true
+      systemctl disable ireader.service 2>/dev/null || true
+      systemctl reset-failed ireader.service 2>/dev/null || true
+      sleep 5  # 等待超过 RestartSec=5
+    fi
+
+    # 杀掉端口上的所有残留进程（包括 systemd 自动拉起的进程）
+    kill_processes_on_port "${PORT}"
+
+    # 检查端口是否空闲
+    if ! lsof -ti ":${PORT}" 2>/dev/null | grep -q .; then
+      log "端口 ${PORT} 已释放 ✓"
+      return 0
+    fi
+    log "端口 ${PORT} 仍有进程占用，第 ${loop_count} 次重试..."
+  done
+
+  # 最终兜底：强杀所有占用端口的进程
+  log "⚠️  端口 ${PORT} 持续被占用，强制终止..."
+  lsof -ti ":${PORT}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+  sleep 2
+  log "端口 ${PORT} 已释放 ✓"
+
   # 方式1: 基于端口的进程清理（可发现 PID 文件未追踪的残留进程）
   kill_processes_on_port "${PORT}"
 
