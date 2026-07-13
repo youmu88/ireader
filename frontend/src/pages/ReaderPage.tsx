@@ -123,6 +123,8 @@ function ReaderPage() {
   // ── EPUB 模式：由 EpubViewer（epub.js）托管，进度用 CFI ──
   /** EpubViewer 翻页控制（prev/next），仅 EPUB 模式使用 */
   const epubPageControlRef = useRef<{ prev: () => void; next: () => void } | null>(null);
+  /** EpubViewer 章节跳转控制（目录导航），仅 EPUB 模式使用 */
+  const epubChapterNavRef = useRef<((chapterIndex: number) => Promise<void>) | null>(null);
   /** EPUB 当前阅读位置 CFI（用于进度持久化与恢复） */
   const epubCfiRef = useRef<string | null>(null);
   const [ttsVoice, setTtsVoice] = useState(() => {
@@ -1133,12 +1135,21 @@ function stripHtml(html: string): string {
     }, PROGRESS_SAVE_DELAY);
   }, [bookId]);
 
-  // TXT chapter navigation（使用增量列分页引擎）
+  // TXT / EPUB 通用章节导航
   const navigateToChapter = async (chapter: Chapter, _append?: boolean) => {
     setShowToc(false);
 
-    // TXT 按章导航：统一 loadChapterContent，翻页模式由 paginated effect 自动重排
-    await loadChapterContent(chapter);
+    if (book?.format === 'epub') {
+      // EPUB 模式：使用 EpubViewer 的 chapterNavRef 跳转到对应 spine 索引
+      const spineIndex = chapters.indexOf(chapter);
+      if (spineIndex >= 0 && epubChapterNavRef.current) {
+        await epubChapterNavRef.current(spineIndex);
+      }
+      // EPUB 不用 loadChapterContent（epub.js 已接管内容渲染）
+    } else {
+      // TXT 按章导航：统一 loadChapterContent，翻页模式由 paginated effect 自动重排
+      await loadChapterContent(chapter);
+    }
 
     debounceSaveProgress({ chapterId: chapter.id, percentage: chapter.order / chapters.length });
   };
@@ -2170,6 +2181,7 @@ function stripHtml(html: string): string {
             letterSpacing={letterSpacing}
             initialCfi={epubCfiRef.current}
             pageControlRef={epubPageControlRef}
+            chapterNavRef={epubChapterNavRef}
             onTap={handleTapReader}
             onLocationChange={(cfi) => {
               epubCfiRef.current = cfi;

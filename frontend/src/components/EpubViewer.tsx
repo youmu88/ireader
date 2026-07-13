@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ePub, { type Book, type Rendition } from 'epubjs';
 import { getToken } from '../services/authService';
+import { useTheme } from '../services/themeService';
 
 interface EpubViewerProps {
   /** 原始 epub 文件 URL（后端 GET /api/books/:id/file 返回） */
@@ -16,6 +17,8 @@ interface EpubViewerProps {
   onLocationChange?: (cfi: string) => void;
   /** 暴露翻页控制给父组件（左右箭头/手势） */
   pageControlRef?: React.MutableRefObject<{ prev: () => void; next: () => void } | null>;
+  /** 暴露章节跳转控制——EPUB 模式点击目录时使用。接收章节的 spine index（从0开始） */
+  chapterNavRef?: React.MutableRefObject<((chapterIndex: number) => Promise<void>) | null>;
   /** 点击/触摸阅读区时回调（用于父层弹出浮动操作面板）。epub.js 的 iframe 会吞掉事件，故在此转发 */
   onTap?: () => void;
 }
@@ -46,6 +49,7 @@ export default function EpubViewer({
   initialCfi,
   onLocationChange,
   pageControlRef,
+  chapterNavRef,
   onTap,
 }: EpubViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
@@ -59,9 +63,14 @@ export default function EpubViewer({
   const onTapRef = useRef(onTap);
   onTapRef.current = onTap;
 
+  // ── 暗色模式感知 ──
+  const { theme } = useTheme();
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+
   // 用 ref 持有最新样式参数，供 rendition 钩子读取，避免重建
-  const styleRef = useRef({ fontSize, fontFamily, lineHeight, letterSpacing });
-  styleRef.current = { fontSize, fontFamily, lineHeight, letterSpacing };
+  const styleRef = useRef({ fontSize, fontFamily, lineHeight, letterSpacing, theme });
+  styleRef.current = { fontSize, fontFamily, lineHeight, letterSpacing, theme };
 
   // ── 初始化 Book + Rendition（仅一次）──
   useEffect(() => {
@@ -106,13 +115,16 @@ export default function EpubViewer({
       renditionRef.current = rendition;
 
       const applyTheme = () => {
-        const { fontSize: fs, fontFamily: ff, lineHeight: lh, letterSpacing: ls } = styleRef.current;
+        const { fontSize: fs, fontFamily: ff, lineHeight: lh, letterSpacing: ls, theme: t } = styleRef.current;
+        const isDark = t === 'dark';
         rendition!.themes.register(THEME_NAME, {
           'body': {
             'font-family': FONT_STACK[ff],
             'font-size': `${fs}px !important`,
             'line-height': `${lh} !important`,
             'letter-spacing': `${ls}em !important`,
+            'background-color': isDark ? 'hsl(0, 0%, 8%)' : 'hsl(0, 0%, 98%)',
+            'color': isDark ? 'hsl(0, 0%, 93%)' : 'hsl(0, 0%, 10%)',
           },
           'p': { 'margin': '0 0 0.8em 0' },
           'img': { 'max-width': '100%', 'height': 'auto' },
@@ -174,6 +186,24 @@ export default function EpubViewer({
       };
     }
 
+    // 暴露章节跳转控制——EPUB 目录导航
+    if (chapterNavRef) {
+      chapterNavRef.current = async (chapterIndex: number) => {
+        // epub.js 通过 spine index 获取 Section 对象，使用其 href 跳转
+        const spine = book.spine;
+        if (spine && spine.get) {
+          const section = spine.get(chapterIndex);
+          // section 的 href 形如 "chapter1.xhtml"，display(href) 会让 epub.js
+          // 自动查找并渲染对应文件。注意：需要去掉可能的 url 路径部分。
+          if (section?.href) {
+            await renditionRef.current?.display(section.href);
+          } else if (section?.url) {
+            await renditionRef.current?.display(section.url);
+          }
+        }
+      };
+    }
+
     return () => {
       cancelled = true;
       if (retryRaf) cancelAnimationFrame(retryRaf);
@@ -184,6 +214,7 @@ export default function EpubViewer({
       bookRef.current = null;
       renditionRef.current = null;
       if (pageControlRef) pageControlRef.current = null;
+      if (chapterNavRef) chapterNavRef.current = null;
     };
     // 仅依赖 fileUrl：整个阅读过程用同一 rendition，模式/样式变化走下方独立 effect
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,22 +227,25 @@ export default function EpubViewer({
     r.flow(readingMode === 'paginated' ? 'paginated' : 'scrolled-doc');
   }, [readingMode]);
 
-  // ── 样式变化：themes 实时生效，不重建 ──
+  // ── 样式变化 + 暗色模式切换：themes 实时生效，不重建 ──
   useEffect(() => {
     const r = renditionRef.current;
     if (!r) return;
+    const isDark = theme === 'dark';
     r.themes.register(THEME_NAME, {
       'body': {
         'font-family': FONT_STACK[fontFamily],
         'font-size': `${fontSize}px !important`,
         'line-height': `${lineHeight} !important`,
         'letter-spacing': `${letterSpacing}em !important`,
+        'background-color': isDark ? 'hsl(0, 0%, 8%)' : 'hsl(0, 0%, 98%)',
+        'color': isDark ? 'hsl(0, 0%, 93%)' : 'hsl(0, 0%, 10%)',
       },
       'p': { 'margin': '0 0 0.8em 0' },
       'img': { 'max-width': '100%', 'height': 'auto' },
     });
     r.themes.select(THEME_NAME);
-  }, [fontSize, fontFamily, lineHeight, letterSpacing]);
+  }, [fontSize, fontFamily, lineHeight, letterSpacing, theme]);
 
   if (error) {
     return (
@@ -225,15 +259,15 @@ export default function EpubViewer({
     <div className="relative flex-1 overflow-hidden" style={{ background: 'var(--color-bg)' }}>
       <div ref={viewerRef} className="w-full h-full epub-viewer-canvas" />
       {/* 根因2 修复：epub.js 的 iframe 会吞掉点击/触摸事件，导致父层浮窗(showUi)永远弹不出。
-          此处放置透明覆盖层捕获点击并转发给父层 onTap（父层据此切换 UI 显示），
-          覆盖层本身不拦截 iframe 内的翻页手势（pointer-events 由 CSS 控制）。 */}
+          此处放置透明覆盖层捕获点击并转发给父层 onTap（父层据此切换 UI 显示）。
+          注意：① 不能加 onTouchEnd（会被 epub.js iframe 外吞导致翻页手势失效），
+                ② 不能用 e.preventDefault()（会阻止 iframe 内部的滚动手势），
+                ③ 不设 touchAction（保持默认，让浏览器决定手势穿透行为）。 */}
       <button
         type="button"
         aria-label="切换阅读菜单"
         onClick={(e) => { e.stopPropagation(); onTapRef.current?.(); }}
-        onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); onTapRef.current?.(); }}
         className="absolute inset-0 z-20 bg-transparent cursor-pointer border-0 p-0"
-        style={{ touchAction: 'pan-y' }}
       />
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">

@@ -48,8 +48,17 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.8.4';
+export const APP_VERSION = '2.8.5';
 /**
+ * 2.8.5 (2026-07-13): [BUGFIX] 修复暗色模式/翻页手势被吞/TOC目录不关联三大阅读器问题
+ *   1) 暗色模式 EPUB 无法阅读：EpubViewer themes.register 未设置 background-color + color，
+ *      暗色模式 iframe 仍白底黑字 → 注册时追加深色背景+浅色文字，监听 theme 状态实时切换。
+ *   2) 翻页与滚动失效：EpubViewer 透明覆盖层 button 的 onTouchEnd + e.preventDefault()
+ *      拦截了 epub.js iframe 内部的翻页/滚动手势 → 移除 onTouchEnd（点击仍通过 onClick 正常响
+ *      应），让手势穿透到 iframe 内部的 epub.js 手势系统。
+ *   3) 浮动菜单目录不关联 EPUB 章节：navigateToChapter 对 EPUB 未做适配，始终调
+ *      loadChapterContent（纯文本）→ 新增 epubChapterNavRef，通过 book.spine.get(index).href
+ *      让 EpubViewer 跳转到对应章节。
  * 2.8.4 (2026-07-13): [BUGFIX] 修复 deploy.sh 部署时 EADDRINUSE 冲突 — 停用 systemd 服务，统一后台进程管理
  *   1) 根因：deploy.sh 的 stop_old_instance 用 kill_processes_on_port 杀掉旧进程后，
  *      systemd（Restart=always + RestartSec=5）立即重新拉起旧版本进程，
