@@ -22,5 +22,14 @@
  *   7) 移除废弃的 PageTurnCanvas 组件
  *   8) 翻页样式改为 scroll-behavior: smooth 滑动翻页
  *   9) 纯 DOM 渲染内容，无需 setState 刷新整章内容，性能大幅优化
+ * 2.7.0 (2026-07-13): [FIX+REDESIGN] 翻页模式完全重写（ReadiumCSS 横向滚动分页模型）
+ *   1) 移除错误且臃肿的"增量列分页引擎"（columnPageRef/columnContentRef/initContentBuffer/
+ *      appendNextContent/prependPrevContent/recalculatePagination 等全部删除）
+ *   2) 修复三大 bug：①切换翻页跳回开头 → 改用 charOffsetRatioRef 跨模式按位置比例恢复
+ *   ③翻页失效 → 采用 column-fill:auto + overflow-x:auto 原生横向滚动，翻页=scrollLeft±clientWidth
+ *   ④之前一次翻一章 → 现逐页（一屏一页）精确翻页
+ *   3) 连续跨章：章末自动接下一章首（比例0.85衔接），章首自动接上一章末（比例0.15）
+ *   4) EPUB/TXT 翻页统一渲染管道：EPUB 保留图片/原始 HTML 排版（sanitizeEpubHtml），TXT 文本渲染
+ *   5) 新增 paginated-scroll CSS：隐藏滚动条、章节标题/图片/表格排版复用 .epub-content 规则
  */
-export const APP_VERSION = '2.6.0';
+export const APP_VERSION = '2.7.0';
