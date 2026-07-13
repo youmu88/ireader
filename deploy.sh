@@ -239,40 +239,33 @@ kill_processes_on_port() {
 # ============================================================
 stop_old_instance() {
   # 方式0: 停掉 systemd 管理的 ireader 服务（如有）
-  # 背景：systemd 配置了 Restart=always + RestartSec=5，仅 systemctl stop 后 5 秒
-  #       systemd 自动重新拉起旧进程，导致后续 start_service 产生 EADDRINUSE。
-  # 方案：systemctl stop → systemctl reset-failed（重置重启计数）
-  #       → 持续轮询端口确保被释放，并循环检测 systemd 是否重新拉起，拉起则再停
-  #       → 确保退出函数时端口真正空闲。
-  local max_loop=6
-  local loop_count=0
-  while [ "${loop_count}" -lt "${max_loop}" ]; do
-    loop_count=$((loop_count + 1))
+  # 背景：Restart=always + RestartSec=5，仅 systemctl stop 会触发 systemd 无限重启。
+  #       systemctl disable 只影响开机自启，不影响 Restart=always 运行时自动重启。
+  # 方案：systemctl stop → systemctl mask（完全禁止启动，包括 Restart=always）
+  #       → kill_processes_on_port 兜底清理 → 确认端口空闲。
+  if systemctl is-active --quiet ireader.service 2>/dev/null; then
+    log "发现 systemd 管理的 ireader 服务，正在停用并 mask..."
+    systemctl stop ireader.service 2>/dev/null || true
+    systemctl mask ireader.service 2>/dev/null || true  # mask 彻底禁止 systemd 重新拉起
+    log "systemd ireader.service 已 mask，不再会被自动拉起"
+  fi
+  # 即使不是 active，也确保 mask 存在（防止之前未被 mask 的残留）
+  if ! systemctl is-enabled --quiet ireader.service 2>/dev/null; then
+    # 如果 enable 状态异常，也 mask 一把兜底
+    systemctl mask ireader.service 2>/dev/null || true
+  fi
 
-    # 如果 systemd 服务存在且 active，先停掉
-    if systemctl is-active --quiet ireader.service 2>/dev/null; then
-      log "发现 systemd 管理的 ireader 服务，正在停用..."
-      systemctl stop ireader.service 2>/dev/null || true
-      systemctl disable ireader.service 2>/dev/null || true
-      systemctl reset-failed ireader.service 2>/dev/null || true
-      sleep 5  # 等待超过 RestartSec=5
-    fi
-
-    # 杀掉端口上的所有残留进程（包括 systemd 自动拉起的进程）
-    kill_processes_on_port "${PORT}"
-
-    # 检查端口是否空闲
-    if ! lsof -ti ":${PORT}" 2>/dev/null | grep -q .; then
-      log "端口 ${PORT} 已释放 ✓"
-      return 0
-    fi
-    log "端口 ${PORT} 仍有进程占用，第 ${loop_count} 次重试..."
-  done
-
-  # 最终兜底：强杀所有占用端口的进程
-  log "⚠️  端口 ${PORT} 持续被占用，强制终止..."
-  lsof -ti ":${PORT}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+  # 杀掉端口上的所有残留进程
+  kill_processes_on_port "${PORT}"
   sleep 2
+
+  # 确认端口空闲
+  if lsof -ti ":${PORT}" 2>/dev/null | grep -q .; then
+    log "⚠️  端口 ${PORT} 仍有残留，强杀..."
+    lsof -ti ":${PORT}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    sleep 2
+  fi
+
   log "端口 ${PORT} 已释放 ✓"
 
   # 方式1: 基于端口的进程清理（可发现 PID 文件未追踪的残留进程）
@@ -515,23 +508,63 @@ exec node dist/index.js
 STARTEOF
   chmod +x "${APP_DIR}/start.sh"
 
-  # 确保端口未被占用（防御性二次确认，复用端口清理逻辑）
-  kill_processes_on_port "${PORT}" || true
-
-  # 后台拉起服务，stdout/stderr 写入日志，PID 写入 PID 文件
+  # 确保端口未被占用（防御性二次确认）
+  # 注意：由于 systemd 的 Restart=always 机制（无 root 权限无法 mask），
+  #       旧进程被杀后 systemd 约 5 秒重新拉起，抢占端口。
+  #       因此采用暴力重试：fuser -k 即时杀端口 → 立刻 nohup（无 sleep间隙）
+  #       → 每秒检查进程存活 + 健康检测，EADDRINUSE 则重试最多 6 次。
+  local start_retry=0
+  local start_max_retry=6
+  local new_pid=""
   mkdir -p "${LOGS_DIR}" "${RUN_DIR}"
-  nohup "${APP_DIR}/start.sh" > "${LOGS_DIR}/app.log" 2>&1 &
-  local new_pid=$!
-  echo "${new_pid}" > "${PID_FILE}"
-  log "服务已后台启动 (PID: ${new_pid})"
+  while [ "${start_retry}" -lt "${start_max_retry}" ]; do
+    start_retry=$((start_retry + 1))
 
-  # 等待进程拉起
-  sleep 2
-  if ! kill -0 "${new_pid}" 2>/dev/null; then
-    log "❌ 服务进程启动后立即退出，请检查日志:"
-    tail -30 "${LOGS_DIR}/app.log" 2>/dev/null || true
+    # fuser -k 即时杀端口，只等 0.3s 给 OS 释放
+    fuser -k "${PORT}/tcp" 2>/dev/null || true
+    sleep 0.3
+
+    nohup "${APP_DIR}/start.sh" > "${LOGS_DIR}/app.log" 2>&1 &
+    new_pid=$!
+    echo "${new_pid}" > "${PID_FILE}"
+    log "启动尝试 ${start_retry}/${start_max_retry} (PID: ${new_pid})"
+
+    # 每秒检查进程存活 + 健康检测，最多 10 秒
+    local check_wait=0
+    local healthy=1
+    while [ "${check_wait}" -lt 10 ]; do
+      sleep 1
+      check_wait=$((check_wait + 1))
+      if kill -0 "${new_pid}" 2>/dev/null; then
+        if curl -s --max-time 2 "http://127.0.0.1:${PORT}/api/health" 2>/dev/null | grep -q '"success".*true'; then
+          log "服务就绪 (PID: ${new_pid})"
+          healthy=0
+          break 2  # 跳出两层循环
+        fi
+      else
+        break  # 进程已死，跳出内层循环
+      fi
+    done
+
+    # 进程退出 → 检查是否 EADDRINUSE
+    if [ "${healthy}" -eq 1 ] && ! kill -0 "${new_pid}" 2>/dev/null; then
+      if tail -5 "${LOGS_DIR}/app.log" 2>/dev/null | grep -q "EADDRINUSE"; then
+        log "EADDRINUSE 重试..."
+        continue
+      fi
+      log "❌ 进程异常退出:"
+      tail -10 "${LOGS_DIR}/app.log" 2>/dev/null || true
+      return 1
+    fi
+  done
+
+  if [ "${start_retry}" -ge "${start_max_retry}" ]; then
+    log "❌ 启动失败：超过 ${start_max_retry} 次重试"
+    tail -20 "${LOGS_DIR}/app.log" 2>/dev/null || true
     return 1
   fi
+
+  # 健康检查（轮询 /api/health）
 
   # 健康检查（轮询 /api/health）
   local max_retries=12
