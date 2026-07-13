@@ -1009,8 +1009,17 @@ function stripHtml(html: string): string {
   s = s.replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '');
   s = s.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
   s = s.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-  // Remove all remaining HTML tags
-  s = s.replace(/<[^>]+>/g, '');
+  // Remove SVG / figure / noscript / iframe / canvas blocks (rare in EPUB but possible)
+  s = s.replace(/<svg[^>]*>[\s\S]*?<\/svg>/gi, '');
+  s = s.replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, '');
+  s = s.replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '');
+  s = s.replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '');
+  s = s.replace(/<canvas[^>]*>[\s\S]*?<\/canvas>/gi, '');
+  s = s.replace(/<object[^>]*>[\s\S]*?<\/object>/gi, '');
+  // Remove all remaining HTML tags (support cross-line tags via [\s\S])
+  s = s.replace(/<[^>]*>/g, '')
+       // Also catch tags that span multiple lines (attribute values with line breaks)
+       .replace(/<[\s\S]*?>/g, '');
   // Decode HTML entities (comprehensive, matching ttsPlayer.ts)
   s = s.replace(/&nbsp;/g, '\u00A0')
        .replace(/&amp;/g, '&')
@@ -1199,7 +1208,8 @@ function stripHtml(html: string): string {
       if (spineIndex >= 0 && epubChapterNavRef.current) {
         await epubChapterNavRef.current(spineIndex);
       }
-      // EPUB 不用 loadChapterContent（epub.js 已接管内容渲染）
+      // ⭐ EPUB 也需要加载纯文本内容（供 TTS 朗读使用），同时更新 currentChapter
+      await loadChapterContent(chapter, undefined, true);
     } else {
       // TXT 按章导航：统一 loadChapterContent，翻页模式由 paginated effect 自动重排
       await loadChapterContent(chapter);
