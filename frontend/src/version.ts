@@ -48,4 +48,14 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.8.2';
+export const APP_VERSION = '2.8.3';
+/**
+ * 2.8.3 (2026-07-13): [BUGFIX] 修复 2.8.0 重构引入的阅读器交互三大回归
+ *   1) 上一章/下一章按钮失效（EPUB）：浮动翻页按钮原调用 goToNextChapter/goToPrevChapter（章节列表导航），
+ *      对 epub.js 内部渲染的 EPUB 内容零响应 → 改为 EPUB 走 epubPageControlRef.current.next()/prev()。
+ *   2) 点击空白浮窗消失：EpubViewer 的 iframe 吞掉点击，父层 handleTapReader 收不到 →
+ *      在 EpubViewer 内加透明覆盖层捕获点击并转发 onTap（stopPropagation 避免冒泡双重触发）。
+ *   3) 移动端持续"加载中"：epub.js 在容器尺寸为 0 时 display() 永不 resolve →
+ *      加容器尺寸守卫（ResizeObserver + rAF 重试）+ 15s 超时兜底提示，杜绝永久加载。
+ *   4) 附带修复线上后端静态目录解析错误（__dirname 回溯少一级导致 frontend/dist 404 → 500 白屏）。
+ */

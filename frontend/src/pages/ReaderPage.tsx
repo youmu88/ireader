@@ -2073,16 +2073,16 @@ function stripHtml(html: string): string {
       <div className="h-full relative">
         {/* ── 浮动章节导航按钮（半透明大按钮，屏幕左右中部） ── */}
         <button
-          onClick={(e) => { e.stopPropagation(); goToPrevChapter(); }}
-          disabled={!currentChapter || chapters.findIndex(c => c.id === currentChapter.id) === 0}
+          onClick={(e) => { e.stopPropagation(); if (book?.format === 'epub') epubPageControlRef.current?.prev(); else goToPrevChapter(); }}
+          disabled={!currentChapter || (book?.format !== 'epub' && chapters.findIndex(c => c.id === currentChapter.id) === 0)}
           className="absolute left-2 top-1/2 -translate-y-1/2 z-30 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/20 dark:hover:bg-white/30 backdrop-blur-sm text-white text-xl flex items-center justify-center disabled:opacity-0 disabled:pointer-events-none transition-all duration-200 active:scale-90"
           title="上一章"
         >
           ‹
         </button>
         <button
-          onClick={(e) => { e.stopPropagation(); goToNextChapter(); }}
-          disabled={!currentChapter || chapters.findIndex(c => c.id === currentChapter.id) === chapters.length - 1}
+          onClick={(e) => { e.stopPropagation(); if (book?.format === 'epub') epubPageControlRef.current?.next(); else goToNextChapter(); }}
+          disabled={!currentChapter || (book?.format !== 'epub' && chapters.findIndex(c => c.id === currentChapter.id) === chapters.length - 1)}
           className="absolute right-2 top-1/2 -translate-y-1/2 z-30 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/20 dark:hover:bg-white/30 backdrop-blur-sm text-white text-xl flex items-center justify-center disabled:opacity-0 disabled:pointer-events-none transition-all duration-200 active:scale-90"
           title="下一章"
         >
@@ -2170,6 +2170,7 @@ function stripHtml(html: string): string {
             letterSpacing={letterSpacing}
             initialCfi={epubCfiRef.current}
             pageControlRef={epubPageControlRef}
+            onTap={handleTapReader}
             onLocationChange={(cfi) => {
               epubCfiRef.current = cfi;
               if (currentBookIdRef.current) {
