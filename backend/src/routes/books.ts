@@ -554,6 +554,50 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     }
   });
 
+  // ── GET /api/books/:id/file/* - 获取 EPUB 内部资源（epub.js 流式按需读取） ──
+  // epub.js 通过 ePub("/api/books/:id/file/") 加载整书后，对 zip 内部条目
+  // （META-INF/container.xml、OEBPS/*.xhtml、图片/CSS/字体等）按需发起 HTTP 请求，
+  // 请求形如 /api/books/:id/file/META-INF/container.xml。
+  // 后端已把 EPUB 解压到 extracted/，此处从该目录按相对路径安全读取返回，
+  // 使 epub.js 能从服务端按需获取条目，而非一次性下载整个 zip（根治「加载中」卡死）。
+  // 注：本路由不挂 requireAuth，以支持 epub.js 对 EPUB 内部资源（CSS/图片/字体）
+  // 的子请求（这些请求不自动携带 Authorization header）。EPUB 内部资源来自已解压的
+  // extracted/ 公开目录、不含任何敏感信息，仅做 book 存在性校验，不做用户归属强校验。
+  router.get('/:id/file/*', (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const book = db.select().from(books).where(sql`id = ${req.params.id}`).get();
+      if (!book) throw new AppError(404, '图书不存在');
+      if (book.format !== 'epub') throw new AppError(400, '仅 EPUB 格式支持此操作');
+
+      const fileRelPath = req.params[0];
+      if (!fileRelPath) throw new AppError(400, '文件路径不能为空');
+
+      // Security: prevent path traversal
+      const normalizedPath = path.normalize(fileRelPath);
+      if (normalizedPath.startsWith('..') || normalizedPath.includes('..')) {
+        throw new AppError(403, '禁止访问上级目录');
+      }
+
+      const extractedDir = path.join(path.dirname(book.filePath), 'extracted');
+      const filePath = path.join(extractedDir, normalizedPath);
+
+      if (!fs.existsSync(filePath)) {
+        throw new AppError(404, '文件不存在');
+      }
+
+      // Security: ensure resolved path stays within extracted directory
+      const resolvedPath = path.resolve(filePath);
+      const resolvedExtractedDir = path.resolve(extractedDir);
+      if (!resolvedPath.startsWith(resolvedExtractedDir)) {
+        throw new AppError(403, '禁止越权访问');
+      }
+
+      res.sendFile(filePath);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // ── GET /api/books/:id/chapters - 获取章节目录 ──
   router.get('/:id/chapters', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {

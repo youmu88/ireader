@@ -48,4 +48,4 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.8.1';
+export const APP_VERSION = '2.8.2';

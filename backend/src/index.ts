@@ -35,8 +35,13 @@ app.use(cors());
 app.use(express.json());
 
 // Static files (served in production)
-// Use process.cwd() as project root for both tsx/dev and compiled/prod modes
-const staticDir = path.join(process.cwd(), 'frontend', 'dist');
+// Resolve frontend/dist relative to the project root, NOT process.cwd(),
+// so it also works when the backend is launched from a deployed directory
+// (e.g. ~/.ireader/app/backend) where cwd != project root.
+// __dirname here is <projectRoot>/backend/(src|dist); go up one level to reach <projectRoot>.
+const projectRoot = path.resolve(_curDir, '..');
+const staticDir =
+  process.env.FRONTEND_DIST || path.join(projectRoot, 'frontend', 'dist');
 app.use(express.static(staticDir));
 
 // API routes

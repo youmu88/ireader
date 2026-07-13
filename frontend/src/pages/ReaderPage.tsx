@@ -2162,7 +2162,7 @@ function stripHtml(html: string): string {
         {/* EPUB Reader — 由 epub.js 托管（根治旧自研分页引擎的黑屏/翻节/字体重排乱） */}
         {book?.format === 'epub' && (
           <EpubViewer
-            fileUrl={`/api/books/${book.id}/file`}
+            fileUrl={`/api/books/${book.id}/file/`}
             readingMode={readingMode}
             fontSize={fontSize}
             fontFamily={fontFamily}
