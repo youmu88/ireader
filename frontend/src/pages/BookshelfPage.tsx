@@ -522,12 +522,20 @@ useEffect(() => {
       <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <p className="text-red-700 dark:text-red-300">{error}</p>
-          <button
-            onClick={loadData}
-            className="mt-2 px-4 py-1 bg-red-600 text-white rounded hover:bg-red-700"
-          >
-            重试
-          </button>
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={loadData}
+              className="px-4 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 text-sm font-medium"
+            >
+              重试
+            </button>
+            <button
+              onClick={() => { localStorage.removeItem('ireader_offline_mode'); window.location.href = '/login'; }}
+              className="px-4 py-1.5 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-sm font-medium"
+            >
+              退出离线模式
+            </button>
+          </div>
         </div>
       </div>
     );

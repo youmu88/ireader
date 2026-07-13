@@ -143,8 +143,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ── 进入离线模式 ──
   const enterOfflineMode = useCallback(() => {
-    try { localStorage.setItem(OFFLINE_MODE_KEY, 'true'); } catch { /* ignore */ }
+    try {
+      localStorage.setItem(OFFLINE_MODE_KEY, 'true');
+      // 清除登录 token，避免 Axios 携带过期 token 请求 API 导致 401
+      removeToken();
+    } catch { /* ignore */ }
     setIsOfflineMode(true);
+    setUser(null);
     setLoading(false);
   }, []);
 
