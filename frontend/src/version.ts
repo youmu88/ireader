@@ -48,7 +48,7 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.8.5';
+export const APP_VERSION = '2.8.6';
 /**
  * 2.8.5 (2026-07-13): [BUGFIX] 修复暗色模式/翻页手势被吞/TOC目录不关联三大阅读器问题
  *   1) 暗色模式 EPUB 无法阅读：EpubViewer themes.register 未设置 background-color + color，
@@ -75,4 +75,10 @@ export const APP_VERSION = '2.8.5';
  *   3) 移动端持续"加载中"：epub.js 在容器尺寸为 0 时 display() 永不 resolve →
  *      加容器尺寸守卫（ResizeObserver + rAF 重试）+ 15s 超时兜底提示，杜绝永久加载。
  *   4) 附带修复线上后端静态目录解析错误（__dirname 回溯少一级导致 frontend/dist 404 → 500 白屏）。
+ */
+/**
+ * 2.8.6 (2026-07-13): [BUGFIX] 修复浮动菜单目录无法点击 — TOC 侧边栏 z-20 与 EpubViewer 覆盖层 z-20 冲突
+ *   1) 根因：TOC 侧边栏（z-20）在 DOM 中位于 EpubViewer（内含 z-20 透明覆盖层）之前，
+ *      同层级下后渲染的覆盖层盖在 TOC 上方，拦截了 TOC 按钮的点击事件。
+ *   2) 修复：将 TOC 侧边栏的 z-index 从 z-20 提升至 z-30，确保其可点击区域不被覆盖层遮挡。
  */

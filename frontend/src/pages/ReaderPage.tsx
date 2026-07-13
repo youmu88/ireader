@@ -2111,7 +2111,7 @@ function stripHtml(html: string): string {
           >
         {/* TOC Sidebar */}
         {showToc && (
-          <div onClick={(e) => e.stopPropagation()} className="w-64 sm:w-72 overflow-y-auto absolute sm:relative z-20 inset-y-0 left-0 shadow-lg sm:shadow-none" style={{background: 'var(--color-bg-card)', borderRight: '0.5px solid var(--color-border)'}}>
+          <div onClick={(e) => e.stopPropagation()} className="w-64 sm:w-72 overflow-y-auto absolute sm:relative z-30 inset-y-0 left-0 shadow-lg sm:shadow-none" style={{background: 'var(--color-bg-card)', borderRight: '0.5px solid var(--color-border)'}}>
             <div className="p-3 font-semibold text-sm flex items-center justify-between" style={{borderBottom: '0.5px solid var(--color-border)'}}>
               <span>章节目录</span>
               {book?.format === 'epub' && (
