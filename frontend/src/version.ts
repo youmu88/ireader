@@ -48,7 +48,7 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.8.9';
+export const APP_VERSION = '2.9.0';
 /**
  * 2.8.5 (2026-07-13): [BUGFIX] 修复暗色模式/翻页手势被吞/TOC目录不关联三大阅读器问题
  *   1) 暗色模式 EPUB 无法阅读：EpubViewer themes.register 未设置 background-color + color，
@@ -92,4 +92,12 @@ export const APP_VERSION = '2.8.9';
  *      事件层级：悬浮遮罩（z-30 覆盖全屏）→ 按钮 → 用户感知"点不下去"。
  *   2) 修复：所有播放控制按钮（播放/暂停/停止/上章/下章）的 onClick 中添加
  *      e.stopPropagation()，阻止事件冒泡至遮罩层。
+ */
+/**
+ * 2.9.0 (2026-07-13): [FEATURE] 阅读界面优化 — 移除左右浮动导航按钮，增强目录高亮
+ *   1) 移除屏幕左右两侧半透明的"上一章"‹ 和"下一章"› 浮动按钮，
+ *      翻页仍可通过滑动手势、浮动面板内导航等途径完成。
+ *   2) 目录菜单当前章节高亮增强：左侧彩色边框指示器 + 播放图标标记 +
+ *      更鲜艳的背景色与文字色 + 加粗字体，非当前章节保持低调。
+ *   3) 打开目录时自动滚动到当前章节位置（scrollIntoView）。
  */

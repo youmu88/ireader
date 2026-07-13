@@ -172,6 +172,16 @@ function ReaderPage() {
 
   // uiHideTimerRef 保留供兼容（不再使用定时器，仅留 ref 避免编译报错）
 
+  /** 打开目录时自动滚动到当前章节位置 */
+  useEffect(() => {
+    if (showToc && activeTocItemRef.current) {
+      // 用 rAF 确保 DOM 已渲染后再滚动
+      requestAnimationFrame(() => {
+        activeTocItemRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    }
+  }, [showToc]);
+
   // ── 睡眠计时器 ──
   const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
 
@@ -446,6 +456,8 @@ function ReaderPage() {
   // handleSearchJump 定义见 navigateToChapter 之后（约 1090 行附近）
   const sleepTimerEndRef = useRef<number | null>(null);
   const sleepTimerIntervalRef = useRef<any>(null);
+  /** 当前章节 TOC 条目 DOM 引用 — 打开目录时自动滚动到可视区域 */
+  const activeTocItemRef = useRef<HTMLDivElement | null>(null);
   
   /** Preloaded next-chapter contents for smooth scroll transitions */
   /** Track chapter IDs accumulated during auto-scroll for continuous reading */
@@ -2087,23 +2099,7 @@ function stripHtml(html: string): string {
   return (
     <div className="h-screen select-none" style={{background: 'var(--color-bg)'}}>
       <div className="h-full relative">
-        {/* ── 浮动章节导航按钮（半透明大按钮，屏幕左右中部） ── */}
-        <button
-          onClick={(e) => { e.stopPropagation(); if (book?.format === 'epub') epubPageControlRef.current?.prev(); else goToPrevChapter(); }}
-          disabled={!currentChapter || (book?.format !== 'epub' && chapters.findIndex(c => c.id === currentChapter.id) === 0)}
-          className="absolute left-2 top-1/2 -translate-y-1/2 z-30 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/20 dark:hover:bg-white/30 backdrop-blur-sm text-white text-xl flex items-center justify-center disabled:opacity-0 disabled:pointer-events-none transition-all duration-200 active:scale-90"
-          title="上一章"
-        >
-          ‹
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); if (book?.format === 'epub') epubPageControlRef.current?.next(); else goToNextChapter(); }}
-          disabled={!currentChapter || (book?.format !== 'epub' && chapters.findIndex(c => c.id === currentChapter.id) === chapters.length - 1)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 z-30 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/20 dark:hover:bg-white/30 backdrop-blur-sm text-white text-xl flex items-center justify-center disabled:opacity-0 disabled:pointer-events-none transition-all duration-200 active:scale-90"
-          title="下一章"
-        >
-          ›
-        </button>
+
         {/* Reader Content - full screen, no fixed toolbar */}
         <div className="h-full flex flex-col">
           <div
@@ -2138,19 +2134,38 @@ function stripHtml(html: string): string {
                 </button>
               )}
             </div>
-            {chapters.map((ch) => (
-              <button
-                key={ch.id}
-                onClick={() => navigateToChapter(ch)}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-200 dark:hover:bg-gray-700 truncate ${
-                  currentChapter?.id === ch.id
-                    ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
-                    : 'text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                {ch.title}
-              </button>
-            ))}
+            {chapters.map((ch) => {
+              const isActive = currentChapter?.id === ch.id;
+              return (
+                <div key={ch.id} ref={isActive ? activeTocItemRef : null} className="relative">
+                  {isActive && (
+                    <div className="absolute left-0 top-0 bottom-0 w-1 rounded-r-sm" style={{background: 'var(--color-primary)'}} />
+                  )}
+                  <button
+                    onClick={() => navigateToChapter(ch)}
+                    className={`w-full text-left px-3 py-2.5 text-sm transition-all duration-150 truncate ${
+                      isActive
+                        ? 'font-bold text-base'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300'
+                    }`}
+                    style={isActive ? {
+                      background: 'var(--color-primary-subtle)',
+                      color: 'var(--color-primary)',
+                      paddingLeft: '1rem',
+                    } : {}}
+                  >
+                    <span className={isActive ? 'flex items-center gap-2' : ''}>
+                      {isActive && (
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none" className="shrink-0">
+                          <polygon points="5 3 19 12 5 21 5 3"/>
+                        </svg>
+                      )}
+                      <span>{ch.title}</span>
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
 
