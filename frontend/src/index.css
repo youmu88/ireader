@@ -1,5 +1,481 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-/* ── 翻页模式（ReadiumCSS 横向滚动分页模型）── */
+/* ═══════════════════════════════════════
+   iOS 主题变量体系
+   ═══════════════════════════════════════ */
+
+:root {
+  --color-primary: hsl(210, 75%, 57%);
+  --color-primary-hover: hsl(210, 75%, 65%);
+  --color-primary-active: hsl(210, 75%, 49%);
+  --color-primary-muted: hsl(210, 55%, 77%);
+  --color-primary-subtle: hsl(210, 35%, 92%);
+  --color-bg: hsl(0, 0%, 98%);
+  --color-bg-alt: hsl(0, 0%, 95%);
+  --color-bg-card: hsl(0, 0%, 100%);
+  --color-text: hsl(0, 0%, 10%);
+  --color-text-secondary: hsl(0, 0%, 40%);
+  --color-text-muted: hsl(0, 0%, 65%);
+  --color-border: hsl(0, 0%, 88%);
+  --color-border-hover: hsl(0, 0%, 75%);
+  --color-accent-1: hsl(270, 80%, 57%);
+  --color-accent-2: hsl(150, 83%, 64%);
+}
+
+.dark {
+  --color-primary: hsl(210, 75%, 57%);
+  --color-primary-hover: hsl(210, 75%, 67%);
+  --color-primary-active: hsl(210, 75%, 47%);
+  --color-primary-muted: hsl(210, 55%, 30%);
+  --color-primary-subtle: hsl(210, 45%, 20%);
+  --color-bg: hsl(0, 0%, 8%);
+  --color-bg-alt: hsl(0, 0%, 12%);
+  --color-bg-card: hsl(0, 0%, 16%);
+  --color-text: hsl(0, 0%, 93%);
+  --color-text-secondary: hsl(0, 0%, 65%);
+  --color-text-muted: hsl(0, 0%, 45%);
+  --color-border: hsl(0, 0%, 22%);
+  --color-border-hover: hsl(0, 0%, 35%);
+  --color-accent-1: hsl(270, 80%, 57%);
+  --color-accent-2: hsl(150, 83%, 64%);
+}
+
+/* ═══════════════════════════════════════
+   iOS 式交互反馈系统
+   全局按钮/链接/触摸统一反馈
+   ═══════════════════════════════════════ */
+
+/* 移除移动端默认 tap 高亮 + 优化触摸体验 */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a[href],
+[role="button"],
+input[type="submit"],
+input[type="button"],
+input[type="reset"],
+summary,
+.tap-target {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: pointer;
+}
+
+/* ── 基础按压反馈（所有按钮/链接） ── */
+button:active:not(:disabled):not(.no-tap):not(:has(.keep-scale)),
+a[href]:active:not(.no-tap):not(.keep-scale),
+[role="button"]:active:not(:disabled):not(.no-tap) {
+  transform: scale(0.96);
+  opacity: 0.8;
+  transition: transform 0.08s ease-out, opacity 0.08s ease-out;
+}
+
+/* 恢复动画（松手后恢复原状） */
+button,
+a[href],
+[role="button"],
+input[type="submit"],
+input[type="button"] {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+              opacity 0.2s ease-out,
+              background-color 0.2s ease-out,
+              box-shadow 0.2s ease-out,
+              color 0.2s ease-out,
+              border-color 0.2s ease-out;
+}
+
+/* ── iOS 图标按钮按压（缩放更深） ── */
+.tap-icon:active {
+  transform: scale(0.85) !important;
+  opacity: 0.7 !important;
+}
+
+/* ── 轻触变暗（适合列表项、卡片） ── */
+.tap-dim:active {
+  opacity: 0.6 !important;
+  transform: none !important;
+}
+
+/* ── 开关滑块平滑动画 ── */
+.toggle-track {
+  transition: background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.toggle-thumb {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── 按钮点击涟漪（iOS 风格水波） ── */
+.ripple-btn {
+  position: relative;
+  overflow: hidden;
+}
+.ripple-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--tap-x, 50%) var(--tap-y, 50%), rgba(255,255,255,0.35) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity 0.35s ease-out;
+  pointer-events: none;
+  border-radius: inherit;
+}
+.ripple-btn:active::after {
+  opacity: 1;
+  transition: opacity 0s;
+}
+
+/* ── 列表项按压反馈（书架卡片、设置项等） ── */
+.tap-row {
+  transition: background-color 0.15s ease-out;
+}
+.tap-row:active {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+.dark .tap-row:active {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* ── 禁用态优化 ── */
+button:disabled,
+[role="button"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none !important;
+}
+
+/* ── 输入框焦点动画 ── */
+input:focus,
+select:focus,
+textarea:focus {
+  transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+
+/* ═══════════════════════════════════════
+   渐进增强 — 设备兼容性策略
+   ═══════════════════════════════════════
+   策略说明：
+   1. backdrop-filter 等现代 CSS 特性使用 @supports 检测，不支持的设备自动回退纯色背景
+   2. prefers-reduced-motion 降级动效，减少老旧设备 CPU/GPU 负担
+   3. 所有基础功能不依赖现代 CSS，确保老旧设备可读可用
+   ═══════════════════════════════════════ */
+
+/* ── backdrop-filter 不支持时的后备 ── */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .dark .glass {
+    background: rgba(30, 30, 30, 0.95) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .glass-card {
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .dark .glass-card {
+    background: rgba(40, 40, 40, 0.95) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .glass-bar {
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .dark .glass-bar {
+    background: rgba(20, 20, 20, 0.95) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .glass-overlay {
+    background: rgba(0, 0, 0, 0.5) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+/* ── 减少动效模式：禁用全部弹性/缩放动画 ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  button:active:not(:disabled):not(.no-tap):not(:has(.keep-scale)),
+  a[href]:active:not(.no-tap):not(.keep-scale),
+  [role="button"]:active:not(:disabled):not(.no-tap) {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+  .tap-icon:active {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+  .tap-dim:active {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .ripple-btn::after {
+    display: none !important;
+  }
+  .toggle-track,
+  .toggle-thumb {
+    transition: none !important;
+  }
+}
+
+/* ── 低性能设备标记（由 JS 动态添加 .low-perf 类） ── */
+.low-perf .glass {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+.dark.low-perf .glass {
+  background: rgba(30, 30, 30, 0.95) !important;
+}
+.low-perf .glass-card {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+.dark.low-perf .glass-card {
+  background: rgba(40, 40, 40, 0.95) !important;
+}
+.low-perf .glass-bar {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+.dark.low-perf .glass-bar {
+  background: rgba(20, 20, 20, 0.95) !important;
+}
+.low-perf .glass-overlay {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(0, 0, 0, 0.5) !important;
+}
+.low-perf button:active:not(:disabled),
+.low-perf a[href]:active:not(.no-tap),
+.low-perf [role="button"]:active:not(:disabled) {
+  transform: none !important;
+  opacity: 0.8 !important;
+}
+
+/* ═══════════════════════════════════════
+   iOS 毛玻璃效果
+   ═══════════════════════════════════════ */
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+}
+.dark .glass {
+  background: rgba(30, 30, 30, 0.78);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+
+/* iOS 风格毛玻璃卡片 */
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 0.5px solid rgba(255, 255, 255, 0.3);
+}
+.dark .glass-card {
+  background: rgba(40, 40, 40, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 0.5px solid rgba(255, 255, 255, 0.06);
+}
+
+/* iOS 风格半透明底栏 */
+.glass-bar {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(40px) saturate(1.8);
+  -webkit-backdrop-filter: blur(40px) saturate(1.8);
+  border: 0.5px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 -4px 30px rgba(0,0,0,0.08);
+}
+.dark .glass-bar {
+  background: rgba(20, 20, 20, 0.72);
+  backdrop-filter: blur(40px) saturate(1.8);
+  -webkit-backdrop-filter: blur(40px) saturate(1.8);
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 -4px 30px rgba(0,0,0,0.3);
+}
+
+/* iOS 风格暗色叠加层 */
+.glass-overlay {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* ═══════════════════════════════════════
+   iOS 风格滚动条
+   ═══════════════════════════════════════ */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* 隐藏滚动条但可滚动 */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ═══════════════════════════════════════
+   iOS 式文字选择颜色
+   ═══════════════════════════════════════ */
+::selection {
+  background: var(--color-primary);
+  color: white;
+}
+
+/* ═══════════════════════════════════════
+   全局基础样式
+   ═══════════════════════════════════════ */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--color-bg);
+  color: var(--color-text);
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* iOS 风格焦点环 */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-primary-muted);
+  border-radius: 6px;
+}
+
+/* 按钮基础恢复动画覆盖 */
+button, a, [role="button"] {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+              opacity 0.2s ease-out,
+              background-color 0.2s ease-out,
+              box-shadow 0.2s ease-out,
+              color 0.2s ease-out,
+              border-color 0.2s ease-out;
+}
+
+/* ═══════════════════════════════════════
+   PageTurnCanvas 翻页动画（v2.3.0：JS 引擎驱动）
+   使用 requestAnimationFrame 逐帧控制 CSS 3D 变换。
+   旧的 @keyframes 动画和 .page-turn-* 类已全部移除。
+   ═══════════════════════════════════════ */
+
+/* ── 减少动效模式：跳过翻页动画，直接切换内容 ── */
+@media (prefers-reduced-motion: reduce) {
+  .page-turn-container * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ── 低性能设备同样跳过动画 ── */
+.low-perf .page-turn-container * {
+  animation: none !important;
+  transition: none !important;
+}
+
+:root {
+  --reader-letter-spacing: 0.01em;
+  --reader-bg: #ffffff;
+}
+.dark {
+  --reader-bg: #1a1a2e;
+}
+
+/* EPUB HTML content rendering — iOS Books 风格 */
+.epub-content {
+  line-height: inherit;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  letter-spacing: var(--reader-letter-spacing);
+}
+.epub-content img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 1.2em auto;
+  border-radius: 4px;
+}
+.epub-content p {
+  margin: 0.6em 0;
+}
+.epub-content p:first-of-type {
+  margin-top: 0;
+}
+.epub-content h1, .epub-content h2, .epub-content h3 {
+  margin: 1.4em 0 0.5em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.epub-content a {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+.epub-content blockquote {
+  border-left: 3px solid var(--color-border);
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+.epub-content ul, .epub-content ol {
+  margin: 0.8em 0;
+  padding-left: 1.5em;
+}
+.epub-content li {
+  margin: 0.3em 0;
+}
+.epub-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+.epub-content td, .epub-content th {
+  border: 1px solid var(--color-border);
+  padding: 0.5em;
+}
+
+/* ═══════════════════════════════════════
+   翻页模式（ReadiumCSS 横向滚动分页模型）— 由 v2.7.0 新增
+   ═══════════════════════════════════════ */
 .paginated-scroll {
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
