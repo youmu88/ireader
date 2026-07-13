@@ -38,4 +38,14 @@
  *   3) backend/package.json 增加 pnpm.onlyBuiltDependencies: [better-sqlite3]，install 时自动编译原生模块（修复 better_sqlite3.node 缺失）
  *   4) 清理 do_deploy 中重复的"拷贝 frontend"日志
  */
-export const APP_VERSION = '2.8.0';
+/**
+ * 2.8.1 (2026-07-13): [BUGFIX] 根治"打开书籍持续加载中" + 清理 EPUB 自研渲染残留死代码
+ *   1) 根因：第9轮 EPUB 重构（2.8.0）引入 epub.js 的 EpubViewer 组件时，旧的自研"text+CSS column"
+ *      EPUB 渲染区块（ReaderPage.tsx 2197-2292 行）被遗漏删除，两套 EPUB 视图同条件
+ *      (book?.format==='epub') 同时挂载，旧区块 chapterLoading 遮罩持续显示"加载中"并与新视图叠加。
+ *   2) 删除旧 EPUB 渲染区块及其专属死代码：epubDisplayHtml 状态、sanitizeEpubHtml 函数、
+ *      loadChapterContent/preloadNextChapters 中的 epubHtml 分支、preloadedChaptersRef 的 html 字段。
+ *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
+ *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
+ */
+export const APP_VERSION = '2.8.1';

@@ -57,7 +57,6 @@ function ReaderPage() {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
   const [txtContent, setTxtContent] = useState<string>('');
-  const [epubDisplayHtml, setEpubDisplayHtml] = useState<string>(''); // Sanitized EPUB HTML for display (preserves images)
   const [loading, setLoading] = useState(true);
   const [chapterLoading, setChapterLoading] = useState(false);
   const [showToc, setShowToc] = useState(false);
@@ -450,7 +449,7 @@ function ReaderPage() {
   /** Track chapter IDs accumulated during auto-scroll for continuous reading */
   const accumulatedIdsRef = useRef<Set<string>>(new Set());
   /** Preloaded next-chapter contents for smooth scroll transitions */
-  const preloadedChaptersRef = useRef<Map<string, {content: string; html?: string}>>(new Map());
+  const preloadedChaptersRef = useRef<Map<string, {content: string}>>(new Map());
   /** Saved reading progress from API */
   const savedProgressRef = useRef<any>(null);
   /** Display chapter title — stays on original chapter during append mode */
@@ -994,34 +993,6 @@ function stripHtml(html: string): string {
 
   // Load chapter content
 
-  /** Sanitize EPUB HTML for safe display with images */
-  const sanitizeEpubHtml = useCallback((rawHtml: string, bookId: string): string => {
-    let s = rawHtml;
-    // Remove script/style/iframe/object/embed blocks completely
-    s = s.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-    s = s.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-    s = s.replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '');
-    s = s.replace(/<object[^>]*>[\s\S]*?<\/object>/gi, '');
-    s = s.replace(/<embed[^>]*>[\s\S]*?<\/embed>/gi, '');
-    // Remove event handler attributes (onclick, onerror, etc.)
-    s = s.replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-    // Strip <link> CSS tags (prevents MIME errors when relative CSS paths hit SPA fallback)
-    s = s.replace(/<link\b[^>]*>/gi, '');
-    // Strip <a> href links (prevent clicks from navigating SPA away to nonexistent routes → 404)
-    // EPUB internal links like href="text00007.html" would cause /api/books/text00007.html 404
-    s = s.replace(/<a\b[^>]*>/gi, '<span>');
-    s = s.replace(/<\/a>/gi, '</span>');
-    // Rewrite relative image src paths to absolute backend URLs
-    s = s.replace(/<img\s+([^>]*?)src\s*=\s*"(?!http|\/\/)([^"]+)"/gi, (_, before, src) => {
-      return `<img ${before}src="/api/books/${bookId}/files/${src}"`;
-    });
-    s = s.replace(/<img\s+([^>]*?)src\s*=\s*'(?!http|\/\/)([^']+)'/gi, (_, before, src) => {
-      return `<img ${before}src="/api/books/${bookId}/files/${src}"`;
-    });
-    // Fix any double slashes from concatenation (e.g. /api/books/id/files//images/foo.jpg)
-    s = s.replace(/\/files\/\//g, '/files/');
-    return s;
-  }, []);
 
   // Load chapter content
   const loadChapterContent = async (chapter: Chapter, _offset?: number, _isEpub?: boolean, _append?: boolean, _forcePlainText?: boolean) => {
@@ -1050,10 +1021,8 @@ function stripHtml(html: string): string {
 
       // 获取章节内容（优先使用预加载内容，其次离线缓存，最后 API）
       let content: string;
-      let epubHtml: string | undefined;
       if (preloaded) {
         content = preloaded.content;
-        epubHtml = preloaded.html;
         preloadedChaptersRef.current.delete(chapter.id);
       } else {
         // 尝试从客户端离线缓存读取
@@ -1066,13 +1035,9 @@ function stripHtml(html: string): string {
           const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`);
           const rawContent = res.data.data?.content || '';
           if (isEpub) {
-            epubHtml = sanitizeEpubHtml(rawContent, bookId!);
+            // EPUB 渲染由 EpubViewer 组件（epub.js）独立接管，父组件只保留纯文本供 TTS 使用
             content = stripHtml(rawContent);
-            if (!_append && !_forcePlainText) {
-              setEpubDisplayHtml(epubHtml);
-            }
           } else {
-            setEpubDisplayHtml('');
             content = rawContent;
           }
           if (!_append) setChapterLoading(false);
@@ -1089,24 +1054,11 @@ function stripHtml(html: string): string {
           const separator = '\n\n' + chapter.title + '\n' + '─'.repeat(30) + '\n\n';
           return prev + separator + displayContent;
         });
-        // EPUB 追加模式：也将 HTML 版本追加到 epubDisplayHtml（保留图片）
-        if (isEpub && epubHtml) {
-          setEpubDisplayHtml(prev => prev + '\n' + epubHtml);
-        }
       } else {
         // 手动跳转：替换内容，重置累积记录
         accumulatedIdsRef.current.clear();
         accumulatedIdsRef.current.add(chapter.id);
         setTxtContent(displayContent);
-        // 手动跳转 EPUB：替换为当前章节的 HTML 版本
-        // ⭐ 但在强制纯文本模式（搜索跳转）下跳过，确保 DOM 文本与搜索 offset 一致
-        if (!_forcePlainText && isEpub && epubHtml) {
-          setEpubDisplayHtml(epubHtml);
-        } else if (!_forcePlainText && isEpub) {
-          setEpubDisplayHtml(displayContent);
-        } else if (_forcePlainText) {
-          setEpubDisplayHtml('');
-        }
       }
     } catch (err: any) {
       setError('加载章节内容失败');
@@ -1130,9 +1082,8 @@ function stripHtml(html: string): string {
               const rawContent = res.data.data?.content || '';
               const pageThis = preloadedChaptersRef;
               if (isEpub) {
-                // EPUB: 同时存储 HTML（有图片）和纯文本（TTS 用）
-                const html = sanitizeEpubHtml(rawContent, bookId!);
-                pageThis.current.set(next.id, { content: stripHtml(rawContent), html });
+                // EPUB: 仅存储纯文本（TTS 用），渲染由 EpubViewer 组件（epub.js）负责
+                pageThis.current.set(next.id, { content: stripHtml(rawContent) });
               } else {
                 pageThis.current.set(next.id, { content: rawContent });
               }
@@ -1321,9 +1272,6 @@ function stripHtml(html: string): string {
       accumulatedIdsRef.current.clear();
       accumulatedIdsRef.current.add(nextCh.id);
       setTxtContent(content);
-      if (book?.format === 'epub') {
-        setEpubDisplayHtml(sanitizeEpubHtml(rawContent, triggerBookId!));
-      }
       // 重置滚动位置
       if (txtScrollRef.current) txtScrollRef.current.scrollTop = 0;
       // 加载下一章文本到播放器（优先使用预取缓存，后台跨章无需等待 TTS API）
@@ -2191,105 +2139,6 @@ function stripHtml(html: string): string {
         )}
 
 
-        {/* EPUB 不再使用 epubjs 视图，统一用 text+CSS column 模式渲染 */}
-
-        {/* EPUB Text View */}
-        {book?.format === 'epub' && (
-          <div
-            ref={(el) => {
-              (pageContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
-            }}
-            className={`px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto reading-container ${
-              readingMode === 'scroll' ? 'flex-1 overflow-y-auto' : 'flex-1 overflow-hidden flex flex-col'
-            }`}
-            data-l-spacing={letterSpacing}
-            style={readingMode === 'paginated' ? { touchAction: 'none', overscrollBehavior: 'none' } : undefined}
-          >
-            <div
-              style={{
-                color: 'var(--color-text)',
-                fontSize: `${fontSize}px`,
-                fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
-                lineHeight,
-                letterSpacing: `${letterSpacing}em`,
-                ...(readingMode === 'paginated' ? { flex: 1, minHeight: 0, overflow: 'hidden' } : {}),
-              }}
-            >
-              {chapterLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <span className="animate-pulse" style={{ color: 'var(--color-text-muted)' }}>加载中...</span>
-                </div>
-              ) : readingMode === 'paginated' ? (
-                <div
-                  ref={paginatedScrollRef}
-                  className="paginated-scroll"
-                  style={{
-                    height: '100%',
-                    overflowX: 'auto',
-                    overflowY: 'hidden',
-                    columnFill: 'auto',
-                    columnCount: 1,
-                    columnGap: '2rem',
-                    fontSize: `${fontSize}px`,
-                    fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
-                    lineHeight,
-                    letterSpacing: `${letterSpacing}em`,
-                    padding: '0 1.5rem',
-                    scrollBehavior: 'smooth',
-                  }}
-                />
-              ) : epubDisplayHtml ? (
-                <div className="epub-content" dangerouslySetInnerHTML={{ __html: epubDisplayHtml }} />
-              ) : txtContent ? (
-                ttsState !== 'idle' && activeSegmentIndex >= 0 ? (
-                  <div className="whitespace-pre-line">
-                    {renderHighlightedContent(txtContent)}
-                  </div>
-                ) : (
-                  <div className="whitespace-pre-line">{txtContent}</div>
-                )
-              ) : (
-                <div className="flex items-center justify-center py-12">
-                  <span style={{ color: 'var(--color-text-muted)' }}>暂无内容</span>
-                </div>
-              )}
-            </div>
-            <div ref={bottomSentinelRef} className="h-4" />
-            <div className="mt-4 pt-3 flex items-center justify-between text-sm"
-              style={{ borderTop: '0.5px solid var(--color-border)' }}>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const idx = chapters.findIndex((c) => c.id === (currentChapter?.id || ''));
-                  if (idx > 0) navigateToChapter(chapters[idx - 1]);
-                }}
-                disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter.id) === 0}
-                className="px-3 py-1 rounded-lg transition-all duration-150 tap-active disabled:opacity-40"
-                style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="15 18 9 12 15 6"/></svg> 上一章
-              </button>
-              <span className="text-xs" style={{color: 'var(--color-text-muted)'}}>
-                {currentChapter
-                  ? readingMode === 'paginated'
-                    ? `${pageIndex + 1} / ${totalPages}`
-                    : `${chapters.findIndex((c) => c.id === currentChapter.id) + 1} / ${chapters.length}`
-                  : ''}
-              </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  goToNextChapter();
-                }}
-                disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter.id) === chapters.length - 1}
-                className="px-3 py-1 rounded-lg transition-all duration-150 tap-active disabled:opacity-40"
-                style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-              >
-                下一章 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="9 18 15 12 9 6"/></svg>
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* TTS 恢复横幅已移除 — 进入书籍不涉及 TTS 播放 */}
 
