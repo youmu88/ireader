@@ -48,7 +48,7 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.8.7';
+export const APP_VERSION = '2.8.8';
 /**
  * 2.8.5 (2026-07-13): [BUGFIX] 修复暗色模式/翻页手势被吞/TOC目录不关联三大阅读器问题
  *   1) 暗色模式 EPUB 无法阅读：EpubViewer themes.register 未设置 background-color + color，
@@ -81,6 +81,12 @@ export const APP_VERSION = '2.8.7';
  *   1) 根因：TOC 侧边栏（z-20）在 DOM 中位于 EpubViewer（内含 z-20 透明覆盖层）之前，
  *      同层级下后渲染的覆盖层盖在 TOC 上方，拦截了 TOC 按钮的点击事件。
  *   2) 修复：将 TOC 侧边栏的 z-index 从 z-20 提升至 z-30，确保其可点击区域不被覆盖层遮挡。
+ * 2.8.8 (2026-07-13): [BUGFIX] 修复 TTS 播报从书籍开头开始，不接续当前阅读页面的进度
+ *   1) 根因：handleStartTTS 中 player.load() 后始终 player.play() 从第0段开始播放，
+ *      而 savedTtsProgressRef 已在书籍加载时从后端读取了上次播报位置（segmentIndex），
+ *      但从未被用来恢复播放起始位置。
+ *   2) 修复：load() 后检查 savedTtsProgressRef 是否匹配当前章节，匹配则调用
+ *      player.jumpToSegment(segmentIndex) 从指定分段开始播报，否则回退 play()。
  * 2.8.7 (2026-07-13): [BUGFIX] 修复 EPUB 模式下点击播放按钮无响应 — 悬浮面板半透明遮罩吞掉按钮点击事件
  *   1) 根因：悬浮面板外层容器 onClick={() => setShowUi(false)} 事件捕获/冒泡阶段先于或遮盖了
  *      内部播放/暂停/停止/上下章按钮的 onClick 回调，导致 handleStartTTS 等未被正确触发。

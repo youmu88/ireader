@@ -1688,8 +1688,14 @@ function stripHtml(html: string): string {
       // Start periodic TTS progress saving (also persists to localStorage)
       startTtsProgressSaver(bookId, currentChapter.id, currentChapter?.title || '', player);
 
-      // ⭐ 从第0段开始播放（停止后再次播放不跳转到旧位置）
-      await player.play();
+      // ⭐ 恢复播放位置：如果之前有保存的 TTS 进度且章节匹配，从指定分段开始播放
+      const savedTts = savedTtsProgressRef.current;
+      if (savedTts && savedTts.chapterId === currentChapter.id && savedTts.segmentIndex > 0) {
+        await player.jumpToSegment(savedTts.segmentIndex);
+      } else {
+        // ⭐ 从第0段开始播放（无保存进度或章节不匹配）
+        await player.play();
+      }
     } catch (err) {
       console.error('TTS 启动失败:', err);
       setTtsError('语音播放启动失败：TTS 后端服务不可用（默认 Kokoro :8880 未运行），请在设置中切换到 Edge-TTS 或启动 Kokoro 服务');
