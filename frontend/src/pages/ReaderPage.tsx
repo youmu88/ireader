@@ -480,9 +480,8 @@ function ReaderPage() {
       // 获取当前章节内容
       const res = await axios.get(`/api/books/${bookId}/chapters/${currentChapter.id}/content`);
       const rawContent = res.data.data?.content || '';
-      // 内联 HTML 剥离
-        const simpleStrip2 = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim();
-      const content = book.format === 'epub' ? simpleStrip2(rawContent) : rawContent;
+      // 内联 HTML 剥离（使用完整的 stripHtml 处理 <style> 等块，避免 CSS 内容残留）
+      const content = book.format === 'epub' ? stripHtml(rawContent) : rawContent;
       await cacheSingleChapter(bookId, book.title, {
         chapterId: currentChapter.id,
         title: currentChapter.title,
@@ -1030,7 +1029,7 @@ function stripHtml(html: string): string {
         // 尝试从客户端离线缓存读取
         const cachedContent = await getCachedChapterContent(bookId!, chapter.id);
         if (cachedContent) {
-          content = cachedContent;
+          content = isEpub ? stripHtml(cachedContent) : cachedContent;
           if (!_append) setChapterLoading(false);
         } else {
           if (!_append) setChapterLoading(true);
