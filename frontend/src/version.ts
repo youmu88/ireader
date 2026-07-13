@@ -32,5 +32,10 @@
  *   4) EPUB/TXT 翻页统一渲染管道：EPUB 保留图片/原始 HTML 排版（sanitizeEpubHtml），TXT 文本渲染
  *   5) 新增 paginated-scroll CSS：隐藏滚动条、章节标题/图片/表格排版复用 .epub-content 规则
  * 2.7.1 (2026-07-13): [BUGFIX] 修复 index.css 全局样式被误删 — 恢复 Tailwind 指令/主题变量/交互反馈
+ * 2.7.2 (2026-07-13): [FIX] 部署脚本修复（macOS 本地部署可正常启动服务）
+ *   1) start_service 去除硬编码 systemd 启动（macOS 无 systemd），改为跨平台「后台进程+PID 文件」启动
+ *   2) do_deploy 不再从源码拷贝 pnpm 软链 node_modules（导致 epub 嵌套依赖断链），改为目标目录本地 pnpm install --prod 生成自包含依赖
+ *   3) backend/package.json 增加 pnpm.onlyBuiltDependencies: [better-sqlite3]，install 时自动编译原生模块（修复 better_sqlite3.node 缺失）
+ *   4) 清理 do_deploy 中重复的"拷贝 frontend"日志
  */
-export const APP_VERSION = '2.7.1';
+export const APP_VERSION = '2.7.2';

@@ -402,19 +402,14 @@ do_deploy() {
     exit 1
   fi
 
-  # 拷贝 backend node_modules（替代 npm install --production，快约 100 倍）
-  # 直接从源码目录拷贝已有依赖，避免每次重新下载 167 个包
-  if [ -d "${SOURCE_DIR}/backend/node_modules" ]; then
-    log "拷贝 backend node_modules (从源码)..."
-    cp -r "${SOURCE_DIR}/backend/node_modules" "${APP_DIR}/backend/"
-    log "  → ${APP_DIR}/backend/node_modules ✓ (跳过 prune，完整拷贝 devDependencies)"
-    cd "${SOURCE_DIR}"
-  else
-    # 兜底：源码无 node_modules 时才 pnpm install
-    log "源码无 node_modules，回退到 pnpm install --prod..."
-    cd "${APP_DIR}/backend" && pnpm install --prod 2>&1 | while IFS= read -r line; do log "  pnpm: ${line}"; done
-    cd "${SOURCE_DIR}"
-  fi
+  # 安装 backend 生产依赖（在目标目录本地解析，生成自包含 node_modules）
+  # 注意：pnpm 使用 .pnpm 软链结构，从源码 cp node_modules 会导致 epub 等包的
+  # 嵌套依赖（fast-xml-parser/jszip）软链断链；必须在目标目录重新 install 才能自包含。
+  # better-sqlite3 是原生模块，其编译已在 backend/package.json 的
+  # pnpm.onlyBuiltDependencies 中声明，install 时会自动编译出 better_sqlite3.node。
+  log "安装 backend 生产依赖 (pnpm install --prod)..."
+  cd "${APP_DIR}/backend" && pnpm install --prod --prefer-offline 2>&1 | while IFS= read -r line; do log "  pnpm: ${line}"; done
+  cd "${SOURCE_DIR}"
 
   # 拷贝白名单配置
   if [ -f "${SOURCE_DIR}/backend/secUserEmail.json" ]; then
@@ -422,8 +417,6 @@ do_deploy() {
     log "  → secUserEmail.json (白名单配置)"
   fi
 
-  # 拷贝 frontend 构建产物
-  log "拷贝 frontend..."
   # 拷贝 frontend 构建产物
   log "拷贝 frontend..."
   mkdir -p "${APP_DIR}/frontend"
@@ -457,10 +450,12 @@ ENVEOF
 # ============================================================
 # 启动服务
 # ============================================================
+# 跨平台启动：macOS / Linux 统一使用「后台进程 + PID 文件」机制，
+# 不再依赖 systemd（macOS 无 systemd），与 stop_old_instance 的 PID/端口清理逻辑闭环。
 start_service() {
-  log "启动 iReader 服务 (systemd, 部署目录: ${APP_DIR})..."
+  log "启动 iReader 服务 (部署目录: ${APP_DIR})..."
 
-  # 写入启动脚本（供 systemd 使用）
+  # 写入启动脚本（供手动重启使用，与部署目录解耦）
   cat > "${APP_DIR}/start.sh" <<'STARTEOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -475,6 +470,7 @@ fi
 
 export PORT="${PORT:-10000}"
 export DATA_DIR="${DATA_DIR:-${HOME}/.ireader/data}"
+export NODE_ENV=production
 
 # 启动服务
 cd "${SCRIPT_DIR}/backend"
@@ -482,78 +478,44 @@ exec node dist/index.js
 STARTEOF
   chmod +x "${APP_DIR}/start.sh"
 
-  # 更新 systemd 服务配置指向部署目录
-  local SERVICE_FILE="/etc/systemd/system/ireader.service"
-  local APP_ABS_DIR
-  APP_ABS_DIR="$(cd "${APP_DIR}" && pwd)"
+  # 确保端口未被占用（防御性二次确认，复用端口清理逻辑）
+  kill_processes_on_port "${PORT}" || true
 
-  sudo tee "${SERVICE_FILE}" > /dev/null <<'SERVICEEOF'
-[Unit]
-Description=iReader - 图书阅读与听书 Web 服务
-After=network.target
-Wants=network.target
+  # 后台拉起服务，stdout/stderr 写入日志，PID 写入 PID 文件
+  mkdir -p "${LOGS_DIR}" "${RUN_DIR}"
+  nohup "${APP_DIR}/start.sh" > "${LOGS_DIR}/app.log" 2>&1 &
+  local new_pid=$!
+  echo "${new_pid}" > "${PID_FILE}"
+  log "服务已后台启动 (PID: ${new_pid})"
 
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=WORKDIR_PLACEHOLDER
-Environment=NODE_ENV=production
-Environment=HOME=/home/ubuntu
-Environment=PATH=/usr/bin:/usr/local/bin:/home/ubuntu/.local/bin:/home/ubuntu/.nvm/versions/node/v20.11.1/bin
-ExecStart=/usr/bin/node WORKDIR_PLACEHOLDER/backend/dist/index.js
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=ireader
-
-# Resource limits
-LimitNOFILE=65536
-LimitNPROC=65536
-
-[Install]
-WantedBy=multi-user.target
-SERVICEEOF
-
-  # 替换占位符为实际路径
-  sudo sed -i "s|WORKDIR_PLACEHOLDER|${APP_ABS_DIR}|g" "${SERVICE_FILE}"
-
-  # 重新加载 systemd 并重启服务
-  sudo systemctl daemon-reload
-  sudo systemctl restart ireader
-
-  # 等待 systemd 启动
+  # 等待进程拉起
   sleep 2
-
-  # 通过 systemctl 检查服务状态
-  if ! sudo systemctl is-active --quiet ireader; then
-    log "❌ systemd 服务启动失败，检查状态:"
-    sudo systemctl status ireader --no-pager -l 2>&1 | head -20
+  if ! kill -0 "${new_pid}" 2>/dev/null; then
+    log "❌ 服务进程启动后立即退出，请检查日志:"
+    tail -30 "${LOGS_DIR}/app.log" 2>/dev/null || true
     return 1
   fi
 
-  # 健康检查
+  # 健康检查（轮询 /api/health）
   local max_retries=12
   local retry=0
   while [ "${retry}" -lt "${max_retries}" ]; do
     if curl -s "http://127.0.0.1:${PORT}/api/health" | grep -q '"ok"\|"status":"ok"\|"success":true' 2>/dev/null; then
-      local responding_pid
-      responding_pid="$(lsof -ti ":${PORT}" 2>/dev/null | head -1 || true)"
-      log "健康检查通过 ✓ (PID: ${responding_pid})"
+      log "健康检查通过 ✓ (PID: ${new_pid})"
       return 0
     fi
     retry=$((retry + 1))
     sleep 2
 
-    # 检查 systemd 服务是否还活着
-    if ! sudo systemctl is-active --quiet ireader; then
-      log "❌ systemd 服务已退出"
-      sudo journalctl -u ireader --no-pager -n 20 2>&1
+    # 检查进程是否还活着
+    if ! kill -0 "${new_pid}" 2>/dev/null; then
+      log "❌ 服务进程已退出，请检查日志:"
+      tail -30 "${LOGS_DIR}/app.log" 2>/dev/null || true
       return 1
     fi
   done
 
-  log "⚠️  健康检查未通过，请检查: sudo journalctl -u ireader -n 50"
+  log "⚠️  健康检查未通过，请检查: ${LOGS_DIR}/app.log"
   return 1
 }
 
@@ -682,10 +644,9 @@ main() {
         echo " PID 文件:  ${PID_FILE}"
         echo "------------------------------------------"
         echo " 管理命令:"
-        echo "  停止服务:  sudo systemctl stop ireader"
-        echo "  启动服务:  sudo systemctl start ireader"
-        echo "  重启服务:  sudo systemctl restart ireader"
-        echo "  查看日志:  sudo journalctl -u ireader -n 50 -f"
+        echo "  停止服务:  kill \$(cat ${PID_FILE})  (或 ./deploy.sh --clean)"
+        echo "  启动服务:  ${APP_DIR}/start.sh"
+        echo "  查看日志:  tail -f ${LOGS_DIR}/app.log"
         echo "  重新部署:  cd ${SOURCE_DIR} && ./deploy.sh"
         echo "  清理部署:  cd ${SOURCE_DIR} && ./deploy.sh --clean"
         echo "=========================================="
