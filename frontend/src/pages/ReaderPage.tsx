@@ -2430,25 +2430,25 @@ function stripHtml(html: string): string {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
                           {/* ⏮ 上一章 */}
-                          <button onClick={handlePrevChapter} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="上一章">
+                          <button onClick={(e) => { e.stopPropagation(); handlePrevChapter(); }} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="上一章">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                           </button>
                           {/* ▶/⏸ 播放/暂停 */}
                           {ttsState === 'playing' ? (
-                            <button onClick={handlePauseTTS} className="w-11 h-11 rounded-full flex items-center justify-center" style={{background: 'var(--color-primary)'}} title="暂停">
+                            <button onClick={(e) => { e.stopPropagation(); handlePauseTTS(); }} className="w-11 h-11 rounded-full flex items-center justify-center" style={{background: 'var(--color-primary)'}} title="暂停">
                               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
                             </button>
                           ) : (
-                            <button onClick={ttsState === 'paused' ? handleResumeTTS : handleStartTTS} className="w-11 h-11 rounded-full flex items-center justify-center" style={{background: 'var(--color-primary)'}} title={ttsState === 'paused' ? '继续' : '播放'}>
+                            <button onClick={(e) => { e.stopPropagation(); if (ttsState === 'paused') handleResumeTTS(); else handleStartTTS(); }} className="w-11 h-11 rounded-full flex items-center justify-center" style={{background: 'var(--color-primary)'}} title={ttsState === 'paused' ? '继续' : '播放'}>
                               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                             </button>
                           )}
                           {/* ⏭ 下一章 */}
-                          <button onClick={handleNextChapter} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="下一章">
+                          <button onClick={(e) => { e.stopPropagation(); handleNextChapter(); }} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="下一章">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
                           </button>
                           {/* ⏹ 停止 — 清理进度，下次播放从当前页开始 */}
-                          <button onClick={handleStopTTS} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="停止">
+                          <button onClick={(e) => { e.stopPropagation(); handleStopTTS(); }} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="停止">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
                           </button>
                         </div>

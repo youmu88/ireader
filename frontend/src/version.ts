@@ -48,7 +48,7 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.8.6';
+export const APP_VERSION = '2.8.7';
 /**
  * 2.8.5 (2026-07-13): [BUGFIX] 修复暗色模式/翻页手势被吞/TOC目录不关联三大阅读器问题
  *   1) 暗色模式 EPUB 无法阅读：EpubViewer themes.register 未设置 background-color + color，
@@ -81,4 +81,10 @@ export const APP_VERSION = '2.8.6';
  *   1) 根因：TOC 侧边栏（z-20）在 DOM 中位于 EpubViewer（内含 z-20 透明覆盖层）之前，
  *      同层级下后渲染的覆盖层盖在 TOC 上方，拦截了 TOC 按钮的点击事件。
  *   2) 修复：将 TOC 侧边栏的 z-index 从 z-20 提升至 z-30，确保其可点击区域不被覆盖层遮挡。
+ * 2.8.7 (2026-07-13): [BUGFIX] 修复 EPUB 模式下点击播放按钮无响应 — 悬浮面板半透明遮罩吞掉按钮点击事件
+ *   1) 根因：悬浮面板外层容器 onClick={() => setShowUi(false)} 事件捕获/冒泡阶段先于或遮盖了
+ *      内部播放/暂停/停止/上下章按钮的 onClick 回调，导致 handleStartTTS 等未被正确触发。
+ *      事件层级：悬浮遮罩（z-30 覆盖全屏）→ 按钮 → 用户感知"点不下去"。
+ *   2) 修复：所有播放控制按钮（播放/暂停/停止/上章/下章）的 onClick 中添加
+ *      e.stopPropagation()，阻止事件冒泡至遮罩层。
  */
