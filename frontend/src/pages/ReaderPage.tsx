@@ -20,6 +20,7 @@ import {
   type PlayerState,
 } from '../services/ttsPlayer';
 import type { BookCacheDetailedStats } from '../services/offlineCacheService';
+import EpubViewer from '../components/EpubViewer';
 
 interface Book {
   id: string;
@@ -116,13 +117,15 @@ function ReaderPage() {
   const [readingMode, setReadingMode] = useState<'scroll' | 'paginated'>(initialPrefs.readingMode ?? 'scroll');
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  // ── 翻页模式（ReadiumCSS 横向滚动分页模型）──
-  /** 翻页容器 ref：column-fill:auto + overflow-x:auto 的横向滚动分页 */
+  // ── TXT 翻页：保留原生 column 分页容器（本轮仅重构 EPUB）──
   const paginatedScrollRef = useRef<HTMLDivElement>(null);
-  /** 跨模式共享的字符位置比例 [0,1]，用于切换模式时从当前阅读位置精确恢复（不跳回开头） */
+  /** TXT 跨模式共享的字符位置比例 [0,1]，用于切换模式时从当前阅读位置精确恢复 */
   const charOffsetRatioRef = useRef<number>(0);
-  /** 翻页模式是否正在重建内容（防止翻页动画与重建冲突） */
-  const isRebuildingRef = useRef(false);
+  // ── EPUB 模式：由 EpubViewer（epub.js）托管，进度用 CFI ──
+  /** EpubViewer 翻页控制（prev/next），仅 EPUB 模式使用 */
+  const epubPageControlRef = useRef<{ prev: () => void; next: () => void } | null>(null);
+  /** EPUB 当前阅读位置 CFI（用于进度持久化与恢复） */
+  const epubCfiRef = useRef<string | null>(null);
   const [ttsVoice, setTtsVoice] = useState(() => {
     try { return localStorage.getItem('ireader_tts_voice') || 'zh-CN-XiaoxiaoNeural'; } catch { return 'zh-CN-XiaoxiaoNeural'; }
   });
@@ -188,7 +191,16 @@ function ReaderPage() {
   useEffect(() => { showSearchRef.current = showSearch; }, [showSearch]);
 
   /** 执行翻页 — ref 包装，让 handleSwipeEnd 等前面定义的函数也能引用 */
-  const performPageTurnRef = useRef<(direction: 'prev' | 'next') => Promise<void>>(async () => {});
+  // TXT 模式翻页：直接走章节导航（EPUB 由 EpubViewer 内部处理，不在此调用）
+  const performPageTurnRef = useRef<(direction: 'prev' | 'next') => Promise<void>>(async (direction) => {
+    setIsPageTurning(true);
+    try {
+      if (direction === 'next') await goToNextChapter();
+      else await goToPrevChapter();
+    } finally {
+      setIsPageTurning(false);
+    }
+  });
   const [isPageTurning, setIsPageTurning] = useState(false);
   /** ── ref 同步最新状态（供 useCallback([]) 内部闭包读取） ── */
   const readingModeRef = useRef(readingMode);
@@ -223,13 +235,17 @@ function ReaderPage() {
 
     // 滑动距离 > 50px 且水平方向 > 垂直方向 → 翻页
     if (absDx > 50 && absDx > absDy * 1.5 && dt < 500) {
-      if (dx < 0) {
+      if (book?.format === 'epub') {
+        // EPUB 由 EpubViewer（epub.js）托管翻页
+        if (dx < 0) epubPageControlRef.current?.next();
+        else epubPageControlRef.current?.prev();
+      } else if (dx < 0) {
         performPageTurnRef.current('next');
       } else {
         performPageTurnRef.current('prev');
       }
     }
-  }, [isPageTurning, ttsState, readingMode]);
+  }, [isPageTurning, ttsState, readingMode, book?.format]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -891,16 +907,21 @@ function ReaderPage() {
       if (currentBookIdRef.current !== triggerBookId) return;
 
       if (targetChapter) {
-        // 统一用字符位置比例恢复（scroll / paginated 共用）
-        if (savedProgress?.percentage != null) {
-          charOffsetRatioRef.current = Math.min(1, Math.max(0, savedProgress.percentage));
-        } else if (savedProgress?.pageIndex != null) {
-          charOffsetRatioRef.current = Math.min(1, Math.max(0, savedProgress.pageIndex / 10000));
-        }
-        // scroll 模式兼容：沿用原有 pendingScrollRestorePct 恢复路径
-        if (savedProgress?.pageIndex != null && bookData.format !== 'epub') {
-          const restorePct = savedProgress.pageIndex / 10000;
-          if (restorePct > 0) setPendingScrollRestorePct(restorePct);
+        if (isEpub) {
+          // EPUB 模式：用 CFI 恢复进度，交由 EpubViewer 内部 display(cfi)
+          if (savedProgress?.cfi) epubCfiRef.current = savedProgress.cfi;
+        } else {
+          // TXT：统一用字符位置比例恢复（scroll / paginated 共用）
+          if (savedProgress?.percentage != null) {
+            charOffsetRatioRef.current = Math.min(1, Math.max(0, savedProgress.percentage));
+          } else if (savedProgress?.pageIndex != null) {
+            charOffsetRatioRef.current = Math.min(1, Math.max(0, savedProgress.pageIndex / 10000));
+          }
+          // scroll 模式兼容：沿用原有 pendingScrollRestorePct 恢复路径
+          if (savedProgress?.pageIndex != null && bookData.format !== 'epub') {
+            const restorePct = savedProgress.pageIndex / 10000;
+            if (restorePct > 0) setPendingScrollRestorePct(restorePct);
+          }
         }
         await loadChapterContent(targetChapter, undefined, isEpub);
         // 首次加载后立即预加载后续章节
@@ -1093,167 +1114,6 @@ function stripHtml(html: string): string {
     }
   };
 
-  // ── 增量列分页引擎：核心函数 ──
-
-  /**
-   * 获取章节内容（优先预加载缓存 → 离线缓存 → API）
-   * 返回纯文本（TXT直接返回，EPUB stripHtml）
-   */
-  const fetchChapterText = useCallback(async (chapter: Chapter, isEpub: boolean): Promise<string> => {
-    const preloaded = preloadedChaptersRef.current.get(chapter.id);
-    if (preloaded) {
-      preloadedChaptersRef.current.delete(chapter.id);
-      return preloaded.content;
-    }
-    const cachedContent = await getCachedChapterContent(bookId!, chapter.id);
-    if (cachedContent) return cachedContent;
-    const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`);
-    const raw = res.data.data?.content || '';
-    return isEpub ? stripHtml(raw) : raw;
-  }, [bookId]);
-
-  /**
-   * HTML 实体转义（防止章节标题中的特殊字符破坏 DOM 结构）
-   */
-  const escapeHtml = useCallback((text: string): string => {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }, []);
-
-  /**
-   * 将纯文本转为安全的 innerHTML（处理换行 → <br>、空格等）
-   */
-  const textToHtml = useCallback((text: string): string => {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\n/g, '<br>')
-      .replace(/  /g, '&nbsp;&nbsp;');
-  }, []);
-
-  /**
-   * 重建翻页模式内容（ReadiumCSS 横向滚动分页模型）
-   *
-   * 核心思想：用单个横向滚动容器 `paginatedScrollRef`，
-   * CSS `column-fill:auto; column-count:1; column-gap; height:100%; overflow-x:auto`。
-   * 内容 = 当前章节起 + 前一章尾部 + 后续若干章 的连续 HTML（EPUB 保留图片/排版）。
-   * 页 = 一屏宽，翻页 = scrollLeft ± clientWidth。
-   *
-   * @param startChapter   起始章节（从当前阅读章节开始，不会跳回书籍开头）
-   * @param resumeRatio   跨模式/跨章恢复用的字符位置比例 [0,1]，默认从上次保存位置恢复
-   */
-  const rebuildPaginatedContent = useCallback(async (
-    startChapter: Chapter,
-    resumeRatio?: number,
-  ) => {
-    const el = paginatedScrollRef.current;
-    if (!el || !chapters.length) return;
-    isRebuildingRef.current = true;
-
-    const isEpub = book?.format === 'epub';
-    const startIdx = chapters.findIndex(c => c.id === startChapter.id);
-    if (startIdx < 0) { isRebuildingRef.current = false; return; }
-
-    // 取前一章尾（用于跨章连续翻页的无缝衔接）+ 当前章 + 后续 3 章
-    const fromIdx = Math.max(0, startIdx - 1);
-    const toIdx = Math.min(chapters.length - 1, startIdx + 3);
-    const windowChapters = chapters.slice(fromIdx, toIdx + 1);
-
-    try {
-      const fragments: string[] = [];
-      for (const ch of windowChapters) {
-        const text = await fetchChapterText(ch, isEpub);
-        const sep = `<h2 class="chapter-title" data-chapter-id="${ch.id}">${escapeHtml(ch.title || '未命名章节')}</h2>`;
-        const body = isEpub
-          ? sanitizeEpubHtml(text, bookId!)
-          : `<div class="chapter-text">${textToHtml(text)}</div>`;
-        fragments.push(`<section class="reader-section" data-chapter-id="${ch.id}">${sep}${body}</section>`);
-      }
-      el.innerHTML = fragments.join('');
-
-      setCurrentChapter(startChapter);
-      currentChapterRef.current = startChapter;
-      setDisplayChapter(startChapter);
-
-      // 恢复位置：优先用传入 ratio，否则用跨模式保存的字符比例，否则 0
-      const ratio = resumeRatio ?? charOffsetRatioRef.current ?? 0;
-      requestAnimationFrame(() => {
-        const maxLeft = Math.max(0, el.scrollWidth - el.clientWidth);
-        el.scrollLeft = ratio * maxLeft;
-        const pw = el.clientWidth || 1;
-        const total = Math.max(1, Math.ceil(el.scrollWidth / pw));
-        setTotalPages(total);
-        setPageIndex(Math.round(ratio * (total - 1)));
-        isRebuildingRef.current = false;
-      });
-
-      // 预加载后续章节
-      preloadNextChaptersRef.current(startChapter.id);
-    } catch {
-      isRebuildingRef.current = false;
-    }
-  }, [chapters, book, bookId, fetchChapterText, sanitizeEpubHtml, textToHtml]);
-
-  /**
-   * 翻页（横向滚动分页模型）
-   * 翻页 = scrollLeft ± clientWidth（一屏一页）
-   * 到当前窗口末尾时自动翻到下一章并保留末尾比例；到开头时翻到上一章末页。
-   */
-  const performPageTurn = useCallback(async (direction: 'prev' | 'next') => {
-    if (ttsStateRef.current !== 'idle' || showSearchRef.current || isPageTurningRef.current) return;
-    if (readingModeRef.current !== 'paginated') return;
-    if (isRebuildingRef.current) return;
-
-    const el = paginatedScrollRef.current;
-    if (!el) return;
-    const pw = el.clientWidth;
-    if (pw <= 0) return;
-
-    setIsPageTurning(true);
-    try {
-      if (direction === 'next') {
-        if (el.scrollLeft + pw < el.scrollWidth - 1) {
-          // 窗口内下一页
-          el.scrollTo({ left: el.scrollLeft + pw, behavior: 'smooth' });
-          const total = Math.max(1, Math.ceil(el.scrollWidth / pw));
-          setPageIndex(Math.min(total - 1, Math.round(el.scrollLeft / pw) + 1));
-        } else {
-          // 到达窗口末尾 → 翻到下一章，保留末尾无缝衔接
-          const idx = chapters.findIndex(c => c.id === currentChapterRef.current?.id);
-          if (idx >= 0 && idx < chapters.length - 1) {
-            const next = chapters[idx + 1];
-            // 用 0.85 比例让新章首与旧章末视觉衔接
-            await rebuildPaginatedContent(next, 0.85);
-          }
-        }
-      } else {
-        if (el.scrollLeft > 1) {
-          el.scrollTo({ left: Math.max(0, el.scrollLeft - pw), behavior: 'smooth' });
-          setPageIndex(Math.max(0, Math.round(el.scrollLeft / pw) - 1));
-        } else {
-          const idx = chapters.findIndex(c => c.id === currentChapterRef.current?.id);
-          if (idx > 0) {
-            const prev = chapters[idx - 1];
-            await rebuildPaginatedContent(prev, 0.15);
-          }
-        }
-      }
-    } finally {
-      setTimeout(() => setIsPageTurning(false), 350);
-    }
-  }, [chapters, rebuildPaginatedContent]);
-  // 保持 ref 同步，供键盘/手势事件调用
-  performPageTurnRef.current = performPageTurn;
-
-  // Debounced progress save
-
-  /** 预加载后续3个章节 — ref 包装，供引擎函数引用（避免循环依赖） */
-  const preloadNextChaptersRef = useRef<(currentChapterId: string) => Promise<void>>(async () => {});
   const preloadNextChapters = useCallback(async (currentChapterId: string) => {
     if (!chapters.length) return;
     const idx = chapters.findIndex(c => c.id === currentChapterId);
@@ -1326,13 +1186,8 @@ function stripHtml(html: string): string {
   const navigateToChapter = async (chapter: Chapter, _append?: boolean) => {
     setShowToc(false);
 
-    if (readingMode === 'paginated') {
-      // 翻页模式：从目标章节重建分页内容（不跳回书籍开头）
-      await rebuildPaginatedContent(chapter);
-    } else {
-      // 滚动模式：使用传统的 loadChapterContent
-      await loadChapterContent(chapter);
-    }
+    // TXT 按章导航：统一 loadChapterContent，翻页模式由 paginated effect 自动重排
+    await loadChapterContent(chapter);
 
     debounceSaveProgress({ chapterId: chapter.id, percentage: chapter.order / chapters.length });
   };
@@ -2168,8 +2023,12 @@ function stripHtml(html: string): string {
     return () => cancelAnimationFrame(raf);
   }, [txtContent, pendingScrollRestorePct]);
 
-  // 分页模式：内容/字号/行距变化时轻量重排（不重新 fetch，仅按比例恢复 scrollLeft）
+  // 分页模式页码统计（仅 TXT 使用；EPUB 由 EpubViewer 内部管理）
   useEffect(() => {
+    if (book?.format === 'epub') {
+      setTotalPages(1);
+      return;
+    }
     if (readingMode !== 'paginated') {
       setTotalPages(1);
       return;
@@ -2186,7 +2045,7 @@ function stripHtml(html: string): string {
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [epubDisplayHtml, txtContent, book?.format, readingMode, fontSize, lineHeight]);
+  }, [txtContent, book?.format, readingMode, fontSize, lineHeight]);
 
   // Cleanup on unmount — 使用 ref 避免闭包捕获到 null state
   useEffect(() => {
@@ -2449,6 +2308,26 @@ function stripHtml(html: string): string {
               </button>
             </div>
           </div>
+        )}
+
+        {/* EPUB Reader — 由 epub.js 托管（根治旧自研分页引擎的黑屏/翻节/字体重排乱） */}
+        {book?.format === 'epub' && (
+          <EpubViewer
+            fileUrl={`/api/books/${book.id}/file`}
+            readingMode={readingMode}
+            fontSize={fontSize}
+            fontFamily={fontFamily}
+            lineHeight={lineHeight}
+            letterSpacing={letterSpacing}
+            initialCfi={epubCfiRef.current}
+            pageControlRef={epubPageControlRef}
+            onLocationChange={(cfi) => {
+              epubCfiRef.current = cfi;
+              if (currentBookIdRef.current) {
+                debounceSaveProgress({ cfi });
+              }
+            }}
+          />
         )}
 
         {/* TXT Reader */}
@@ -2803,7 +2682,6 @@ function stripHtml(html: string): string {
                               charOffsetRatioRef.current = Math.min(1, Math.max(0, scrollEl.scrollTop / scrollEl.scrollHeight));
                             }
                             setReadingMode('paginated');
-                            if (currentChapter) await rebuildPaginatedContent(currentChapter);
                           } else {
                             setReadingMode('scroll');
                           }
@@ -2830,17 +2708,17 @@ function stripHtml(html: string): string {
                     </div>
                      {book?.format && readingMode === 'paginated' && (
                        <div className="flex items-center justify-between mt-1">
-                          {book?.format === 'txt' || book?.format === 'epub' ? (
+                          {book?.format === 'txt' && readingMode === 'paginated' ? (
                             <>
                               <button
-                                onClick={() => performPageTurn('prev')}
+                                onClick={() => performPageTurnRef.current('prev')}
                                 disabled={pageIndex === 0 && chapters.findIndex(c => c.id === currentChapter?.id) === 0}
                                 className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
                                 style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                               ><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="15 18 9 12 15 6"/></svg> 上一页</button>
                               <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{pageIndex + 1} / {totalPages}</span>
                               <button
-                                onClick={() => performPageTurn('next')}
+                                onClick={() => performPageTurnRef.current('next')}
                                 disabled={pageIndex >= totalPages - 1 && chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1}
                                 className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
                                 style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
@@ -2848,19 +2726,19 @@ function stripHtml(html: string): string {
                             </>
                           ) : (
                            <>
-                             <button
-                               onClick={() => performPageTurn('prev')}
-                               disabled={chapters.findIndex(c => c.id === currentChapter?.id) === 0}
-                               className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
-                               style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                             ><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="15 18 9 12 15 6"/></svg> 上一章</button>
+                              <button
+                                onClick={() => performPageTurnRef.current('prev')}
+                                disabled={chapters.findIndex(c => c.id === currentChapter?.id) === 0}
+                                className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
+                                style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                              ><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="15 18 9 12 15 6"/></svg> 上一章</button>
                              <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{currentChapter ? `${chapters.findIndex(c => c.id === currentChapter.id) + 1} / ${chapters.length}` : ''}</span>
-                             <button
-                               onClick={() => performPageTurn('next')}
-                               disabled={chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1}
-                               className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
-                               style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                             >下一章 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="9 18 15 12 9 6"/></svg></button>
+                              <button
+                                onClick={() => performPageTurnRef.current('next')}
+                                disabled={chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1}
+                                className="text-sm px-4 py-2 rounded-lg disabled:opacity-40 transition-all duration-150 tap-active"
+                                style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                              >下一章 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block"><polyline points="9 18 15 12 9 6"/></svg></button>
                            </>
                          )}
                        </div>

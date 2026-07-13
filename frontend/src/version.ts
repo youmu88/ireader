@@ -38,4 +38,4 @@
  *   3) backend/package.json 增加 pnpm.onlyBuiltDependencies: [better-sqlite3]，install 时自动编译原生模块（修复 better_sqlite3.node 缺失）
  *   4) 清理 do_deploy 中重复的"拷贝 frontend"日志
  */
-export const APP_VERSION = '2.7.2';
+export const APP_VERSION = '2.8.0';
