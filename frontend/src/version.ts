@@ -48,7 +48,7 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.10.1';
+export const APP_VERSION = '2.10.2';
 /**
  * 2.10.1 (2026-07-14): [FIX+OPTIMIZE] 键盘翻页复用滑动翻页通道 + 翻页模式页面固定 + 浮动菜单长按1秒
  *   1) [FIX] PC 键盘 ←/→ 翻页根因：上一轮（2.9.x）在 scroll 模式错误地复用「上一章/下一章」章节导航，
@@ -122,6 +122,17 @@ export const APP_VERSION = '2.10.1';
  *   2) 目录菜单当前章节高亮增强：左侧彩色边框指示器 + 播放图标标记 +
  *      更鲜艳的背景色与文字色 + 加粗字体，非当前章节保持低调。
  *   3) 打开目录时自动滚动到当前章节位置（scrollIntoView）。
+ */
+/**
+ * 2.10.2 (2026-07-14): [BUGFIX] 修复翻页模式在移动端 PWA 仍可整页上下位移 — 根容器文档级锁定（修根非补丁）
+ *   1) 根因：2.10.1 仅在子容器（.epub-viewer-canvas / .paginated-scroll）加 touch-action:pan-x 补丁，
+ *      漏掉真正控制整页能否滚动的全局根容器（html/body/#root 无 height:100% / overflow / 固定锁定）
+ *      + viewport 缺 viewport-fit=cover + 根盒用 100vh（地址栏误差），iOS Safari 在 document 层仍可整页橡皮筋位移。
+ *   2) 修复：①index.css 给 html,body,#root 加 height:100% + overscroll-behavior:none（仅禁整页回弹，不误伤 scroll 模式与长页面）；
+ *      ②新增 .reader-root 作用域类（position:fixed; inset:0; overflow:hidden; overscroll-behavior:none），
+ *      由 ReaderPage 根盒挂载，彻底锁死阅读器整页位移；③index.html viewport 补 viewport-fit=cover；
+ *      ④ReaderPage 根盒 h-screen(100vh) → h-[100dvh]，消除 PWA 全屏地址栏可视区误差。
+ *   3) 注：第14轮（2.10.1）子容器补丁保留无害，本修正在更外层根因处收口。
  */
 /**
  * 2.10.0 (2026-07-14): [FEATURE] TTS 设置页面增加音色试听按钮

@@ -365,6 +365,14 @@ textarea:focus {
 /* ═══════════════════════════════════════
    全局基础样式
    ═══════════════════════════════════════ */
+/* 根容器铺满视口，并禁用整页橡皮筋回弹（移动端 PWA 文档级位移根因修复）。
+   注意：仅禁 overscroll-behavior，不在此加 overflow:hidden —— 否则会误伤 scroll 连续阅读模式与书架等长页面。 */
+html,
+body,
+#root {
+  height: 100%;
+  overscroll-behavior: none;
+}
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', sans-serif;
@@ -373,6 +381,14 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* 阅读器页面作用域：彻底锁死整页，禁止任何方向文档级位移（翻页模式核心修复） */
+.reader-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 /* iOS 风格焦点环 */
