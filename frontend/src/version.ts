@@ -48,7 +48,19 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.11.2';
+export const APP_VERSION = '2.11.3';
+/**
+ * 2.11.3 (2026-07-14): [BUGFIX] display() resolve 后强制保底挂载手势，防 rendered/relocated 事件丢失
+ *   1) 根因：上一轮（2.11.2）修复了守卫条件，手势监听在 rendered/relocated
+ *      事件中挂载。但在某些场景下（epub.js 特定版本、移动端低性能设备、
+ *      大文件加载）rendered/relocated 事件可能延迟或根本不触发，
+ *      导致手势从未挂载到 iframe document 上 → 滑动/长按依然无效。
+ *   2) 修复：在 display() await resolve 后直接调用 attachGesture()，
+ *      作为 rendered/relocated 事件的保底。双保险确保手势一定挂上。
+ *   3) 影响范围：所有设备（移动端 + 桌面端）的 epub 阅读模式。
+ *      ⚠️ 2.11.0/2.11.1/2.11.2 均因部署失败或事件丢失从未真正生效，
+ *      这是第一个手势可用的稳定版本。
+ */
 /**
  * 2.11.2 (2026-07-14): [BUGFIX] 修复 epub 模式下移动端/桌面端滑动翻页及长按菜单均无法使用
  *   1) 根因：EpubViewer 中 attachGesture() 用 `!contents.document` 守卫判断

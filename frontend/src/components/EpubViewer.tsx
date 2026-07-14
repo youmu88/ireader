@@ -195,6 +195,11 @@ export default function EpubViewer({
           } else {
             await rendition!.display();
           }
+          // 🔁 强制保底：display() resolve 后直接挂载手势。
+          // 某些场景下 rendered/relocated 事件可能延迟或丢失
+          //（如 epub.js 特定版本/大文件/移动端低性能设备），
+          // 此时事件监听未挂载 → 滑动/长按失效。此处双保险确保手势一定挂上。
+          attachGesture();
           if (!cancelled) {
             setLoading(false);
             if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
