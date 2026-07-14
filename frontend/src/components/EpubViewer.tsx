@@ -145,6 +145,21 @@ export default function EpubViewer({
         if (cfi) onLocRef.current?.(cfi);
       });
 
+      // 根因修复（替代全屏透明 <button> 遮罩）：
+      // 浏览器安全机制规定 iframe 内的点击/触摸事件不会冒泡到父层 DOM，
+      // 故 epub.js 提供 rendition.on('click') —— 它在 iframe 文档内部注入监听并把事件转发出来。
+      // 用此原生事件委托捕获阅读区点击，既能触发长按菜单，又不拦截 iframe 内的
+      // 原生点击（书自带 TOC 链接跳转）与文本选择（复制），事件穿透给 iframe 自身处理。
+      // 注意：① 不调用 preventDefault，避免破坏 iframe 内滚动手势/翻页；
+      //       ② 仅检测长按（按压力度≥LONG_PRESS_MS）触发菜单，短按直接放行。
+      const LONG_PRESS_MS = 600;
+      rendition.on('click', () => {
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = setTimeout(() => {
+          onTapRef.current?.();
+        }, LONG_PRESS_MS);
+      });
+
       const start = async () => {
         try {
           applyTheme();
@@ -269,29 +284,6 @@ export default function EpubViewer({
   return (
     <div className="relative flex-1 overflow-hidden" style={{ background: 'var(--color-bg)' }}>
       <div ref={viewerRef} className="w-full h-full epub-viewer-canvas" />
-      {/* 根因2 修复：epub.js 的 iframe 会吞掉点击/触摸事件，导致父层浮窗(showUi)永远弹不出。
-          此处放置透明覆盖层捕获点击并转发给父层 onTap（父层据此切换 UI 显示）。
-          注意：① 不能加 onTouchEnd（会被 epub.js iframe 外吞导致翻页手势失效），
-                ② 不能用 e.preventDefault()（会阻止 iframe 内部的滚动手势），
-                ③ 不设 touchAction（保持默认，让浏览器决定手势穿透行为）。 */}
-      <button
-        type="button"
-        aria-label="切换阅读菜单（长按1秒）"
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-          longPressTimerRef.current = setTimeout(() => {
-            onTapRef.current?.();
-          }, 1000);
-        }}
-        onPointerUp={() => {
-          if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-        }}
-        onPointerLeave={() => {
-          if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-        }}
-        className="absolute inset-0 z-20 bg-transparent cursor-pointer border-0 p-0"
-      />
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <span className="animate-pulse" style={{ color: 'var(--color-text-muted)' }}>加载中...</span>

@@ -48,7 +48,17 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.10.3';
+export const APP_VERSION = '2.10.4';
+/**
+ * 2.10.4 (2026-07-14): [BUGFIX] 移除全屏透明遮罩，恢复书自带目录跳转与文字复制
+ *   1) 根因：EpubViewer 在 epub.js iframe 之上覆盖一层 `absolute inset-0 z-20` 的全屏 <button>，
+ *      拦截了 iframe 内所有点击/触摸事件 → 书自带 TOC 链接点击无法穿透到 epub.js（无法跳转）；
+ *      同时 ReaderPage 的 reader-root 挂载 `select-none` 类禁用了文字选中（无法复制）。
+ *   2) 修复：删除全屏 <button> 遮罩，改用 epub.js 原生 `rendition.on('click', ...)` 事件委托
+ *      （epub.js 在 iframe 文档内注入监听并转发事件，无需覆盖层）捕获长按（≥600ms）触发浮动菜单，
+ *      真实点击与文本选择穿透给 iframe 自身处理；同步移除 reader-root 的 select-none。
+ *   3) 复杂度下降：移除一个侵入式 DOM 层，复用 epub.js 标准 API，无新增逻辑。
+ */
 /**
  * 2.10.1 (2026-07-14): [FIX+OPTIMIZE] 键盘翻页复用滑动翻页通道 + 翻页模式页面固定 + 浮动菜单长按1秒
  *   1) [FIX] PC 键盘 ←/→ 翻页根因：上一轮（2.9.x）在 scroll 模式错误地复用「上一章/下一章」章节导航，

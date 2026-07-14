@@ -2182,7 +2182,7 @@ function stripHtml(html: string): string {
   }
 
   return (
-    <div className="reader-root h-[100dvh] select-none" style={{background: 'var(--color-bg)'}}>
+         <div className="reader-root h-[100dvh]" style={{background: 'var(--color-bg)'}}>
       <div className="h-full relative">
 
         {/* Reader Content - full screen, no fixed toolbar */}
