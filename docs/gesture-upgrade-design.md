@@ -87,15 +87,18 @@
 - [x] P0-2: EpubViewer.tsx 滑动翻页视觉反馈箭头指示器（600ms 自动消失）
 - [x] P0-3: useGesture.ts 长按触觉反馈（navigator.vibrate(15ms)）
 - [x] P1-1/P1-2: useGesture.ts 选择文字时跳过滑动翻页（检测 window.getSelection().isCollapsed）
-- [ ] P1-3: ReaderPage.tsx 选中文字显示复制按钮 → 待下一迭代
-- [ ] P1-4: ReaderPage.tsx 复制功能 + Toast → 待下一迭代
+- [x] P1-3: ReaderPage.tsx 选中文字复制按钮（浮动面板中"复制"按钮 + Clipboard API）
+- [x] P1-4: ReaderPage.tsx 复制功能 + Toast 反馈（绿色对勾 Toast，2秒自动消失）
+- [x] 可选优化: deploy.sh 内置 chmod -R u+w + 残留 node_modules 清理防御
 - [x] 类型检查（tsc --noEmit frontend + backend 通过）
 - [x] 构建（vite build 成功）
 - [x] 部署（deploy.sh 成功，HTTP 200）
 
-**commit**: 76c1a16 — `feat: 手势交互升级 — 滑动翻页视觉反馈 + 长按触觉反馈 + 文字选择与手势互斥 (2.11.5→2.11.6)`
+**commit**: ab63694 — `fix: deploy.sh 增强 node_modules 残留清理 + 文字选择复制功能 (2.11.6→2.12.0)`
 
-### 迭代 2（后续 P2）
+### 迭代 2（后续 P2）✅ 已完成
 
-- [ ] P2-1: 长按菜单跟随触摸点
-- [ ] P2-2: epub iframe 内文字选择 CSS 增强
+- [x] P2-1: 长按菜单跟随触摸点（useGesture 传坐标 → ReaderPage 浮动面板 style 按坐标偏移）
+- [x] P2-2: epub iframe 内文字选择 CSS 增强（themes.register 中 body/p 显式 user-select: text + -webkit-user-select: text）
+
+**commit**: <TBD> — `feat: P2 长按菜单跟随触摸点 + epub iframe 文字选择 CSS 增强 (2.12.0→2.13.0)`

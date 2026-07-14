@@ -20,8 +20,9 @@ interface EpubViewerProps {
   pageControlRef?: React.MutableRefObject<{ prev: () => void; next: () => void } | null>;
   /** 暴露章节跳转控制——EPUB 模式点击目录时使用。接收章节的 spine index（从0开始） */
   chapterNavRef?: React.MutableRefObject<((chapterIndex: number) => Promise<void>) | null>;
-  /** 点击/触摸阅读区时回调（用于父层弹出浮动操作面板）。epub.js 的 iframe 会吞掉事件，故在此转发 */
-  onTap?: () => void;
+  /** 点击/触摸阅读区时回调（用于父层弹出浮动操作面板）。epub.js 的 iframe 会吞掉事件，故在此转发。
+   * 传入触摸坐标（可选），供菜单位置跟随 */
+  onTap?: (pos?: { x: number; y: number }) => void;
 }
 
 const FONT_STACK: Record<'sans' | 'serif' | 'mono', string> = {
@@ -79,8 +80,8 @@ export default function EpubViewer({
       if (dir === 'left') renditionRef.current?.next();
       else renditionRef.current?.prev();
     },
-    onLongPress: () => {
-      onTapRef.current?.();
+    onLongPress: (pos) => {
+      onTapRef.current?.(pos);
     },
   });
 
@@ -154,8 +155,15 @@ export default function EpubViewer({
             'letter-spacing': `${ls}em !important`,
             'background-color': isDark ? 'hsl(0, 0%, 8%)' : 'hsl(0, 0%, 98%)',
             'color': isDark ? 'hsl(0, 0%, 93%)' : 'hsl(0, 0%, 10%)',
+            // P2-2: 显式允许文字选择（确保跨书兼容）
+            'user-select': 'text',
+            '-webkit-user-select': 'text',
           },
-          'p': { 'margin': '0 0 0.8em 0' },
+          'p': {
+            'margin': '0 0 0.8em 0',
+            'user-select': 'text',
+            '-webkit-user-select': 'text',
+          },
           'img': { 'max-width': '100%', 'height': 'auto' },
         });
         rendition!.themes.select(THEME_NAME);
@@ -328,8 +336,15 @@ export default function EpubViewer({
         'letter-spacing': `${letterSpacing}em !important`,
         'background-color': isDark ? 'hsl(0, 0%, 8%)' : 'hsl(0, 0%, 98%)',
         'color': isDark ? 'hsl(0, 0%, 93%)' : 'hsl(0, 0%, 10%)',
+        // P2-2: 显式允许文字选择（确保跨书兼容）
+        'user-select': 'text',
+        '-webkit-user-select': 'text',
       },
-      'p': { 'margin': '0 0 0.8em 0' },
+      'p': {
+        'margin': '0 0 0.8em 0',
+        'user-select': 'text',
+        '-webkit-user-select': 'text',
+      },
       'img': { 'max-width': '100%', 'height': 'auto' },
     });
     r.themes.select(THEME_NAME);

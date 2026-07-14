@@ -48,7 +48,7 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.12.0';
+export const APP_VERSION = '2.13.0';
 /**
  * 2.12.0 (2026-07-14): [FEAT] 文字选择复制功能 + deploy.sh 权限防御
  *   1) 复制选中文字：浮动操作面板中新增"复制"按钮，支持 Clipboard API 写入剪贴板 + Toast 反馈

@@ -34,8 +34,8 @@ export const GESTURE_CONFIG = {
 export interface GestureHandlers {
   /** 左右滑动：dir='left' 向左滑（下一页），dir='right' 向右滑（上一页） */
   onSwipe?: (dir: 'left' | 'right') => void;
-  /** 长按（≥LONG_PRESS_MS 且未移动） */
-  onLongPress?: () => void;
+  /** 长按（≥LONG_PRESS_MS 且未移动），传入触摸起始坐标供菜单位置跟随 */
+  onLongPress?: (pos: { x: number; y: number }) => void;
   /** 点击（短按、无位移、未触发长按） */
   onTap?: () => void;
 }
@@ -85,7 +85,7 @@ export function createGestureDetector(handlers: GestureHandlers) {
       state.longPressFired = true;
       // 触觉反馈：15ms 短震动（设备不支持 vibrate 时静默跳过）
       try { navigator.vibrate?.(15); } catch { /* noop */ }
-      handlersRef.current.onLongPress?.();
+      handlersRef.current.onLongPress?.({ x: state.x, y: state.y });
     }, GESTURE_CONFIG.LONG_PRESS_MS);
   };
 
@@ -212,7 +212,7 @@ export function useGesture(handlers: GestureHandlers) {
   if (!detectorRef.current) {
     detectorRef.current = createGestureDetector({
       onSwipe: (d) => handlersRef.current.onSwipe?.(d),
-      onLongPress: () => handlersRef.current.onLongPress?.(),
+      onLongPress: (pos) => handlersRef.current.onLongPress?.(pos),
       onTap: () => handlersRef.current.onTap?.(),
     });
   }

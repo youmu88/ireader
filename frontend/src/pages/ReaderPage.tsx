@@ -135,6 +135,8 @@ function ReaderPage() {
 
   // ── 悬浮UI控制（全屏阅读：点击屏幕显示/隐藏所有控件） ──
   const [showUi, setShowUi] = useState(false);
+  /** 长按菜单的触摸坐标（P2-1：菜单跟随触摸点），null=未打开 */
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const [copiedToast, setCopiedToast] = useState(false);
   const txtPageRef = useRef<HTMLDivElement>(null);
   const progressSaveTimer = useRef<any>(null);
@@ -167,9 +169,15 @@ function ReaderPage() {
 // 不再散落在 handleSwipeStart/End、longPressStart/Cancel 各处；阈值由 GESTURE_CONFIG 统一。
 // 说明：epub 模式的滑动/长按已由 EpubViewer 内部（iframe 内）用同一 useGesture 接管，
 //       故此处外层只负责 txt 模式 + tap 关闭目录（外层 touch 进不了 iframe，互不冲突）。
-const openFloatMenu = useCallback(() => {
+const openFloatMenu = useCallback((pos?: { x: number; y: number }) => {
   if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current) return;
+  if (pos) setMenuPosition(pos);
   setShowUi(true);
+}, []);
+
+const closeMenu = useCallback(() => {
+  setShowUi(false);
+  setMenuPosition(null);
 }, []);
 
 const gesture = useGesture({
@@ -181,7 +189,7 @@ const gesture = useGesture({
     performPageTurnRef.current(dir === 'left' ? 'next' : 'prev');
   },
   // 长按：TTS/搜索/目录打开时不弹菜单
-  onLongPress: () => openFloatMenu(),
+  onLongPress: (pos) => openFloatMenu(pos),
   // 短按：若目录已打开，点击阅读区只关闭目录
   onTap: () => {
     if (showTocRef.current) setShowToc(false);
@@ -2444,14 +2452,20 @@ function stripHtml(html: string): string {
 
         {/* ⏫ 悬浮操作面板：默认隐藏，点击阅读区显示 */}
         {showUi && (
-          <div className="absolute inset-0 z-30 flex flex-col" onClick={() => setShowUi(false)}>
+          <div className="absolute inset-0 z-30 flex flex-col" onClick={closeMenu}>
             {/* 半透明背景点击关闭 */}
-            <div className="absolute inset-0 bg-black/30" onClick={() => setShowUi(false)} />
+            <div className="absolute inset-0 bg-black/30" onClick={closeMenu} />
 
-            <div className="flex-1 relative z-10" onClick={() => setShowUi(false)} />
+            <div className="flex-1 relative z-10" onClick={closeMenu} />
 
-            {/* 底部控制面板 — 阻止点击冒泡到外层遮罩，避免非关闭按钮意外关闭面板 */}
-            <div className="relative z-10 pointer-events-none">
+            {/* 底部控制面板 — P2-1：水平跟随触摸点；阻止点击冒泡 */}
+            <div className="relative z-10 pointer-events-none"
+              style={menuPosition ? {
+                display: 'flex',
+                justifyContent: 'center',
+                paddingLeft: Math.max(0, Math.min(menuPosition.x - 160, window.innerWidth - 336)),
+              } : undefined}
+            >
               <div className="pointer-events-auto glass-bar rounded-2xl shadow-2xl mx-auto max-w-3xl animate-slide-up" onClick={(e) => e.stopPropagation()}>
                   <div className="p-5 space-y-4">
                     {/* ── 第一行：返回 + 搜索 + 书名 + 目录 ── */}
@@ -2466,7 +2480,7 @@ function stripHtml(html: string): string {
                         </button>
                         {/* 🔍 搜索 — 在返回按钮之后 */}
                         <button
-                          onClick={() => { setShowSearch(true); setShowUi(false); setTimeout(() => searchInputRef.current?.focus(), 100); }}
+                          onClick={() => { setShowSearch(true); closeMenu(); setTimeout(() => searchInputRef.current?.focus(), 100); }}
                           className="w-9 h-9 rounded-full flex items-center justify-center"
                           style={{ background: 'var(--color-bg-alt)' }}
                           title="搜索"
@@ -2479,7 +2493,7 @@ function stripHtml(html: string): string {
                         {(displayChapter || currentChapter)?.title || book?.title || ''}
                       </h2>
                       <button
-                        onClick={() => { setShowToc(v => !v); setShowUi(false); }}
+                        onClick={() => { setShowToc(v => !v); closeMenu(); }}
                         className={`text-sm px-4 py-2 rounded-full font-medium transition-all duration-200 tap-active`}
                         style={{
                           background: showToc ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)',
