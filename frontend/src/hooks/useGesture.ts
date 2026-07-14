@@ -83,6 +83,8 @@ export function createGestureDetector(handlers: GestureHandlers) {
     state.longPressTimer = setTimeout(() => {
       if (!state.active || state.moved) return;
       state.longPressFired = true;
+      // 触觉反馈：15ms 短震动（设备不支持 vibrate 时静默跳过）
+      try { navigator.vibrate?.(15); } catch { /* noop */ }
       handlersRef.current.onLongPress?.();
     }, GESTURE_CONFIG.LONG_PRESS_MS);
   };
@@ -109,6 +111,12 @@ export function createGestureDetector(handlers: GestureHandlers) {
 
     // 已触发长按 → 本次手势结束，不再触发 click/tap（由调用方处理 preventDefault 更佳）
     if (state.longPressFired) return;
+
+    // 用户正在选择文字 → 不触发翻页，让原生选择行为继续
+    try {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().length > 0) return;
+    } catch { /* 跨域 iframe 可能抛异常 */ }
 
     // 横向滑动翻页判定
     if (

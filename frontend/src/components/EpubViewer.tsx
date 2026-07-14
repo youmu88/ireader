@@ -58,6 +58,8 @@ export default function EpubViewer({
   const renditionRef = useRef<Rendition | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // 滑动翻页视觉反馈：翻页方向闪烁箭头
+  const [swipeIndicator, setSwipeIndicator] = useState<'left' | 'right' | null>(null);
   const initialCfiRef = useRef<string | null>(initialCfi ?? null);
   const onLocRef = useRef(onLocationChange);
   onLocRef.current = onLocationChange;
@@ -71,6 +73,9 @@ export default function EpubViewer({
   const gesture = useGesture({
     onSwipe: (dir) => {
       if (readingMode !== 'paginated') return; // 仅翻页模式支持滑动翻页
+      // 视觉反馈：显示翻页方向箭头（600ms 后自动消失）
+      setSwipeIndicator(dir);
+      setTimeout(() => setSwipeIndicator(null), 600);
       if (dir === 'left') renditionRef.current?.next();
       else renditionRef.current?.prev();
     },
@@ -341,6 +346,18 @@ export default function EpubViewer({
   return (
     <div className="relative flex-1 overflow-hidden" style={{ background: 'var(--color-bg)' }}>
       <div ref={viewerRef} className="w-full h-full epub-viewer-canvas" />
+      {/* 滑动翻页视觉反馈：翻页方向箭头指示器 */}
+      {swipeIndicator && (
+        <div className={`absolute top-1/2 -translate-y-1/2 z-20 pointer-events-none transition-opacity duration-150 ${swipeIndicator === 'left' ? 'left-4' : 'right-4'}`}>
+          <div className="w-10 h-10 rounded-full flex items-center justify-center animate-pulse" style={{ background: 'rgba(128,128,128,0.25)' }}>
+            {swipeIndicator === 'left' ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            )}
+          </div>
+        </div>
+      )}
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <span className="animate-pulse" style={{ color: 'var(--color-text-muted)' }}>加载中...</span>
