@@ -119,6 +119,12 @@ export default function EpubViewer({
         const { fontSize: fs, fontFamily: ff, lineHeight: lh, letterSpacing: ls, theme: t } = styleRef.current;
         const isDark = t === 'dark';
         rendition!.themes.register(THEME_NAME, {
+          // 根因修复：epub.js 的 iframe 文档是 <html><body>，翻页平移时右侧露出的空白列
+          // 属于 html 根区域（body 之外），body 有背景但 html 默认白色，故翻页瞬间露白条。
+          // 给 html 同色背景，让露出的空白列与页面同色，白条消失。
+          'html': {
+            'background-color': isDark ? 'hsl(0, 0%, 8%)' : 'hsl(0, 0%, 98%)',
+          },
           'body': {
             'font-family': FONT_STACK[ff],
             'font-size': `${fs}px !important`,
@@ -235,6 +241,9 @@ export default function EpubViewer({
     if (!r) return;
     const isDark = theme === 'dark';
     r.themes.register(THEME_NAME, {
+      'html': {
+        'background-color': isDark ? 'hsl(0, 0%, 8%)' : 'hsl(0, 0%, 98%)',
+      },
       'body': {
         'font-family': FONT_STACK[fontFamily],
         'font-size': `${fontSize}px !important`,

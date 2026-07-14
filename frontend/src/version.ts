@@ -48,7 +48,7 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.10.2';
+export const APP_VERSION = '2.10.3';
 /**
  * 2.10.1 (2026-07-14): [FIX+OPTIMIZE] 键盘翻页复用滑动翻页通道 + 翻页模式页面固定 + 浮动菜单长按1秒
  *   1) [FIX] PC 键盘 ←/→ 翻页根因：上一轮（2.9.x）在 scroll 模式错误地复用「上一章/下一章」章节导航，
@@ -140,4 +140,13 @@ export const APP_VERSION = '2.10.2';
  *   2) SettingsPage.tsx 缺省音色下拉框下方增加"试听"按钮
  *   3) 点击后合成 3 秒试听文案并播放，播放中按钮显示加载态
  *   4) 播放结束自动重置按钮状态，支持反复试听
+ */
+/**
+ * 2.10.3 (2026-07-14): [BUGFIX] 修复翻页时右侧白条 — 给 epub.js iframe 文档根(html)补背景色
+ *   1) 根因：EpubViewer 的 themes 只给 body 设置了背景色，未给 html 根元素设置。epub.js 在
+ *      flow:'paginated' 模式下用 transform 平移翻页，翻页瞬间右侧露出的空白列属于 html 根区域
+ *      （body 之外），html 默认白色背景 → 翻页时露出白条（深色模式尤其明显）。
+ *   2) 修复：在 themes 注册处（applyTheme 初始化 + 样式变化 effect 两处）均给 'html' 追加与 body
+ *      同色的 background-color，翻页露出的空白列与页面同色，白条消失。这是修根（让露出区域颜色
+ *      正确），非在父层加遮挡补丁，复杂度不变。
  */
