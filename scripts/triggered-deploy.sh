@@ -141,6 +141,14 @@ do_deploy() {
   log "日志文件: ${LOG_FILE}"
   log "延迟等待: ${DELAY_SECONDS} 秒"
 
+  # ── 切换到项目目录（确保命令在正确目录执行） ──
+  # 无论被谁调用（webhook / git hook / 手动），都先进入项目目录
+  cd "${PROJECT_DIR}" || {
+    log "❌ 无法进入项目目录: ${PROJECT_DIR}"
+    return 1
+  }
+  log "工作目录: $(pwd)"
+
   # ── 延迟等待（独立进程计数，不受父进程影响） ──
   if [ "${DELAY_SECONDS}" -gt 0 ]; then
     log "⏳ 等待 ${DELAY_SECONDS} 秒后开始部署..."
