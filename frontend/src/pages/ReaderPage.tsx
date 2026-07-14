@@ -160,17 +160,48 @@ function ReaderPage() {
 
 
 
-  // ── 全屏阅读：点击屏幕切换UI显示 ──
+  // ── 全屏阅读：浮动菜单改为「长按≥1秒」才弹出；短按仅用于关闭已打开的 TOC ──
+  const LONG_PRESS_MS = 1000;
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+
   const handleTapReader = useCallback(() => {
-    // 如果目录(TOC)已打开，点击阅读区只关闭目录，不弹浮动菜单
+    // 短按（非长按）时：若目录(TOC)已打开，点击阅读区只关闭目录
     if (showToc) {
       setShowToc(false);
-      return;
     }
-    setShowUi(prev => !prev);
   }, [showToc]);
 
-  // uiHideTimerRef 保留供兼容（不再使用定时器，仅留 ref 避免编译报错）
+  // 按下即启动长按计时；超过阈值才弹出浮动菜单
+  const longPressStart = useCallback(() => {
+    longPressFiredRef.current = false;
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      // TTS 播放/搜索/目录打开时不弹菜单
+      if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current) return;
+      setShowUi(true);
+    }, LONG_PRESS_MS);
+  }, []);
+
+  // 松手/移出/滑动取消长按计时
+  const longPressCancel = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  // 卸载时清理长按计时器
+  useEffect(() => () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+  }, []);
+
+  // EPUB 模式的透明覆盖层长按（≥1s）触发：直接弹出浮动菜单（与外层长按语义一致）
+  const openFloatMenu = useCallback(() => {
+    if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current) return;
+    setShowUi(true);
+  }, []);
 
   /** 打开目录时自动滚动到当前章节位置 */
   useEffect(() => {
@@ -262,11 +293,11 @@ function ReaderPage() {
   }, [isPageTurning, ttsState, readingMode, book?.format]);
 
   /**
-   * 桌面端键盘翻页快捷键：← 上一章/上一页  /  → 下一章/下一页。
-   * 复用已存在的翻页能力（与浮动面板内的"上一章/下一章"按钮完全一致）：
-   *  - 翻页模式(paginated)：EPUB→epubPageControlRef，TXT→performPageTurnRef（整页翻）
-   *  - 滚动模式(scroll，默认)：直接复用 handlePrevChapter/handleNextChapter（上一章/下一章导航）
-   * 不新增翻页分支，与 UI 按钮行为保持一致。
+   * 桌面端键盘翻页快捷键：← 向左翻一页 / → 向右翻一页。
+   * 严格复用「滑动翻页」通道（向左滑=next、向右滑=prev、逐页翻），绝不跳章节：
+   *  - EPUB→epubPageControlRef.next()/prev()（epub.js 整页翻）
+   *  - TXT→performPageTurnRef('next'/'prev')（整页翻）
+   * 两种阅读模式（scroll / paginated）下 ←/→ 都按「翻一页」语义走，与触摸滑动手势完全一致。
    * 门控：非输入焦点 + 非 TTS 播放中/loading + 非搜索/TOC 弹层 + 非翻页动画中。
    */
   useEffect(() => {
@@ -281,20 +312,14 @@ function ReaderPage() {
       if (isPageTurningRef.current) return;
       e.preventDefault();
       const next = e.key === 'ArrowRight';
-      // ── 翻页模式：整页翻（与滑动翻页同一通道） ──
-      if (readingModeRef.current === 'paginated') {
-        if (book?.format === 'epub') {
-          if (next) epubPageControlRef.current?.next();
-          else epubPageControlRef.current?.prev();
-        } else if (next) {
-          performPageTurnRef.current('next');
-        } else {
-          performPageTurnRef.current('prev');
-        }
+      // ── 复用滑动翻页通道（逐页翻，不跳章节）──
+      if (book?.format === 'epub') {
+        if (next) epubPageControlRef.current?.next();
+        else epubPageControlRef.current?.prev();
+      } else if (next) {
+        performPageTurnRef.current('next');
       } else {
-        // ── 滚动模式（默认）：复用浮动面板的"上一章/下一章"导航 ──
-        if (next) handleNextChapterRef.current?.();
-        else handlePrevChapterRef.current?.();
+        performPageTurnRef.current('prev');
       }
     };
     window.addEventListener('keydown', handler);
@@ -2165,10 +2190,12 @@ function stripHtml(html: string): string {
           <div
             className="flex-1 flex overflow-hidden relative"
             onClick={handleTapReader}
-            onTouchStart={(e) => { handleSwipeStart(e.touches[0].clientX, e.touches[0].clientY); }}
-            onTouchEnd={(e) => { handleSwipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY); }}
-            onMouseDown={(e) => { handleSwipeStart(e.clientX, e.clientY); }}
-            onMouseUp={(e) => { handleSwipeEnd(e.clientX, e.clientY); }}
+            onTouchStart={(e) => { handleSwipeStart(e.touches[0].clientX, e.touches[0].clientY); longPressStart(); }}
+            onTouchEnd={(e) => { handleSwipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY); longPressCancel(); }}
+            onTouchMove={() => { longPressCancel(); }}
+            onMouseDown={(e) => { handleSwipeStart(e.clientX, e.clientY); longPressStart(); }}
+            onMouseUp={(e) => { handleSwipeEnd(e.clientX, e.clientY); longPressCancel(); }}
+            onMouseLeave={() => { longPressCancel(); }}
           >
         {/* TOC Sidebar */}
         {showToc && (
@@ -2262,7 +2289,7 @@ function stripHtml(html: string): string {
             initialCfi={epubCfiRef.current}
             pageControlRef={epubPageControlRef}
             chapterNavRef={epubChapterNavRef}
-            onTap={handleTapReader}
+            onTap={openFloatMenu}
             onLocationChange={(cfi) => {
               epubCfiRef.current = cfi;
               if (currentBookIdRef.current) {

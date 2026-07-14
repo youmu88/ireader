@@ -48,7 +48,17 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.10.0';
+export const APP_VERSION = '2.10.1';
+/**
+ * 2.10.1 (2026-07-14): [FIX+OPTIMIZE] 键盘翻页复用滑动翻页通道 + 翻页模式页面固定 + 浮动菜单长按1秒
+ *   1) [FIX] PC 键盘 ←/→ 翻页根因：上一轮（2.9.x）在 scroll 模式错误地复用「上一章/下一章」章节导航，
+ *      与用户要求的"复用滑动翻页（向左滑=next/向右滑=prev、逐页翻）"不符。现改为：←/→ 在所有阅读模式下
+ *      均严格走「滑动翻页」通道（EPUB→epubPageControlRef.next/prev，TXT→performPageTurnRef），绝不跳章节。
+ *   2) [FIX] 翻页模式阅读页面仍可上下移动一小段：在 index.css 锁定 epub.js iframe 与 TXT 分页容器的纵向
+ *      手势（touch-action: pan-x + overflow: hidden + overscroll-behavior: contain），翻页模式页面固定。
+ *   3) [OPTIMIZE] 浮动菜单过于灵敏（点击即弹）：改为「长按≥1秒」才弹出（ReaderPage 外层与 EpubViewer
+ *      透明覆盖层统一使用长按计时器），短按仅用于关闭已打开的目录(TOC)，不再误触弹菜单。
+ */
 /**
  * 2.9.3 (2026-07-14): [FEATURE+OPTIMIZE] 桌面端键盘翻页全模式生效 + TTS 提速 + 按钮点击反馈
  *   1) [FIX] 键盘翻页"没反应"根因：2.9.2 将 ←/→ 快捷键强绑定 paginated 模式，而阅读器默认是 scroll 模式，

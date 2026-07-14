@@ -62,6 +62,7 @@ export default function EpubViewer({
   onLocRef.current = onLocationChange;
   const onTapRef = useRef(onTap);
   onTapRef.current = onTap;
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── 暗色模式感知 ──
   const { theme } = useTheme();
@@ -208,6 +209,7 @@ export default function EpubViewer({
       cancelled = true;
       if (retryRaf) cancelAnimationFrame(retryRaf);
       if (timeoutId) clearTimeout(timeoutId);
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
       ro?.disconnect();
       try { rendition?.destroy(); } catch { /* ignore */ }
       try { book.destroy(); } catch { /* ignore */ }
@@ -265,8 +267,20 @@ export default function EpubViewer({
                 ③ 不设 touchAction（保持默认，让浏览器决定手势穿透行为）。 */}
       <button
         type="button"
-        aria-label="切换阅读菜单"
-        onClick={(e) => { e.stopPropagation(); onTapRef.current?.(); }}
+        aria-label="切换阅读菜单（长按1秒）"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = setTimeout(() => {
+            onTapRef.current?.();
+          }, 1000);
+        }}
+        onPointerUp={() => {
+          if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+        }}
+        onPointerLeave={() => {
+          if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+        }}
         className="absolute inset-0 z-20 bg-transparent cursor-pointer border-0 p-0"
       />
       {loading && (

@@ -530,3 +530,22 @@ button, a, [role="button"] {
   border: 1px solid var(--color-border);
   padding: 0.5em;
 }
+
+/* ════════════════════════════════════════
+   翻页模式：锁定页面纵向移动（修复"翻页模式还能上下移动一小段"）
+   - 外层容器禁止纵向橡皮筋滚动
+   - epub.js 的 iframe 只允许横向翻页手势（pan-x），纵向完全锁定
+   ════════════════════════════════════════ */
+.epub-viewer-canvas,
+.epub-viewer-canvas iframe {
+  overscroll-behavior: contain;
+  touch-action: pan-x;
+}
+.epub-viewer-canvas iframe {
+  overflow: hidden;
+}
+/* TXT 翻页（横向滚动分页）容器：同样锁定纵向，只保留横向翻页 */
+.paginated-scroll {
+  touch-action: pan-x;
+  overscroll-behavior: contain;
+}
