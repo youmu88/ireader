@@ -173,10 +173,14 @@ export default function EpubViewer({
       //   - tap → 不拦截书内 TOC 点击/文字选择（原生穿透）
       // getContents() 在 display 后才有内容，且翻页会变，故在 display 成功后动态 attach。
       const attachGesture = () => {
-        const contents = rendition!.getContents?.();
-        if (!contents || !contents.document) return;
+        // ⚠️ epub.js 类型定义 Rendition.getContents() 返回 Contents（单个对象），
+        // 但运行时底层 Manager.getContents() 返回 Contents[]（数组）。
+        // 用 as any 绕开类型不一致，实际取数组第一个元素的 document。
+        const raw = rendition!.getContents?.() as any;
+        const list: Array<{ document: Document }> = Array.isArray(raw) ? raw : [raw];
+        if (!list.length || !list[0]?.document) return;
         if (gestureDetachRef.current) { gestureDetachRef.current(); gestureDetachRef.current = null; }
-        gestureDetachRef.current = gesture.attachToEpubContents(contents);
+        gestureDetachRef.current = gesture.attachToEpubContents(list);
       };
       // 首次 display 完成后挂载；relocated 时 contents 可能重建，重新挂载
       rendition.on('rendered', attachGesture);

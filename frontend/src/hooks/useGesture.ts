@@ -164,13 +164,25 @@ export function createGestureDetector(handlers: GestureHandlers) {
       const onTs = (e: Event) => { const t = (e as TouchEvent).touches[0]; if (t) start(t.clientX, t.clientY); };
       const onTm = (e: Event) => { const t = (e as TouchEvent).touches[0]; if (t) move(t.clientX, t.clientY); };
       const onTe = (e: Event) => { const t = (e as TouchEvent).changedTouches[0]; if (t) end(t.clientX, t.clientY); };
+      const onMd = (e: Event) => { const me = e as MouseEvent; start(me.clientX, me.clientY); };
+      const onMm = (e: Event) => { const me = e as MouseEvent; move(me.clientX, me.clientY); };
+      const onMu = (e: Event) => { const me = e as MouseEvent; end(me.clientX, me.clientY); };
+      const onMl = () => { state.active = false; clearLongPress(); };
       doc.addEventListener('touchstart', onTs, { passive: true });
       doc.addEventListener('touchmove', onTm, { passive: true });
       doc.addEventListener('touchend', onTe, { passive: true });
+      doc.addEventListener('mousedown', onMd);
+      doc.addEventListener('mousemove', onMm);
+      doc.addEventListener('mouseup', onMu);
+      doc.addEventListener('mouseleave', onMl);
       cleanups.push(() => {
         doc.removeEventListener('touchstart', onTs);
         doc.removeEventListener('touchmove', onTm);
         doc.removeEventListener('touchend', onTe);
+        doc.removeEventListener('mousedown', onMd);
+        doc.removeEventListener('mousemove', onMm);
+        doc.removeEventListener('mouseup', onMu);
+        doc.removeEventListener('mouseleave', onMl);
       });
     }
     return () => { cleanups.forEach((fn) => fn()); clearLongPress(); };

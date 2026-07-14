@@ -48,7 +48,20 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.11.0';
+export const APP_VERSION = '2.11.2';
+/**
+ * 2.11.2 (2026-07-14): [BUGFIX] 修复 epub 模式下移动端/桌面端滑动翻页及长按菜单均无法使用
+ *   1) 根因：EpubViewer 中 attachGesture() 用 `!contents.document` 守卫判断
+ *      rendition.getContents() 的返回值，但运行时实际返回 Contents[]（数组），
+ *      数组无 .document 属性 → 守卫永远为 true → attachToEpubContents 从未被调用，
+ *      手势监听（touch/mouse）均未挂载到 iframe document 上。
+ *   2) 修复：将守卫改为先标准化为数组再判断 list[0]?.document，
+ *      确保手势正确挂载。attachToEpubContents 本身已兼容数组入参。
+ *   3) 影响范围：所有设备（移动端 + 桌面端）的 epub 阅读模式。
+ *      ⚠️ 上一轮 2.11.1 的"桌面端 mouse 缺失"诊断有误，实际是守卫条件 bug 导致
+ *      所有手势（含 touch）从未挂载，故 2.11.0/2.11.1 所有设备均无法使用。
+ */
+
 /**
  * 2.11.0 (2026-07-14): [FEATURE] 新增统一手势操作入口（gesture hub），修复 epub 模式左右滑动无法翻页 + 长按浮窗失效
  *   1) 根因：第19轮（2.10.4）删掉全屏遮罩 <button> 后，epub 阅读内容在 iframe 内、浏览器安全机制使外层 DOM 的
