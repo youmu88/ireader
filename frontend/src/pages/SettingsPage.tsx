@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../services/themeService';
 import {
   fetchSources,
@@ -7,6 +7,7 @@ import {
   saveTTSSettings,
   testConnection,
   clearTTSCache,
+  synthesizeSpeech,
   type TTSource,
   type VoiceInfo,
   type TTSSettings,
@@ -57,7 +58,43 @@ export default function SettingsPage() {
   const [showTTSDetail, setShowTTSDetail] = useState(false);
   // @ts-ignore
   const [saveMessage, setSaveMessage] = useState('');
-  // ── 实时合成（noCache）开关 ──
+  // @ts-ignore
+  const [previewing, setPreviewing] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const previewText = '您好，欢迎使用语音朗读功能，这是您选择的音色效果。';
+
+  // ── 试听音色（handlePreviewVoice） ──
+  // @ts-ignore
+  async function handlePreviewVoice() {
+    if (previewing) return;
+    setPreviewing(true);
+    try {
+      const blob = await synthesizeSpeech(
+        previewText,
+        selectedVoice,
+        speed,
+        selectedSource,
+      );
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => {
+        setPreviewing(false);
+        URL.revokeObjectURL(url);
+        audioRef.current = null;
+      };
+      audio.onerror = () => {
+        setPreviewing(false);
+        URL.revokeObjectURL(url);
+        audioRef.current = null;
+      };
+      await audio.play();
+    } catch (err) {
+      console.warn('试听失败:', err);
+      setPreviewing(false);
+    }
+  }
+
   const NO_CACHE_KEY = 'ireader_tts_noCache';
   // @ts-ignore
   const [noCache, setNoCache] = useState(() => {
@@ -363,7 +400,7 @@ export default function SettingsPage() {
                 </button>
               </div>
               {voices.length > 0 ? (
-                <select value={selectedVoice} onChange={e => setSelectedVoice(e.target.value)}
+                <><select value={selectedVoice} onChange={e => setSelectedVoice(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl text-sm bg-transparent border appearance-none"
                   style={{
                     color: 'var(--color-text)',
@@ -376,7 +413,23 @@ export default function SettingsPage() {
                     <option key={v.id} value={v.id}>{v.name}</option>
                   ))}
                 </select>
-              ) : (
+                {/* 试听按钮 */}
+                <div className="flex items-center gap-2 mt-2" style={{ display: 'flex' }}>
+                  <button onClick={handlePreviewVoice} disabled={previewing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all tap-icon"
+                    style={{
+                      background: previewing ? 'var(--color-bg-alt)' : 'var(--color-primary)',
+                      color: previewing ? 'var(--color-text-muted)' : '#fff',
+                    }}>
+                    {previewing ? (
+                      <><span className="inline-block w-3 h-3 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--color-border)', borderTopColor: 'var(--color-primary)' }} /> 播放中…</>
+                    ) : (
+                      <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3" /></svg> 试听</>
+                    )}
+                  </button>
+                  <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>约3秒</span>
+                </div>
+                </>) : (
                 <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                   {fetchingVoices ? '正在获取音色列表…' : '点击「刷新」获取可用音色'}
                 </p>

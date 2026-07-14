@@ -118,6 +118,34 @@ export async function saveTTSSettings(settings: Partial<TTSSettings>): Promise<T
 /**
  * 清除 TTS 音频缓存
  */
+
+/**
+ * 合成一段 TTS 语音（用于试听）
+ * 调用 POST /api/tts，返回音频 Blob
+ */
+export async function synthesizeSpeech(
+  input: string,
+  voice?: string,
+  speed?: number,
+  ttsSource?: string,
+): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({
+      input,
+      voice: voice || 'zh-CN-XiaoxiaoNeural',
+      speed: speed ?? 1.0,
+      tts_source: ttsSource || undefined,
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '合成失败');
+    throw new Error(errText);
+  }
+  return res.blob();
+}
+
 export async function clearTTSCache(): Promise<{ deleted: number }> {
   const res = await fetch(`${API_BASE}/cache/clear`, { method: 'POST', headers: getAuthHeaders() });
   if (!res.ok) throw new Error('Failed to clear TTS cache');

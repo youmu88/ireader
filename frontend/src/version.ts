@@ -48,7 +48,7 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.9.3';
+export const APP_VERSION = '2.10.0';
 /**
  * 2.9.3 (2026-07-14): [FEATURE+OPTIMIZE] 桌面端键盘翻页全模式生效 + TTS 提速 + 按钮点击反馈
  *   1) [FIX] 键盘翻页"没反应"根因：2.9.2 将 ←/→ 快捷键强绑定 paginated 模式，而阅读器默认是 scroll 模式，
@@ -112,4 +112,11 @@ export const APP_VERSION = '2.9.3';
  *   2) 目录菜单当前章节高亮增强：左侧彩色边框指示器 + 播放图标标记 +
  *      更鲜艳的背景色与文字色 + 加粗字体，非当前章节保持低调。
  *   3) 打开目录时自动滚动到当前章节位置（scrollIntoView）。
+ */
+/**
+ * 2.10.0 (2026-07-14): [FEATURE] TTS 设置页面增加音色试听按钮
+ *   1) ttsService.ts 新增 synthesizeSpeech 方法（POST /api/tts，返回 Blob）
+ *   2) SettingsPage.tsx 缺省音色下拉框下方增加"试听"按钮
+ *   3) 点击后合成 3 秒试听文案并播放，播放中按钮显示加载态
+ *   4) 播放结束自动重置按钮状态，支持反复试听
  */
