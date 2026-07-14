@@ -200,6 +200,9 @@ function ReaderPage() {
   const [showSearch, setShowSearch] = useState(false);
   const showSearchRef = useRef(false);
   useEffect(() => { showSearchRef.current = showSearch; }, [showSearch]);
+  /** TOC 弹层开关的 ref 镜像，供键盘监听闭包读取最新值 */
+  const showTocRef = useRef(false);
+  useEffect(() => { showTocRef.current = showToc; }, [showToc]);
 
   /** 执行翻页 — ref 包装，让 handleSwipeEnd 等前面定义的函数也能引用 */
   // TXT 模式翻页：直接走章节导航（EPUB 由 EpubViewer 内部处理，不在此调用）
@@ -257,6 +260,38 @@ function ReaderPage() {
       }
     }
   }, [isPageTurning, ttsState, readingMode, book?.format]);
+
+  /**
+   * 桌面端键盘翻页快捷键：← 上一页 / → 下一页（仅翻页模式 paginated）。
+   * 复用既有翻页能力（EPUB→epubPageControlRef，TXT→performPageTurnRef），不新增翻页分支。
+   * 门控与 handleSwipeEnd 完全一致：翻页模式 + 非输入焦点 + 非 TTS/搜索/TOC/翻页动画中。
+   */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      // 输入框/可编辑元素聚焦时不拦截（避免打断搜索等输入）
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+      // 仅翻页模式响应
+      if (readingModeRef.current !== 'paginated') return;
+      // 翻页动画中 / TTS 播放中 / 搜索或目录打开时不响应
+      if (isPageTurningRef.current) return;
+      if (ttsStateRef.current !== 'idle') return;
+      if (showSearchRef.current || showTocRef.current) return;
+      e.preventDefault();
+      const next = e.key === 'ArrowRight';
+      if (book?.format === 'epub') {
+        if (next) epubPageControlRef.current?.next();
+        else epubPageControlRef.current?.prev();
+      } else if (next) {
+        performPageTurnRef.current('next');
+      } else {
+        performPageTurnRef.current('prev');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [book?.format]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);

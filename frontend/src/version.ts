@@ -48,7 +48,13 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.9.1';
+export const APP_VERSION = '2.9.2';
+/**
+ * 2.9.2 (2026-07-14): [FEATURE] 桌面端键盘翻页快捷键
+ *   1) 翻页模式下新增 ← 上一页 / → 下一页 键盘快捷键（仅 readingMode==='paginated' 生效）。
+ *   2) 复用既有翻页能力：EPUB 走 epubPageControlRef，TXT 走 performPageTurnRef，不新增翻页分支。
+ *   3) 门控与滑动翻页一致：输入框/可编辑元素聚焦时不拦截，TTS 播放中/搜索/TOC 弹层/翻页动画中不响应。
+ */
 /**
  * 2.8.5 (2026-07-13): [BUGFIX] 修复暗色模式/翻页手势被吞/TOC目录不关联三大阅读器问题
  *   1) 暗色模式 EPUB 无法阅读：EpubViewer themes.register 未设置 background-color + color，
