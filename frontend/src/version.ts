@@ -48,13 +48,12 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.11.6';
+export const APP_VERSION = '2.12.0';
 /**
- * 2.11.6 (2026-07-14): [FEAT] 手势交互升级：滑动翻页视觉反馈 + 长按触觉反馈 + 文字选择与手势互斥
- *   1) 滑动翻页视觉反馈：翻页时显示半透明箭头指示器（600ms 自动消失）
- *   2) 长按触觉反馈：navigator.vibrate(15ms) 短震动（设备不支持时静默跳过）
- *   3) 文字选择与手势互斥：检测 window.getSelection().isCollapsed，选中文字时不触发翻页
- *   4) 影响范围：所有设备的 epub + txt 阅读模式。
+ * 2.12.0 (2026-07-14): [FEAT] 文字选择复制功能 + deploy.sh 权限防御
+ *   1) 复制选中文字：浮动操作面板中新增"复制"按钮，支持 Clipboard API 写入剪贴板 + Toast 反馈
+ *   2) deploy.sh 防御：清理旧 app 目录前先 chmod -R u+w，解决 pnpm hardlink 只读权限导致 rm/cp 失败
+ *   3) 上轮延续：滑动翻页箭头指示器、长按触觉反馈、文字选择与手势互斥
  */
 /**
  * 2.11.2 (2026-07-14): [BUGFIX] 修复 epub 模式下移动端/桌面端滑动翻页及长按菜单均无法使用

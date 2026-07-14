@@ -135,6 +135,7 @@ function ReaderPage() {
 
   // ── 悬浮UI控制（全屏阅读：点击屏幕显示/隐藏所有控件） ──
   const [showUi, setShowUi] = useState(false);
+  const [copiedToast, setCopiedToast] = useState(false);
   const txtPageRef = useRef<HTMLDivElement>(null);
   const progressSaveTimer = useRef<any>(null);
   const ttsProgressSaveTimer = useRef<any>(null);
@@ -2430,6 +2431,17 @@ function stripHtml(html: string): string {
       </div>
         </div>
 
+        {/* ✅ 复制成功 Toast — 覆盖在阅读区上方，2秒自动消失 */}
+        {copiedToast && (
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-40 animate-slide-up pointer-events-none">
+            <div className="rounded-full px-5 py-2 flex items-center gap-2 shadow-lg"
+              style={{ background: 'var(--color-primary)', color: '#fff' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              已复制到剪贴板
+            </div>
+          </div>
+        )}
+
         {/* ⏫ 悬浮操作面板：默认隐藏，点击阅读区显示 */}
         {showUi && (
           <div className="absolute inset-0 z-30 flex flex-col" onClick={() => setShowUi(false)}>
@@ -2663,6 +2675,32 @@ function stripHtml(html: string): string {
                          )}
                        </div>
                      )}
+                  </div>
+
+                  {/* ── 复制选中文字 ── */}
+                  <div className="pt-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
+                    <div className="flex items-center justify-center">
+                      <button
+                        onClick={async () => {
+                          const sel = window.getSelection()?.toString();
+                          if (sel) {
+                            try {
+                              await navigator.clipboard.writeText(sel);
+                              setCopiedToast(true);
+                              setTimeout(() => setCopiedToast(false), 2000);
+                            } catch {
+                              // Clipboard API 可能不可用（非 https/非 localhost），静默失败
+                            }
+                          }
+                        }}
+                        className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
+                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                        title="复制选中文字"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        复制
+                      </button>
+                    </div>
                   </div>
 
                   {/* ── 缓存管理 ── */}

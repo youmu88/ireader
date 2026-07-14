@@ -436,6 +436,10 @@ do_deploy() {
     [ -f "${ENV_FILE}" ] && has_env=true
     [ -d "${APP_DIR}/backend/node_modules" ] && has_nm=true
 
+    # pnpm hardlink 结构中的文件偶有只读权限，导致 rm -rf 失败或 cp 时目录冲突
+    # 在清理前统一加写权限（防御措施，无副作用）
+    chmod -R u+w "${APP_DIR}" 2>/dev/null || true
+
     rm -rf "${APP_DIR:?}/"*
 
     if $has_env; then

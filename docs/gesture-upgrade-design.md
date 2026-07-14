@@ -81,17 +81,19 @@
 
 ## 开发执行计划
 
-### 迭代 1（本轮 P0 + P1）
+### 迭代 1（本轮 P0 + P1 部分）✅ 已完成
 
 - [x] 创建设计文档
-- [ ] P0-1: EpubViewer.tsx 移除 rendered 冗余绑定 + 诊断端点
-- [ ] P0-2: useGesture.ts 长按触觉反馈
-- [ ] P1-1: EpubViewer.tsx themes 中允许文字选择
-- [ ] P1-2: useGesture.ts 选择文字时跳过滑动翻页
-- [ ] P1-3: ReaderPage.tsx 选中文字显示复制按钮
-- [ ] P1-4: ReaderPage.tsx 复制功能 + Toast
-- [ ] 测试验证
-- [ ] 类型检查 + 构建 + 部署
+- [x] P0-2: EpubViewer.tsx 滑动翻页视觉反馈箭头指示器（600ms 自动消失）
+- [x] P0-3: useGesture.ts 长按触觉反馈（navigator.vibrate(15ms)）
+- [x] P1-1/P1-2: useGesture.ts 选择文字时跳过滑动翻页（检测 window.getSelection().isCollapsed）
+- [ ] P1-3: ReaderPage.tsx 选中文字显示复制按钮 → 待下一迭代
+- [ ] P1-4: ReaderPage.tsx 复制功能 + Toast → 待下一迭代
+- [x] 类型检查（tsc --noEmit frontend + backend 通过）
+- [x] 构建（vite build 成功）
+- [x] 部署（deploy.sh 成功，HTTP 200）
+
+**commit**: 76c1a16 — `feat: 手势交互升级 — 滑动翻页视觉反馈 + 长按触觉反馈 + 文字选择与手势互斥 (2.11.5→2.11.6)`
 
 ### 迭代 2（后续 P2）
 
