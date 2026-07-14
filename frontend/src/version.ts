@@ -48,13 +48,14 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.11.3';
+export const APP_VERSION = '2.11.4';
 /**
- * 2.11.3 (2026-07-14): [BUGFIX] display() resolve 后强制保底挂载手势，防 rendered/relocated 事件丢失
- *   1) 根因：上一轮（2.11.2）修复了守卫条件，手势监听在 rendered/relocated
- *      事件中挂载。但在某些场景下（epub.js 特定版本、移动端低性能设备、
- *      大文件加载）rendered/relocated 事件可能延迟或根本不触发，
- *      导致手势从未挂载到 iframe document 上 → 滑动/长按依然无效。
+ * 2.11.4 (2026-07-14): [FIX] 修复 deploy.sh 5 类可靠性缺陷
+ *   1) 并行构建管道吞错误 → 改用临时文件记录 exit code
+ *   2) systemd Restart=always 端口争用 → mask 后增加 6s 窗口等待
+ *   3) pnpm install --prod 超时 → 改为复制 node_modules + rebuild
+ *   4) fuser 命令缺失 → fallback 到 lsof/ss 多工具检测
+ *   5) 健康检查重复代码 → 合并冗余逻辑
  *   2) 修复：在 display() await resolve 后直接调用 attachGesture()，
  *      作为 rendered/relocated 事件的保底。双保险确保手势一定挂上。
  *   3) 影响范围：所有设备（移动端 + 桌面端）的 epub 阅读模式。

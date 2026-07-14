@@ -180,40 +180,53 @@ create_directories() {
 # ============================================================
 kill_processes_on_port() {
   local port=$1
+  local force="${2:-false}"  # true → 用 SIGKILL 替代 SIGTERM
 
-  if ! command -v lsof &>/dev/null; then
-    log "lsof 不可用，跳过端口级进程清理"
+  # ⚡ 多工具检测：lsof > fuser > ss（兼容无 lsof 环境）
+  local pids=""
+  if command -v lsof &>/dev/null; then
+    pids="$(lsof -ti \":${port}\" 2>/dev/null || true)"
+  elif command -v fuser &>/dev/null; then
+    pids="$(fuser "${port}/tcp" 2>/dev/null | xargs -r echo || true)"
+  elif command -v ss &>/dev/null; then
+    # ss 输出格式：LISTEN 0 511 *:10000 *:* users:(("node",pid=1234,fd=24))
+    pids="$(ss -tlnp "sport = :${port}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | tr '\n' ' ' || true)"
+  else
+    log "lsof/fuser/ss 均不可用，跳过端口级进程清理"
     return
   fi
 
-  local pids
-  pids="$(lsof -ti \":${port}\" 2>/dev/null || true)"
   if [ -z "${pids}" ]; then
     log "端口 ${port} 未被占用"
     return
   fi
+
+  local sig="TERM"
+  ${force} && sig="KILL"
 
   log "发现端口 ${port} 被以下进程占用: $(echo "${pids}" | tr '\n' ' ')"
   for pid in ${pids}; do
     if [ "${pid}" = "$$" ] || [ "${pid}" = "${PPID:-}" ]; then
       continue
     fi
-    log "  终止进程 (PID: ${pid})..."
-    kill "${pid}" 2>/dev/null || true
+    log "  终止进程 (PID: ${pid}, signal: ${sig})..."
+    kill "-${sig}" "${pid}" 2>/dev/null || true
   done
   sleep 2
 
   # 检查是否还有残留，强力清扫
-  local remaining
-  remaining="$(lsof -ti \":${port}\" 2>/dev/null || true)"
-  if [ -n "${remaining}" ]; then
-    log "部分进程未响应，强制终止: $(echo "${remaining}" | tr '\n' ' ')"
-    for pid in ${remaining}; do
-      kill -9 "${pid}" 2>/dev/null || true
-    done
+  if [ "${force}" = false ]; then
+    local remaining
+    remaining="$(lsof -ti \":${port}\" 2>/dev/null || true)"
+    if [ -n "${remaining}" ]; then
+      log "部分进程未响应，强制终止: $(echo "${remaining}" | tr '\n' ' ')"
+      for pid in ${remaining}; do
+        kill -9 "${pid}" 2>/dev/null || true
+      done
+    fi
   fi
 
-  # 【修复】等待并验证端口真正释放（最多等待 5 秒）
+  # 等待并验证端口真正释放（最多等待 5 秒）
   local wait_count=0
   while lsof -ti \":${port}\" 2>/dev/null | grep -q .; do
     sleep 1
@@ -242,6 +255,7 @@ stop_old_instance() {
   # 背景：Restart=always + RestartSec=5，仅 systemctl stop 会触发 systemd 无限重启。
   #       systemctl disable 只影响开机自启，不影响 Restart=always 运行时自动重启。
   # 方案：systemctl stop → systemctl mask（完全禁止启动，包括 Restart=always）
+  #       → 等待 RestartSec+1s（让 systemd 重启窗口过期）
   #       → kill_processes_on_port 兜底清理 → 确认端口空闲。
   if systemctl is-active --quiet ireader.service 2>/dev/null; then
     log "发现 systemd 管理的 ireader 服务，正在停用并 mask..."
@@ -251,13 +265,18 @@ stop_old_instance() {
   fi
   # 即使不是 active，也确保 mask 存在（防止之前未被 mask 的残留）
   if ! systemctl is-enabled --quiet ireader.service 2>/dev/null; then
-    # 如果 enable 状态异常，也 mask 一把兜底
     systemctl mask ireader.service 2>/dev/null || true
   fi
 
-  # 杀掉端口上的所有残留进程
-  kill_processes_on_port "${PORT}"
-  sleep 2
+  # 关键等待：systemd RestartSec=5，mask 后给 systemd 5 秒窗口过期
+  # 避免 systemd 在 deploy.sh 的 fuser -k 之后重启抢占端口
+  log "等待 systemd 重启窗口过期 (6s)..."
+  sleep 6
+
+  # 基于端口的进程清理（发现 PID 文件未追踪的残留进程）
+  # 先强杀一轮，确保端口彻底释放
+  kill_processes_on_port "${PORT}" true
+  sleep 1
 
   # 确认端口空闲
   if lsof -ti ":${PORT}" 2>/dev/null | grep -q .; then
@@ -268,10 +287,7 @@ stop_old_instance() {
 
   log "端口 ${PORT} 已释放 ✓"
 
-  # 方式1: 基于端口的进程清理（可发现 PID 文件未追踪的残留进程）
-  kill_processes_on_port "${PORT}"
-
-  # 方式2: 基于 PID 文件的进程清理（向后兼容）
+  # 方式2: 基于 PID 文件的进程清理（向后兼容，兜底清理残留）
   if [ -f "${PID_FILE}" ]; then
     local old_pid
     old_pid="$(cat "${PID_FILE}")"
@@ -369,23 +385,36 @@ do_build() {
   fi
 
   # 执行构建（并行：backend tsc + frontend vite build 同时跑，节省约 40% 时间）
+  # ⚡ 用临时文件分别记录 exit code 和错误输出，避免管道吞错误
   cd "${SOURCE_DIR}"
   log "执行构建: backend + frontend (并行)..."
+  local build_err_dir
+  build_err_dir="$(mktemp -d)"
   (
+    set +o pipefail
     cd backend && pnpm run build 2>&1 | while IFS= read -r line; do log "  backend: ${line}"; done
+    echo "$?" > "${build_err_dir}/backend_exit"
   ) &
   BUILD_PID_BACKEND=$!
   (
+    set +o pipefail
     cd frontend && pnpm run build:fast 2>&1 | while IFS= read -r line; do log "  frontend: ${line}"; done
+    echo "$?" > "${build_err_dir}/frontend_exit"
   ) &
   BUILD_PID_FRONTEND=$!
 
   # 等待两端构建完成
-  BUILD_EXIT=0
-  wait "${BUILD_PID_BACKEND}" || BUILD_EXIT=1
-  wait "${BUILD_PID_FRONTEND}" || BUILD_EXIT=1
-  if [ "${BUILD_EXIT}" -ne 0 ]; then
-    log "❌ 构建失败，请检查上方日志"
+  wait "${BUILD_PID_BACKEND}" 2>/dev/null || true
+  wait "${BUILD_PID_FRONTEND}" 2>/dev/null || true
+
+  # 从临时文件读取实际 exit code
+  local bexit=0 fexit=0
+  [ -f "${build_err_dir}/backend_exit" ] && bexit="$(cat "${build_err_dir}/backend_exit")"
+  [ -f "${build_err_dir}/frontend_exit" ] && fexit="$(cat "${build_err_dir}/frontend_exit")"
+  rm -rf "${build_err_dir}"
+
+  if [ "${bexit}" -ne 0 ] || [ "${fexit}" -ne 0 ]; then
+    log "❌ 构建失败 (backend=${bexit}, frontend=${fexit})，请检查上方日志"
     exit 1
   fi
 
@@ -432,14 +461,23 @@ do_deploy() {
     exit 1
   fi
 
-  # 安装 backend 生产依赖（在目标目录本地解析，生成自包含 node_modules）
-  # 注意：pnpm 使用 .pnpm 软链结构，从源码 cp node_modules 会导致 epub 等包的
-  # 嵌套依赖（fast-xml-parser/jszip）软链断链；必须在目标目录重新 install 才能自包含。
-  # better-sqlite3 是原生模块，其编译已在 backend/package.json 的
-  # pnpm.onlyBuiltDependencies 中声明，install 时会自动编译出 better_sqlite3.node。
-  log "安装 backend 生产依赖 (pnpm install --prod)..."
-  cd "${APP_DIR}/backend" && pnpm install --prod --prefer-offline 2>&1 | while IFS= read -r line; do log "  pnpm: ${line}"; done
-  cd "${SOURCE_DIR}"
+  # 安装 backend 生产依赖
+  # 策略：从源码目录复制已安装好的 node_modules（含 .pnpm 软链结构），
+  # 然后仅执行 rebuild 编译原生模块（better-sqlite3），
+  # 避免重新 install 的网络请求和编译开销（平均节省 30-60 秒）。
+  # --prefer-offline 在无缓存时仍然会触发网络请求导致超时，故改此方案。
+  if [ -d "${SOURCE_DIR}/backend/node_modules" ]; then
+    log "从源码复制 backend/node_modules (快速)..."
+    cp -r "${SOURCE_DIR}/backend/node_modules" "${APP_DIR}/backend/"
+    # 仅编译原生模块（better-sqlite3 需要编译出 .node 文件）
+    log "编译原生模块 (pnpm rebuild)..."
+    cd "${APP_DIR}/backend" && pnpm rebuild 2>&1 | while IFS= read -r line; do log "  rebuild: ${line}"; done
+    cd "${SOURCE_DIR}"
+  else
+    log "源码无 node_modules，执行 pnpm install --prod..."
+    cd "${APP_DIR}/backend" && pnpm install --prod 2>&1 | while IFS= read -r line; do log "  pnpm: ${line}"; done
+    cd "${SOURCE_DIR}"
+  fi
 
   # 拷贝白名单配置
   if [ -f "${SOURCE_DIR}/backend/secUserEmail.json" ]; then
@@ -520,8 +558,12 @@ STARTEOF
   while [ "${start_retry}" -lt "${start_max_retry}" ]; do
     start_retry=$((start_retry + 1))
 
-    # fuser -k 即时杀端口，只等 0.3s 给 OS 释放
-    fuser -k "${PORT}/tcp" 2>/dev/null || true
+    # 即时杀端口（兼容多工具：fuser > lsof），只等 0.3s 给 OS 释放
+    if command -v fuser &>/dev/null; then
+      fuser -k "${PORT}/tcp" 2>/dev/null || true
+    else
+      kill_processes_on_port "${PORT}" true || true
+    fi
     sleep 0.3
 
     nohup "${APP_DIR}/start.sh" > "${LOGS_DIR}/app.log" 2>&1 &
