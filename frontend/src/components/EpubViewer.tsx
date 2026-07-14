@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import ePub, { type Book, type Rendition } from 'epubjs';
 import { getToken } from '../services/authService';
 import { useTheme } from '../services/themeService';
+import { useGesture } from '../hooks/useGesture';
 
 interface EpubViewerProps {
   /** 原始 epub 文件 URL（后端 GET /api/books/:id/file 返回） */
@@ -62,7 +63,21 @@ export default function EpubViewer({
   onLocRef.current = onLocationChange;
   const onTapRef = useRef(onTap);
   onTapRef.current = onTap;
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 统一手势入口（gesture hub）：接管 epub 阅读区的 swipe/longpress/tap。
+  //   - swipe left/right → rendition 翻页（修根：恢复 epub 模式左右滑动翻页）
+  //   - longpress → 触发父层浮动菜单 onTap（替代第19轮不可靠的 rendition.on('click') 长按）
+  //   - tap → 不拦截，书内 TOC 跳转/文字选择原生穿透
+  const gesture = useGesture({
+    onSwipe: (dir) => {
+      if (readingMode !== 'paginated') return; // 仅翻页模式支持滑动翻页
+      if (dir === 'left') renditionRef.current?.next();
+      else renditionRef.current?.prev();
+    },
+    onLongPress: () => {
+      onTapRef.current?.();
+    },
+  });
 
   // ── 暗色模式感知 ──
   const { theme } = useTheme();
@@ -96,6 +111,8 @@ export default function EpubViewer({
     let rendition: Rendition | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let retryRaf = 0;
+    // iframe 内手势监听的卸载器（effect 顶层，供 cleanup 调用）
+    let gestureDetachRef: { current: null | (() => void) } = { current: null };
 
     const buildRendition = () => {
       if (cancelled || rendition) return;
@@ -145,20 +162,25 @@ export default function EpubViewer({
         if (cfi) onLocRef.current?.(cfi);
       });
 
-      // 根因修复（替代全屏透明 <button> 遮罩）：
-      // 浏览器安全机制规定 iframe 内的点击/触摸事件不会冒泡到父层 DOM，
-      // 故 epub.js 提供 rendition.on('click') —— 它在 iframe 文档内部注入监听并把事件转发出来。
-      // 用此原生事件委托捕获阅读区点击，既能触发长按菜单，又不拦截 iframe 内的
-      // 原生点击（书自带 TOC 链接跳转）与文本选择（复制），事件穿透给 iframe 自身处理。
-      // 注意：① 不调用 preventDefault，避免破坏 iframe 内滚动手势/翻页；
-      //       ② 仅检测长按（按压力度≥LONG_PRESS_MS）触发菜单，短按直接放行。
-      const LONG_PRESS_MS = 600;
-      rendition.on('click', () => {
-        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = setTimeout(() => {
-          onTapRef.current?.();
-        }, LONG_PRESS_MS);
-      });
+      // 根因修复（替代全屏透明 <button> 遮罩 + 不可靠的 rendition.on('click') 长按）：
+      // 浏览器安全机制规定 iframe 内的 touch 事件不会冒泡到父层 DOM，外层 ReaderPage 的
+      // onTouchStart/End 因此到不了 epub 内容 → 滑动翻页/长按双双失效。
+      // 修复：用统一手势入口 useGesture 的 attachToEpubContents，在 iframe 的 document 上
+      // 直接注入 touch 监听（epub.js 官方通道 rendition.getContents() 暴露的 iframe 文档），
+      // 完整捕获 swipe/longpress/tap，并统一阈值常量（修根，非 hack）。
+      //   - swipe left/right → rendition.next()/prev()（真正翻页）
+      //   - longpress → 触发父层浮动菜单（onTap 回调）
+      //   - tap → 不拦截书内 TOC 点击/文字选择（原生穿透）
+      // getContents() 在 display 后才有内容，且翻页会变，故在 display 成功后动态 attach。
+      const attachGesture = () => {
+        const contents = rendition!.getContents?.();
+        if (!contents || !contents.document) return;
+        if (gestureDetachRef.current) { gestureDetachRef.current(); gestureDetachRef.current = null; }
+        gestureDetachRef.current = gesture.attachToEpubContents(contents);
+      };
+      // 首次 display 完成后挂载；relocated 时 contents 可能重建，重新挂载
+      rendition.on('rendered', attachGesture);
+      rendition.on('relocated', attachGesture);
 
       const start = async () => {
         try {
@@ -230,7 +252,7 @@ export default function EpubViewer({
       cancelled = true;
       if (retryRaf) cancelAnimationFrame(retryRaf);
       if (timeoutId) clearTimeout(timeoutId);
-      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      if (gestureDetachRef.current) { gestureDetachRef.current(); gestureDetachRef.current = null; }
       ro?.disconnect();
       try { rendition?.destroy(); } catch { /* ignore */ }
       try { book.destroy(); } catch { /* ignore */ }

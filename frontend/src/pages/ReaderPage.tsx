@@ -21,6 +21,7 @@ import {
 } from '../services/ttsPlayer';
 import type { BookCacheDetailedStats } from '../services/offlineCacheService';
 import EpubViewer from '../components/EpubViewer';
+import { useGesture } from '../hooks/useGesture';
 
 interface Book {
   id: string;
@@ -160,58 +161,41 @@ function ReaderPage() {
 
 
 
-  // ── 全屏阅读：浮动菜单改为「长按≥1秒」才弹出；短按仅用于关闭已打开的 TOC ──
-  const LONG_PRESS_MS = 1000;
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressFiredRef = useRef(false);
+  // ── 统一手势入口（gesture hub）──
+// 集中管理阅读区手势：滑动翻页、长按浮窗、点击关闭目录。
+// 不再散落在 handleSwipeStart/End、longPressStart/Cancel 各处；阈值由 GESTURE_CONFIG 统一。
+// 说明：epub 模式的滑动/长按已由 EpubViewer 内部（iframe 内）用同一 useGesture 接管，
+//       故此处外层只负责 txt 模式 + tap 关闭目录（外层 touch 进不了 iframe，互不冲突）。
+const openFloatMenu = useCallback(() => {
+  if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current) return;
+  setShowUi(true);
+}, []);
 
-  const handleTapReader = useCallback(() => {
-    // 短按（非长按）时：若目录(TOC)已打开，点击阅读区只关闭目录
-    if (showToc) {
-      setShowToc(false);
-    }
-  }, [showToc]);
+const gesture = useGesture({
+  // 左右滑动翻页（仅 txt 模式；epub 模式的翻页在 EpubViewer 内处理）
+  onSwipe: (dir) => {
+    if (readingModeRef.current !== 'paginated' || isPageTurningRef.current) return;
+    if (ttsStateRef.current !== 'idle' || showSearchRef.current) return;
+    if (book?.format === 'epub') return; // epub 翻页在 iframe 内处理
+    performPageTurnRef.current(dir === 'left' ? 'next' : 'prev');
+  },
+  // 长按：TTS/搜索/目录打开时不弹菜单
+  onLongPress: () => openFloatMenu(),
+  // 短按：若目录已打开，点击阅读区只关闭目录
+  onTap: () => {
+    if (showTocRef.current) setShowToc(false);
+  },
+});
 
-  // 按下即启动长按计时；超过阈值才弹出浮动菜单
-  const longPressStart = useCallback(() => {
-    longPressFiredRef.current = false;
-    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-    longPressTimerRef.current = setTimeout(() => {
-      longPressFiredRef.current = true;
-      // TTS 播放/搜索/目录打开时不弹菜单
-      if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current) return;
-      setShowUi(true);
-    }, LONG_PRESS_MS);
-  }, []);
-
-  // 松手/移出/滑动取消长按计时
-  const longPressCancel = useCallback(() => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  }, []);
-
-  // 卸载时清理长按计时器
-  useEffect(() => () => {
-    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-  }, []);
-
-  // EPUB 模式的透明覆盖层长按（≥1s）触发：直接弹出浮动菜单（与外层长按语义一致）
-  const openFloatMenu = useCallback(() => {
-    if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current) return;
-    setShowUi(true);
-  }, []);
-
-  /** 打开目录时自动滚动到当前章节位置 */
-  useEffect(() => {
-    if (showToc && activeTocItemRef.current) {
-      // 用 rAF 确保 DOM 已渲染后再滚动
-      requestAnimationFrame(() => {
-        activeTocItemRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      });
-    }
-  }, [showToc]);
+/** 打开目录时自动滚动到当前章节位置 */
+useEffect(() => {
+  if (showToc && activeTocItemRef.current) {
+    // 用 rAF 确保 DOM 已渲染后再滚动
+    requestAnimationFrame(() => {
+      activeTocItemRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  }
+}, [showToc]);
 
   // ── 睡眠计时器 ──
   const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
@@ -235,7 +219,7 @@ function ReaderPage() {
   const showTocRef = useRef(false);
   useEffect(() => { showTocRef.current = showToc; }, [showToc]);
 
-  /** 执行翻页 — ref 包装，让 handleSwipeEnd 等前面定义的函数也能引用 */
+  /** 执行翻页 — ref 包装，供统一手势入口（useGesture）与键盘快捷键复用 */
   // TXT 模式翻页：直接走章节导航（EPUB 由 EpubViewer 内部处理，不在此调用）
   const performPageTurnRef = useRef<(direction: 'prev' | 'next') => Promise<void>>(async (direction) => {
     setIsPageTurning(true);
@@ -255,42 +239,6 @@ function ReaderPage() {
   useEffect(() => { readingModeRef.current = readingMode; }, [readingMode]);
   useEffect(() => { ttsStateRef.current = ttsState; }, [ttsState]);
   useEffect(() => { isPageTurningRef.current = isPageTurning; }, [isPageTurning]);
-  const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
-
-  /** 触摸开始：记录起始位置 */
-  const handleSwipeStart = useCallback((clientX: number, clientY: number) => {
-    swipeStartRef.current = { x: clientX, y: clientY, time: Date.now() };
-  }, []);
-
-  /** 触摸结束：判断滑动方向 */
-  const handleSwipeEnd = useCallback((clientX: number, clientY: number) => {
-    const start = swipeStartRef.current;
-    if (!start) return;
-    const dx = clientX - start.x;
-    const dy = clientY - start.y;
-    const dt = Date.now() - start.time;
-    const absDx = Math.abs(dx);
-    const absDy = Math.abs(dy);
-    swipeStartRef.current = null;
-
-    // 正在翻页动画中、TTS 或搜索打开时，不处理滑动
-    if (isPageTurning) return;
-    if (ttsState !== 'idle' || showSearchRef.current) return;
-    if (readingMode !== 'paginated') return;
-
-    // 滑动距离 > 50px 且水平方向 > 垂直方向 → 翻页
-    if (absDx > 50 && absDx > absDy * 1.5 && dt < 500) {
-      if (book?.format === 'epub') {
-        // EPUB 由 EpubViewer（epub.js）托管翻页
-        if (dx < 0) epubPageControlRef.current?.next();
-        else epubPageControlRef.current?.prev();
-      } else if (dx < 0) {
-        performPageTurnRef.current('next');
-      } else {
-        performPageTurnRef.current('prev');
-      }
-    }
-  }, [isPageTurning, ttsState, readingMode, book?.format]);
 
   /**
    * 桌面端键盘翻页快捷键：← 向左翻一页 / → 向右翻一页。
@@ -2188,14 +2136,13 @@ function stripHtml(html: string): string {
         {/* Reader Content - full screen, no fixed toolbar */}
         <div className="h-full flex flex-col">
           <div
+            ref={(el) => {
+              if (el && !(el as HTMLElement & { __gestureAttached?: boolean }).__gestureAttached) {
+                (el as HTMLElement & { __gestureAttached?: boolean }).__gestureAttached = true;
+                gesture.attachToElement(el);
+              }
+            }}
             className="flex-1 flex overflow-hidden relative"
-            onClick={handleTapReader}
-            onTouchStart={(e) => { handleSwipeStart(e.touches[0].clientX, e.touches[0].clientY); longPressStart(); }}
-            onTouchEnd={(e) => { handleSwipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY); longPressCancel(); }}
-            onTouchMove={() => { longPressCancel(); }}
-            onMouseDown={(e) => { handleSwipeStart(e.clientX, e.clientY); longPressStart(); }}
-            onMouseUp={(e) => { handleSwipeEnd(e.clientX, e.clientY); longPressCancel(); }}
-            onMouseLeave={() => { longPressCancel(); }}
           >
         {/* TOC Sidebar */}
         {showToc && (

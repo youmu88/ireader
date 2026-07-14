@@ -48,7 +48,21 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.10.4';
+export const APP_VERSION = '2.11.0';
+/**
+ * 2.11.0 (2026-07-14): [FEATURE] 新增统一手势操作入口（gesture hub），修复 epub 模式左右滑动无法翻页 + 长按浮窗失效
+ *   1) 根因：第19轮（2.10.4）删掉全屏遮罩 <button> 后，epub 阅读内容在 iframe 内、浏览器安全机制使外层 DOM 的
+ *      touch 事件无法穿透到 iframe，导致 EpubViewer 与外层 ReaderPage 都收不到滑动/长按手势；且当时改用
+ *      rendition.on('click') 只转发 click、不处理 touch/move/longpress，长按浮窗时灵时不灵。
+ *   2) 修复：新增 src/hooks/useGesture.ts 统一手势入口，集中定义 swipe / longpress / tap 识别，阈值全收敛到
+ *      GESTURE_CONFIG 单常量（LONG_PRESS_MS=800，消除原 txt 1000 / epub 600 不一致）。
+ *      - epub 模式：通过 epub.js 官方通道 rendition.getContents() 在 iframe 的 document 上直接注入 touch 监听
+ *        （attachToEpubContents），真正恢复左右滑动翻页（调 rendition.next/prev）+ 可靠长按浮窗。
+ *      - txt 模式：外层容器改用 gesture.attachToElement 接管，删除散落的 handleSwipeStart/End、
+ *        longPressStart/Cancel 等逻辑，行为保持一致。
+ *   3) 文字选择不拦截：仅在识别为 longpress 后才阻止误触，否则原生穿透（书内 TOC 跳转/复制正常）。
+ *   4) 复杂度下降：移除一个侵入式遮罩层 + 撤销 2 处不一致的魔法数字，手势逻辑集中到单一模块。
+ */
 /**
  * 2.10.4 (2026-07-14): [BUGFIX] 移除全屏透明遮罩，恢复书自带目录跳转与文字复制
  *   1) 根因：EpubViewer 在 epub.js iframe 之上覆盖一层 `absolute inset-0 z-20` 的全屏 <button>，
