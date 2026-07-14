@@ -48,18 +48,16 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.11.4';
+export const APP_VERSION = '2.11.5';
 /**
- * 2.11.4 (2026-07-14): [FIX] 修复 deploy.sh 5 类可靠性缺陷
- *   1) 并行构建管道吞错误 → 改用临时文件记录 exit code
- *   2) systemd Restart=always 端口争用 → mask 后增加 6s 窗口等待
- *   3) pnpm install --prod 超时 → 改为复制 node_modules + rebuild
- *   4) fuser 命令缺失 → fallback 到 lsof/ss 多工具检测
- *   5) 健康检查重复代码 → 合并冗余逻辑
- *   2) 修复：在 display() await resolve 后直接调用 attachGesture()，
- *      作为 rendered/relocated 事件的保底。双保险确保手势一定挂上。
- *   3) 影响范围：所有设备（移动端 + 桌面端）的 epub 阅读模式。
- *      ⚠️ 2.11.0/2.11.1/2.11.2 均因部署失败或事件丢失从未真正生效，
+ * 2.11.5 (2026-07-14): [FIX] attachGesture 增强：重试机制 + 防重复注入 + 诊断日志
+ *   1) 根因：bad8e20 移除了透明遮罩后，手势从 DOM 覆盖层切换到 iframe 内部注入方案，
+ *      但 attachGesture() 中 getContents() 可能因时序返回空 → 手势监听静默失败。
+ *   2) 修复：
+ *      - getContents() 返回空时延迟 200ms 重试（最多 3 次）
+ *      - 注入后 document 打标记 __ireaderGestureAttached 防重复绑定
+ *      - 添加 console.log/warn/error 诊断日志，便于排查挂载状态
+ *   3) 影响范围：移动端 epub 阅读模式的滑动翻页 + 长按浮窗菜单。
  *      这是第一个手势可用的稳定版本。
  */
 /**

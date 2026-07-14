@@ -155,12 +155,15 @@ export function createGestureDetector(handlers: GestureHandlers) {
   };
 
   // ── epub iframe 挂载：在 iframe document 上注入，解决外层 touch 进不去 iframe 的根因 ──
+  // 注入后会在 document 上设置 __ireaderGestureAttached 标记，防止重复绑定。
   const attachToEpubContents = (contents: { document: Document } | Array<{ document: Document }>) => {
+    const GESTURE_INJECT_MARK = '__ireaderGestureAttached';
     const list = Array.isArray(contents) ? contents : [contents];
     const cleanups: Array<() => void> = [];
     for (const c of list) {
       const doc = c.document;
-      if (!doc) continue;
+      if (!doc || (doc as any)[GESTURE_INJECT_MARK]) continue;
+      (doc as any)[GESTURE_INJECT_MARK] = true;
       const onTs = (e: Event) => { const t = (e as TouchEvent).touches[0]; if (t) start(t.clientX, t.clientY); };
       const onTm = (e: Event) => { const t = (e as TouchEvent).touches[0]; if (t) move(t.clientX, t.clientY); };
       const onTe = (e: Event) => { const t = (e as TouchEvent).changedTouches[0]; if (t) end(t.clientX, t.clientY); };

@@ -172,15 +172,41 @@ export default function EpubViewer({
       //   - longpress → 触发父层浮动菜单（onTap 回调）
       //   - tap → 不拦截书内 TOC 点击/文字选择（原生穿透）
       // getContents() 在 display 后才有内容，且翻页会变，故在 display 成功后动态 attach。
+      const GESTURE_INJECT_MARK = '__ireaderGestureAttached';
+      let attachGestureRetries = 0;
+      const MAX_ATTACH_RETRIES = 3;
+      const ATTACH_RETRY_DELAY_MS = 200;
+
       const attachGesture = () => {
         // ⚠️ epub.js 类型定义 Rendition.getContents() 返回 Contents（单个对象），
         // 但运行时底层 Manager.getContents() 返回 Contents[]（数组）。
         // 用 as any 绕开类型不一致，实际取数组第一个元素的 document。
         const raw = rendition!.getContents?.() as any;
         const list: Array<{ document: Document }> = Array.isArray(raw) ? raw : [raw];
-        if (!list.length || !list[0]?.document) return;
+
+        if (!list.length || !list[0]?.document) {
+          console.warn('[EpubViewer] attachGesture: getContents() 返回空，重试=', attachGestureRetries + 1, '/', MAX_ATTACH_RETRIES);
+          if (attachGestureRetries < MAX_ATTACH_RETRIES) {
+            attachGestureRetries++;
+            setTimeout(attachGesture, ATTACH_RETRY_DELAY_MS);
+          } else {
+            console.error('[EpubViewer] attachGesture: getContents() 始终返回空，手势监听未挂载！');
+          }
+          return;
+        }
+        // 重置重试计数（成功获取到 contents）
+        attachGestureRetries = 0;
+
+        // 防重复：检查 document 是否已有注入标记
+        const doc = list[0].document;
+        if ((doc as any)[GESTURE_INJECT_MARK]) {
+          console.log('[EpubViewer] attachGesture: 手势已注入，跳过重复绑定');
+          return;
+        }
+
         if (gestureDetachRef.current) { gestureDetachRef.current(); gestureDetachRef.current = null; }
         gestureDetachRef.current = gesture.attachToEpubContents(list);
+        console.log('[EpubViewer] attachGesture: ✅ 手势监听已挂载到 iframe document, contents 数量=', list.length);
       };
       // 首次 display 完成后挂载；relocated 时 contents 可能重建，重新挂载
       rendition.on('rendered', attachGesture);
