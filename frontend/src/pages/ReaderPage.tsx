@@ -262,9 +262,12 @@ function ReaderPage() {
   }, [isPageTurning, ttsState, readingMode, book?.format]);
 
   /**
-   * 桌面端键盘翻页快捷键：← 上一页 / → 下一页（仅翻页模式 paginated）。
-   * 复用既有翻页能力（EPUB→epubPageControlRef，TXT→performPageTurnRef），不新增翻页分支。
-   * 门控与 handleSwipeEnd 完全一致：翻页模式 + 非输入焦点 + 非 TTS/搜索/TOC/翻页动画中。
+   * 桌面端键盘翻页快捷键：← 上一章/上一页  /  → 下一章/下一页。
+   * 复用已存在的翻页能力（与浮动面板内的"上一章/下一章"按钮完全一致）：
+   *  - 翻页模式(paginated)：EPUB→epubPageControlRef，TXT→performPageTurnRef（整页翻）
+   *  - 滚动模式(scroll，默认)：直接复用 handlePrevChapter/handleNextChapter（上一章/下一章导航）
+   * 不新增翻页分支，与 UI 按钮行为保持一致。
+   * 门控：非输入焦点 + 非 TTS 播放中/loading + 非搜索/TOC 弹层 + 非翻页动画中。
    */
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -272,21 +275,26 @@ function ReaderPage() {
       // 输入框/可编辑元素聚焦时不拦截（避免打断搜索等输入）
       const ae = document.activeElement as HTMLElement | null;
       if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
-      // 仅翻页模式响应
-      if (readingModeRef.current !== 'paginated') return;
-      // 翻页动画中 / TTS 播放中 / 搜索或目录打开时不响应
-      if (isPageTurningRef.current) return;
+      // TTS 播放/加载中、搜索或目录打开、翻页动画中时不响应
       if (ttsStateRef.current !== 'idle') return;
       if (showSearchRef.current || showTocRef.current) return;
+      if (isPageTurningRef.current) return;
       e.preventDefault();
       const next = e.key === 'ArrowRight';
-      if (book?.format === 'epub') {
-        if (next) epubPageControlRef.current?.next();
-        else epubPageControlRef.current?.prev();
-      } else if (next) {
-        performPageTurnRef.current('next');
+      // ── 翻页模式：整页翻（与滑动翻页同一通道） ──
+      if (readingModeRef.current === 'paginated') {
+        if (book?.format === 'epub') {
+          if (next) epubPageControlRef.current?.next();
+          else epubPageControlRef.current?.prev();
+        } else if (next) {
+          performPageTurnRef.current('next');
+        } else {
+          performPageTurnRef.current('prev');
+        }
       } else {
-        performPageTurnRef.current('prev');
+        // ── 滚动模式（默认）：复用浮动面板的"上一章/下一章"导航 ──
+        if (next) handleNextChapterRef.current?.();
+        else handlePrevChapterRef.current?.();
       }
     };
     window.addEventListener('keydown', handler);
@@ -1680,9 +1688,11 @@ function stripHtml(html: string): string {
         setTtsSpeed(savedSpeedLs);
         player.setSpeed(savedSpeedLs);
       }
-      // ⭐ 从 localStorage 读取"实时合成模式"开关（设置页可配置）
+      // ⭐ 从 localStorage 读取"实时合成模式"开关（设置页可配置）。
+      // 默认 false（开启本地语音缓存）：优先复用后端已合成的 WAV 与 IDB 缓存音频，
+      // 大幅降低重复朗读延迟；仅当用户显式开启"实时合成"时才传 true 绕过缓存。
       const noCachePref = (() => {
-        try { return localStorage.getItem('ireader_tts_noCache') === 'true'; } catch { return true; }
+        try { return localStorage.getItem('ireader_tts_noCache') === 'true'; } catch { return false; }
       })();
 
       // ⭐ 如果播放器已预热初始化（audio 元素已存在），跳过完整 init，仅更新选项
@@ -1786,6 +1796,11 @@ function stripHtml(html: string): string {
     // 自动播放下一章
     setTimeout(() => handleStartTTS(), 100);
   }, [currentChapter, chapters, goToNextChapter, handleStartTTS]);
+
+  const handlePrevChapterRef = useRef<() => void>(() => {});
+  const handleNextChapterRef = useRef<() => void>(() => {});
+  handlePrevChapterRef.current = handlePrevChapter;
+  handleNextChapterRef.current = handleNextChapter;
 
   /** 暂停 TTS */
   const handlePauseTTS = useCallback(() => {
@@ -2485,25 +2500,29 @@ function stripHtml(html: string): string {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
                           {/* ⏮ 上一章 */}
-                          <button onClick={(e) => { e.stopPropagation(); handlePrevChapter(); }} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="上一章">
+                          <button onClick={(e) => { e.stopPropagation(); handlePrevChapter(); }} className="w-9 h-9 rounded-full flex items-center justify-center tap-icon active:scale-85 transition-transform" style={{background: 'var(--color-bg-alt)'}} title="上一章">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                           </button>
-                          {/* ▶/⏸ 播放/暂停 */}
+                          {/* ▶/⏸/加载中 播放/暂停 — 加载态给出明确反馈，避免"点了没反应" */}
                           {ttsState === 'playing' ? (
-                            <button onClick={(e) => { e.stopPropagation(); handlePauseTTS(); }} className="w-11 h-11 rounded-full flex items-center justify-center" style={{background: 'var(--color-primary)'}} title="暂停">
+                            <button onClick={(e) => { e.stopPropagation(); handlePauseTTS(); }} className="w-11 h-11 rounded-full flex items-center justify-center tap-icon active:scale-90 transition-transform" style={{background: 'var(--color-primary)'}} title="暂停" aria-label="暂停">
                               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
                             </button>
+                          ) : ttsState === 'loading' ? (
+                            <button disabled onClick={(e) => e.stopPropagation()} className="w-11 h-11 rounded-full flex items-center justify-center cursor-wait" style={{background: 'var(--color-primary)'}} title="准备中…" aria-label="准备中">
+                              <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="9" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9" strokeLinecap="round"/></svg>
+                            </button>
                           ) : (
-                            <button onClick={(e) => { e.stopPropagation(); if (ttsState === 'paused') handleResumeTTS(); else handleStartTTS(); }} className="w-11 h-11 rounded-full flex items-center justify-center" style={{background: 'var(--color-primary)'}} title={ttsState === 'paused' ? '继续' : '播放'}>
+                            <button onClick={(e) => { e.stopPropagation(); if (ttsState === 'paused') handleResumeTTS(); else handleStartTTS(); }} className="w-11 h-11 rounded-full flex items-center justify-center tap-icon active:scale-90 transition-transform" style={{background: 'var(--color-primary)'}} title={ttsState === 'paused' ? '继续' : '播放'} aria-label={ttsState === 'paused' ? '继续' : '播放'}>
                               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                             </button>
                           )}
                           {/* ⏭ 下一章 */}
-                          <button onClick={(e) => { e.stopPropagation(); handleNextChapter(); }} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="下一章">
+                          <button onClick={(e) => { e.stopPropagation(); handleNextChapter(); }} className="w-9 h-9 rounded-full flex items-center justify-center tap-icon active:scale-85 transition-transform" style={{background: 'var(--color-bg-alt)'}} title="下一章">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
                           </button>
                           {/* ⏹ 停止 — 清理进度，下次播放从当前页开始 */}
-                          <button onClick={(e) => { e.stopPropagation(); handleStopTTS(); }} className="w-9 h-9 rounded-full flex items-center justify-center" style={{background: 'var(--color-bg-alt)'}} title="停止">
+                          <button onClick={(e) => { e.stopPropagation(); handleStopTTS(); }} className="w-9 h-9 rounded-full flex items-center justify-center tap-icon active:scale-85 transition-transform" style={{background: 'var(--color-bg-alt)'}} title="停止">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
                           </button>
                         </div>

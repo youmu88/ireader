@@ -300,26 +300,17 @@ export class TTSPlayer {
       return;
     }
 
-    // ⭐ 优先从 localStorage 读取缓存的 TTS 设置（减少网络延迟）
+    // ⭐ 优先从 localStorage 读取缓存的 TTS 设置（零网络延迟）
     const cachedSettings = getCachedTTSSettings();
     if (cachedSettings) {
       this.source = cachedSettings.source || this.source;
       this.voice = cachedSettings.voiceId || this.voice;
       this.speed = cachedSettings.speed ?? this.speed;
-    } else {
-      // 无缓存时首次加载仍等待网络（冷启动不可避免）
-      try {
-        const settings = await fetchTTSSettings();
-        this.source = settings.source || this.source;
-        this.voice = settings.voiceId || this.voice;
-        this.speed = settings.speed ?? this.speed;
-        saveCachedTTSSettings(settings);
-      } catch {
-        // 使用默认值
-      }
     }
+    // 注意：未命中缓存时不再 await 网络取设置（避免冷启动阻塞点击朗读 1~2s），
+    // 直接用默认值继续创建 <audio> 元素，设置随后由下方后台异步刷新补齐。
 
-    // ⭐ 后台异步刷新 TTS 设置并更新缓存（不阻塞初始化）
+    // ⭐ 后台异步刷新 TTS 设置并更新缓存（不阻塞初始化 / 不阻塞首次出声）
     fetchTTSSettings().then(settings => {
       if (!this.isDestroyed) {
         this.source = settings.source || this.source;

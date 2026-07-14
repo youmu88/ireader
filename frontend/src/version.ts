@@ -48,12 +48,18 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.9.2';
+export const APP_VERSION = '2.9.3';
 /**
- * 2.9.2 (2026-07-14): [FEATURE] 桌面端键盘翻页快捷键
- *   1) 翻页模式下新增 ← 上一页 / → 下一页 键盘快捷键（仅 readingMode==='paginated' 生效）。
- *   2) 复用既有翻页能力：EPUB 走 epubPageControlRef，TXT 走 performPageTurnRef，不新增翻页分支。
- *   3) 门控与滑动翻页一致：输入框/可编辑元素聚焦时不拦截，TTS 播放中/搜索/TOC 弹层/翻页动画中不响应。
+ * 2.9.3 (2026-07-14): [FEATURE+OPTIMIZE] 桌面端键盘翻页全模式生效 + TTS 提速 + 按钮点击反馈
+ *   1) [FIX] 键盘翻页"没反应"根因：2.9.2 将 ←/→ 快捷键强绑定 paginated 模式，而阅读器默认是 scroll 模式，
+ *      默认模式下按键被直接 return → 用户感知"没实现"。现改为全模式生效：paginated 走原整页翻通道，
+ *      scroll（默认）复用浮动面板的"上一章/下一章"导航（handlePrev/NextChapter），与 UI 按钮行为完全一致。
+ *   2) [OPTIMIZE] TTS 延迟优化：①ReaderPage 中 ireader_tts_noCache 默认由 true 改为 false，开启本地语音缓存
+ *      （优先复用后端已合成 WAV + IDB 缓存音频，告别"每次点击都重新合成≈5s"）；
+ *      ②TTSPlayer.init() 冷启动不再 await 网络取设置（用默认值立即建 <audio> 元素，设置后台异步刷新），
+ *      消除点击后的首响阻塞。
+ *   3) [FEATURE] 按钮点击反馈增强：播放按钮 loading 态显示旋转 spinner（"准备中…"），
+ *      播放/暂停/上一章/下一章/停止按钮加 active:scale 按压缩放，点击是否成功一目了然。
  */
 /**
  * 2.8.5 (2026-07-13): [BUGFIX] 修复暗色模式/翻页手势被吞/TOC目录不关联三大阅读器问题
