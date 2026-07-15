@@ -1798,12 +1798,46 @@ function stripHtml(html: string): string {
       // Start periodic TTS progress saving (also persists to localStorage)
       startTtsProgressSaver(bookId, currentChapter.id, currentChapter?.title || '', player);
 
-      // ⭐ 恢复播放位置：如果之前有保存的 TTS 进度且章节匹配，从指定分段开始播放
+      // ⭐ 从当前阅读位置推断朗读起始分段（解决"朗读与文章位置不同步"问题）
+      const totalChunks = player.getTotalChunks();
+      let startSegment = -1; // -1 表示未确定
+
+      // 1️⃣ 优先使用 savedTtsProgressRef（进入书籍时从 API 保存的进度）
       const savedTts = savedTtsProgressRef.current;
       if (savedTts && savedTts.chapterId === currentChapter.id && savedTts.segmentIndex > 0) {
-        await player.jumpToSegment(savedTts.segmentIndex);
+        startSegment = savedTts.segmentIndex;
+      }
+
+      // 2️⃣ 如果 savedTtsProgressRef 不可用或章节不匹配，尝试从当前阅读位置推算
+      if (startSegment < 0 && totalChunks > 0) {
+        let readRatio = 0;
+
+        if (book?.format === 'epub') {
+          // EPUB 模式：由 epub.js 管理翻页，无 scroll 容器可用，
+          // 保留 savedTtsProgressRef 逻辑；如果没有则从开头播
+          readRatio = 0;
+        } else if (readingMode === 'scroll') {
+          // TXT 滚动模式：用滚动比例推算
+          const container = txtScrollRef.current;
+          if (container && container.scrollHeight > container.clientHeight) {
+            readRatio = container.scrollTop / (container.scrollHeight - container.clientHeight);
+          }
+        } else {
+          // TXT 分页模式：用已保存的字符比例
+          readRatio = charOffsetRatioRef.current ?? 0;
+        }
+
+        if (readRatio > 0) {
+          // 将阅读比例映射到 TTS segment 索引（取整，但跳过最后几个段落到章节末尾的保护）
+          const estimatedIndex = Math.floor(readRatio * totalChunks);
+          startSegment = Math.min(estimatedIndex, totalChunks - 2); // 留最后一段给自然结束
+        }
+      }
+
+      if (startSegment > 0) {
+        await player.jumpToSegment(startSegment);
       } else {
-        // ⭐ 从第0段开始播放（无保存进度或章节不匹配）
+        // ⭐ 无有效位置 → 从第0段开始播放
         await player.play();
       }
     } catch (err) {
@@ -1868,9 +1902,9 @@ function stripHtml(html: string): string {
 
 
   const handleStopTTS = useCallback(() => {
-    // ⭐ 停止时不清除播放器内部进度（避免影响暂停/恢复），
-    //    但清除内存中的已保存进度 ref，使下次播放不从旧位置续播
-    savedTtsProgressRef.current = null;
+    // ⭐ 停止时保留 savedTtsProgressRef（保留位置信息，下次点击「朗读」时
+    //    可以从当前阅读位置恢复，而非从开头开始），
+    //    但清除 localStorage 持久化记录避免恢复横幅误判。
     // ⭐ 清除 localStorage 播放持久化记录（用户主动停止，不再需要恢复）
     try {
       localStorage.removeItem('ireader_last_playback');

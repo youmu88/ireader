@@ -61,7 +61,19 @@
  *      浮动菜单移除全屏遮罩阻断(改为单层背景+底部面板)；EPUB iframe 手势挂载增加 DOM 直查回退，
  *      gesture prop 拆分为 onLongPress(开菜单)+onTap(关菜单)。
  */
-export const APP_VERSION = '2.15.2';
+/**
+ * 2.15.3 (2026-07-15): [BUGFIX] 修复朗读与文章位置不同步 + 反复播放从开头开始
+ *   1) [FIX] 朗读位置不同步：handleStartTTS 新增从当前阅读位置推算 TTS 分段索引的逻辑。
+ *      TXT scroll 模式用滚动比例(可滚动高度)、分页模式用 charOffsetRatioRef、
+ *      映射到 player 的 totalChunks 计算起始分段，不再仅依赖过时的 savedTtsProgressRef。
+ *   2) [FIX] 重复播放从开头开始：handleStopTTS 不再清除 savedTtsProgressRef.current，
+ *      保留位置信息供下次点击「朗读」恢复；同时 handleStartTTS 中阅读位置推算逻辑
+ *      作为兜底，确保即使 savedTtsProgressRef 为空也能从正确位置开始朗读。
+ *   3) 加 34 行，复杂度不变（逻辑从"仅依赖静态保存值"升级为"实时推算 + 保存值兜底"）。
+ */
+
+
+export const APP_VERSION = '2.15.3';
 /**
  * 2.15.1 (2026-07-15): [FIX] 滑动翻页根因修复 — passive: true → false
  *   根因：touch 事件监听器的 passive:true 与 touch-action:none 矛盾，
