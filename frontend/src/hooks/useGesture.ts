@@ -143,10 +143,10 @@ export function createGestureDetector(handlers: GestureHandlers) {
       end(mouseEvent.clientX, mouseEvent.clientY, doc);
     };
 
-    target.addEventListener('touchstart', onTouchStart, { passive: true });
-    target.addEventListener('touchmove', onTouchMove, { passive: true });
-    target.addEventListener('touchend', onTouchEnd, { passive: true });
-    target.addEventListener('touchcancel', cancel, { passive: true });
+    target.addEventListener('touchstart', onTouchStart, { passive: false });
+    target.addEventListener('touchmove', onTouchMove, { passive: false });
+    target.addEventListener('touchend', onTouchEnd, { passive: false });
+    target.addEventListener('touchcancel', cancel, { passive: false });
     target.addEventListener('mousedown', onMouseDown);
     target.addEventListener('mousemove', onMouseMove);
     target.addEventListener('mouseup', onMouseUp);

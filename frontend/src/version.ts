@@ -61,7 +61,13 @@
  *      浮动菜单移除全屏遮罩阻断(改为单层背景+底部面板)；EPUB iframe 手势挂载增加 DOM 直查回退，
  *      gesture prop 拆分为 onLongPress(开菜单)+onTap(关菜单)。
  */
-export const APP_VERSION = '2.15.0';
+export const APP_VERSION = '2.15.1';
+/**
+ * 2.15.1 (2026-07-15): [FIX] 滑动翻页根因修复 — passive: true → false
+ *   根因：touch 事件监听器的 passive:true 与 touch-action:none 矛盾，
+ *   在移动端浏览器内核中导致 touchmove 坐标被冻结，swipe 检测 dx/dy 始终≈0。
+ *   修复：passive: true → false（4 处），让浏览器完整传递移动端 touch 序列。
+ */
 /**
  * 2.15.0 (2026-07-15): [REFACTOR] 菜单触发方式重构 + 手势系统简化
  *   1) 移除长按菜单：useGesture 删除 onLongPress + longPressTimer 状态机，EpubViewer 移除 onLongPress prop
