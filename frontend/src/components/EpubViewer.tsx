@@ -23,9 +23,11 @@ interface EpubViewerProps {
   pageControlRef?: React.MutableRefObject<{ prev: () => void; next: () => void } | null>;
   /** 暴露章节跳转控制——EPUB 模式点击目录时使用。接收章节的 spine index（从0开始） */
   chapterNavRef?: React.MutableRefObject<((chapterIndex: number) => Promise<void>) | null>;
-  /** 点击/触摸阅读区时回调（用于父层弹出浮动操作面板）。epub.js 的 iframe 会吞掉事件，故在此转发。
+  /** 长按阅读区时回调（弹出浮动操作面板）。epub.js 的 iframe 会吞掉事件，故在此转发。
    * 传入触摸坐标（可选），供菜单位置跟随 */
-  onTap?: (pos?: { x: number; y: number }) => void;
+  onLongPress?: (pos?: { x: number; y: number }) => void;
+  /** 点触阅读区时回调（关闭浮动面板）。 */
+  onTap?: () => void;
   /** EPUB iframe 内的文字选区变化，供父层复制按钮使用。 */
   onSelectionTextChange?: (text: string) => void;
 }
@@ -58,6 +60,7 @@ export default function EpubViewer({
   onLocationChange,
   pageControlRef,
   chapterNavRef,
+  onLongPress,
   onTap,
   onSelectionTextChange,
 }: EpubViewerProps) {
@@ -72,6 +75,8 @@ export default function EpubViewer({
   const initialCfiRef = useRef<string | null>(initialCfi ?? null);
   const onLocRef = useRef(onLocationChange);
   onLocRef.current = onLocationChange;
+  const onLongPressRef = useRef(onLongPress);
+  onLongPressRef.current = onLongPress;
   const onTapRef = useRef(onTap);
   onTapRef.current = onTap;
   const onSelectionTextChangeRef = useRef(onSelectionTextChange);
@@ -101,7 +106,10 @@ export default function EpubViewer({
     },
     onLongPress: (pos) => {
       onSelectionTextChangeRef.current?.(readEpubSelection());
-      onTapRef.current?.(pos);
+      onLongPressRef.current?.(pos);
+    },
+    onTap: () => {
+      onTapRef.current?.();
     },
   });
 
@@ -238,6 +246,14 @@ export default function EpubViewer({
         const raw = rendition!.getContents?.() as any;
         const list: Array<{ document: Document }> = (Array.isArray(raw) ? raw : [raw])
           .filter((content: any) => content?.document);
+
+        // 回退：getContents() 为空时直接查询 iframe DOM
+        if (!list.length) {
+          const iframe = el.querySelector('iframe');
+          if (iframe?.contentDocument) {
+            list.push({ document: iframe.contentDocument });
+          }
+        }
 
         if (!list.length) {
           if (attachGestureRetries < MAX_ATTACH_RETRIES) {

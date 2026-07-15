@@ -139,6 +139,8 @@ function ReaderPage() {
 
   // ── 悬浮UI控制（全屏阅读：点击屏幕显示/隐藏所有控件） ──
   const [showUi, setShowUi] = useState(false);
+  const showUiRef = useRef(false);
+  useEffect(() => { showUiRef.current = showUi; }, [showUi]);
   /** 长按菜单的触摸坐标，null 表示未打开。 */
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   /** TXT 或 EPUB iframe 中最后一次有效的文字选区。 */
@@ -199,9 +201,10 @@ const gesture = useGesture({
   },
   // 长按：TTS/搜索/目录打开时不弹菜单
   onLongPress: (pos) => openFloatMenu(pos),
-  // 短按：若目录已打开，点击阅读区只关闭目录
+  // 短按：若浮动菜单已打开，点击阅读区关闭菜单；若目录已打开也关闭目录
   onTap: () => {
-    if (showTocRef.current) setShowToc(false);
+    if (showUiRef.current) closeMenu();
+    else if (showTocRef.current) setShowToc(false);
   },
 });
 
@@ -2299,7 +2302,8 @@ function stripHtml(html: string): string {
             initialCfi={epubCfiRef.current}
             pageControlRef={epubPageControlRef}
             chapterNavRef={epubChapterNavRef}
-            onTap={openFloatMenu}
+            onLongPress={openFloatMenu}
+            onTap={closeMenu}
             onSelectionTextChange={setSelectedText}
             onLocationChange={(cfi) => {
               epubCfiRef.current = cfi;
@@ -2319,7 +2323,7 @@ function stripHtml(html: string): string {
             }}
             className={`flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto ${readingMode === 'scroll' ? 'overflow-y-auto' : 'overflow-hidden flex flex-col'}`}
             data-l-spacing={letterSpacing}
-            style={readingMode === 'paginated' ? { touchAction: 'none', overscrollBehavior: 'none' } : undefined}
+            style={readingMode === 'paginated' ? { touchAction: 'pan-y', overscrollBehavior: 'none' } : undefined}
           >
             {(displayChapter || currentChapter) && (
               <div className="mb-4">
@@ -2339,7 +2343,7 @@ function stripHtml(html: string): string {
                 fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
                 lineHeight,
                 letterSpacing: `${letterSpacing}em`,
-                ...(readingMode === 'paginated' ? { touchAction: 'none', overscrollBehavior: 'none' } : {}),
+                ...(readingMode === 'paginated' ? { touchAction: 'pan-y', overscrollBehavior: 'none' } : {}),
               }}
             >
               {chapterLoading ? (
@@ -2505,22 +2509,20 @@ function stripHtml(html: string): string {
           </div>
         )}
 
-        {/* ⏫ 悬浮操作面板：默认隐藏，点击阅读区显示 */}
+        {/* ⏫ 悬浮操作面板：默认隐藏，长按阅读区显示，点触阅读区/点击半透明背景关闭 */}
         {showUi && (
-          <div className="absolute inset-0 z-30 flex flex-col" onClick={closeMenu}>
-            {/* 半透明背景点击关闭 */}
-            <div className="absolute inset-0 bg-black/30" onClick={closeMenu} />
+          <>
+            {/* 半透明背景：仅覆盖阅读区，不吞事件——点击关闭菜单，但 pointer-events 仅作用于自身 */}
+            <div className="absolute inset-0 z-30 bg-black/30" onClick={closeMenu} />
 
-            <div className="flex-1 relative z-10" onClick={closeMenu} />
-
-            {/* 底部控制面板 — P2-1：水平跟随触摸点；阻止点击冒泡 */}
-            <div className="relative z-10 pointer-events-none"
-              style={menuPosition ? {
-                display: 'flex',
-                justifyContent: 'center',
-                paddingLeft: Math.max(0, Math.min(menuPosition.x - 160, window.innerWidth - 336)),
-              } : undefined}
-            >
+          {/* 底部控制面板 — P2-1：水平跟随触摸点；阻止点击冒泡 */}
+          <div className="absolute bottom-0 left-0 right-0 z-40 pointer-events-none"
+            style={menuPosition ? {
+              display: 'flex',
+              justifyContent: 'center',
+              paddingLeft: Math.max(0, Math.min(menuPosition.x - 160, window.innerWidth - 336)),
+            } : undefined}
+          >
               <div className="pointer-events-auto glass-bar rounded-2xl shadow-2xl mx-auto max-w-3xl animate-slide-up" onClick={(e) => e.stopPropagation()}>
                   <div className="p-5 space-y-4">
                     {/* ── 第一行：返回 + 搜索 + 书名 + 目录 ── */}
@@ -2848,8 +2850,8 @@ function stripHtml(html: string): string {
 
                 </div>
               </div>
-            </div>
           </div>
+          </>
         )}
       </div>
     </div>

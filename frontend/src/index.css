@@ -555,13 +555,15 @@ button, a, [role="button"] {
 .epub-viewer-canvas,
 .epub-viewer-canvas iframe {
   overscroll-behavior: contain;
-  touch-action: pan-x;
+  /* pan-y: 浏览器只接管纵向（文字选择拖拽 / scroll 模式竖滚），
+     横向手势不被原生滚动劫持，交给 JS gesture 检测器处理翻页 */
+  touch-action: pan-y;
 }
 .epub-viewer-canvas iframe {
   overflow: hidden;
 }
-/* TXT 翻页（横向滚动分页）容器：同样锁定纵向，只保留横向翻页 */
+/* TXT 翻页容器：同上，纵向穿透（文字选择），横向由 JS 手势接管 */
 .paginated-scroll {
-  touch-action: pan-x;
+  touch-action: pan-y;
   overscroll-behavior: contain;
 }
