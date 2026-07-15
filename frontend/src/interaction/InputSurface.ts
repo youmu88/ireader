@@ -7,7 +7,16 @@ function point(x: number, y: number, timeStamp: number): InteractionPoint {
 }
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && Boolean(target.closest('button, a, input, textarea, select, [contenteditable="true"], [data-gesture-ignore]'));
+  const candidate = target as { closest?: (selector: string) => Element | null } | null;
+  return Boolean(candidate?.closest?.('button, a, input, textarea, select, [contenteditable="true"], [data-gesture-ignore]'));
+}
+
+function ownerDocument(target: InputTarget): Document | null {
+  return target.nodeType === 9 ? target as Document : target.ownerDocument;
+}
+
+function selectionText(target: InputTarget): string {
+  return ownerDocument(target)?.defaultView?.getSelection()?.toString().trim() ?? '';
 }
 
 export class InputSurface {
@@ -22,13 +31,14 @@ export class InputSurface {
   mount(): void {
     if (this.abortController) return;
     const abortController = new AbortController();
-    const options = { passive: true, signal: abortController.signal } as AddEventListenerOptions;
+    const passiveOptions = { passive: true, signal: abortController.signal } as AddEventListenerOptions;
+    const activeOptions = { passive: false, signal: abortController.signal } as AddEventListenerOptions;
     this.abortController = abortController;
 
-    this.target.addEventListener('touchstart', this.onTouchStart, options);
-    this.target.addEventListener('touchmove', this.onTouchMove, options);
-    this.target.addEventListener('touchend', this.onTouchEnd, options);
-    this.target.addEventListener('touchcancel', this.onCancel, options);
+    this.target.addEventListener('touchstart', this.onTouchStart, passiveOptions);
+    this.target.addEventListener('touchmove', this.onTouchMove, activeOptions);
+    this.target.addEventListener('touchend', this.onTouchEnd, passiveOptions);
+    this.target.addEventListener('touchcancel', this.onCancel, passiveOptions);
     this.target.addEventListener('mousedown', this.onMouseDown, { signal: abortController.signal });
     this.target.addEventListener('mousemove', this.onMouseMove, { signal: abortController.signal });
     this.target.addEventListener('mouseup', this.onMouseUp, { signal: abortController.signal });
@@ -52,12 +62,17 @@ export class InputSurface {
   private onTouchMove = (event: Event): void => {
     const touchEvent = event as TouchEvent;
     if (touchEvent.touches.length !== 1) return this.controller.cancel();
+    if (selectionText(this.target)) return this.controller.cancel();
     const touch = touchEvent.touches[0];
     this.controller.move(point(touch.clientX, touch.clientY, touchEvent.timeStamp));
+    if (this.controller.getState() === 'swiping' && touchEvent.cancelable) {
+      touchEvent.preventDefault();
+    }
   };
 
   private onTouchEnd = (event: Event): void => {
     const touchEvent = event as TouchEvent;
+    if (selectionText(this.target)) return this.controller.cancel();
     const touch = touchEvent.changedTouches[0];
     if (!touch) return this.controller.cancel();
     this.controller.end(point(touch.clientX, touch.clientY, touchEvent.timeStamp));

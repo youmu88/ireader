@@ -141,10 +141,6 @@ function ReaderPage() {
   const [showUi, setShowUi] = useState(false);
   const showUiRef = useRef(false);
   useEffect(() => { showUiRef.current = showUi; }, [showUi]);
-  /** 点选模式是显式交互状态：开启后允许原生选区并暂停滑动翻页。 */
-  const [selectionMode, setSelectionMode] = useState(false);
-  const selectionModeRef = useRef(false);
-  useEffect(() => { selectionModeRef.current = selectionMode; }, [selectionMode]);
   /** TXT 或 EPUB iframe 中最后一次有效的文字选区。 */
   const [selectedText, setSelectedText] = useState('');
   const [copiedToast, setCopiedToast] = useState(false);
@@ -176,7 +172,7 @@ function ReaderPage() {
 
 
   // ── 阅读区交互装配 ──
-  // 菜单仅由左下角按钮触发；滑动和文字点选通过显式模式互斥。
+  // 菜单仅由左下角按钮触发；原生选区存在时 InputSurface 自动暂停滑动。
   const toggleFloatMenu = useCallback(() => {
     if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current) return;
     if (book?.format === 'txt') {
@@ -190,7 +186,6 @@ function ReaderPage() {
   const interaction = useReaderInteraction({
     enabled: () => (
       readingModeRef.current === 'paginated'
-      && !selectionModeRef.current
       && !showUiRef.current
       && !showTocRef.current
       && !isPageTurningRef.current
@@ -2206,7 +2201,7 @@ function stripHtml(html: string): string {
   }
 
   return (
-         <div className={`reader-root h-[100dvh] ${selectionMode ? 'reader-selection-mode' : ''}`} style={{background: 'var(--color-bg)'}}>
+         <div className="reader-root h-[100dvh]" style={{background: 'var(--color-bg)'}}>
       <div className="h-full relative">
 
         {/* Reader Content - full screen, no fixed toolbar */}
@@ -2309,7 +2304,6 @@ function stripHtml(html: string): string {
             pageControlRef={epubPageControlRef}
             chapterNavRef={epubChapterNavRef}
             onTap={closeMenu}
-            selectionMode={selectionMode}
             interactionBlocked={showUi || showToc || showSearch || ttsState !== 'idle'}
             onSelectionTextChange={setSelectedText}
             onLocationChange={(cfi) => {
@@ -2764,21 +2758,9 @@ function stripHtml(html: string): string {
                      )}
                   </div>
 
-                  {/* ── 点选与复制 ── */}
+                  {/* ── 复制选中文字 ── */}
                   <div className="pt-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
-                    <div className="flex items-center justify-center gap-2">
-                      <button
-                        onClick={() => {
-                          setSelectionMode(true);
-                          setSelectedText('');
-                          closeMenu();
-                        }}
-                        className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
-                        style={{ background: selectionMode ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)', color: selectionMode ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}
-                        title="进入文字点选模式，滑动翻页将暂时停用"
-                      >
-                        点选
-                      </button>
+                    <div className="flex items-center justify-center">
                       <button
                         onClick={async () => {
                           const text = selectedText || window.getSelection()?.toString().trim() || '';
@@ -2786,7 +2768,6 @@ function stripHtml(html: string): string {
                           try {
                             await navigator.clipboard.writeText(text);
                             setCopiedToast(true);
-                            setSelectionMode(false);
                             setSelectedText('');
                             window.getSelection()?.removeAllRanges();
                             closeMenu();
@@ -2798,25 +2779,11 @@ function stripHtml(html: string): string {
                         disabled={!selectedText && !window.getSelection()?.toString().trim()}
                         className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active disabled:opacity-40 disabled:cursor-not-allowed"
                         style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                        title={selectedText ? `复制已选中的 ${selectedText.length} 个字符` : '请先点选文字'}
+                        title={selectedText ? `复制已选中的 ${selectedText.length} 个字符` : '请先长按选择文字'}
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                         复制
                       </button>
-                      {selectionMode && (
-                        <button
-                          onClick={() => {
-                            setSelectionMode(false);
-                            setSelectedText('');
-                            window.getSelection()?.removeAllRanges();
-                            closeMenu();
-                          }}
-                          className="text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
-                          style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                        >
-                          取消点选
-                        </button>
-                      )}
                     </div>
                   </div>
 

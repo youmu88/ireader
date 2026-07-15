@@ -549,9 +549,9 @@ button, a, [role="button"] {
 
 /* ════════════════════════════════════════
    阅读交互策略
-   - 普通模式：纵向浏览器行为保留，横向手势由 InteractionController 识别
-   - 点选模式：暂停翻页并显式开放原生文字选择
-   - EPUB iframe 内部的同名策略由 EpubViewer theme 注入
+   - 正文始终保留浏览器原生文字选择与复制能力
+   - touchmove 仅在 InteractionController 确认横滑后 preventDefault
+   - EPUB iframe 内部采用同一策略，由 EpubViewer theme 注入
    ════════════════════════════════════════ */
 .epub-viewer-canvas,
 .epub-viewer-canvas iframe,
@@ -562,14 +562,8 @@ button, a, [role="button"] {
 .epub-viewer-canvas iframe {
   overflow: hidden;
 }
-.reader-root:not(.reader-selection-mode) .paginated-scroll,
-.reader-root:not(.reader-selection-mode) .paginated-scroll * {
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-}
-.reader-selection-mode .paginated-scroll,
-.reader-selection-mode .paginated-scroll * {
+.paginated-scroll,
+.paginated-scroll * {
   user-select: text;
   -webkit-user-select: text;
   -webkit-touch-callout: default;

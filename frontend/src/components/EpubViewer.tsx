@@ -26,8 +26,6 @@ interface EpubViewerProps {
   chapterNavRef?: React.MutableRefObject<((chapterIndex: number) => Promise<void>) | null>;
   /** 点触阅读区时回调（关闭浮动面板）。 */
   onTap?: () => void;
-  /** 点选模式开启时保留原生文字选择并禁用滑动翻页。 */
-  selectionMode?: boolean;
   /** 菜单、目录或其他浮层打开时暂停阅读手势。 */
   interactionBlocked?: boolean;
   /** EPUB iframe 内的文字选区变化，供父层复制按钮使用。 */
@@ -63,7 +61,6 @@ export default function EpubViewer({
   pageControlRef,
   chapterNavRef,
   onTap,
-  selectionMode = false,
   interactionBlocked = false,
   onSelectionTextChange,
 }: EpubViewerProps) {
@@ -80,8 +77,6 @@ export default function EpubViewer({
   onLocRef.current = onLocationChange;
   const onTapRef = useRef(onTap);
   onTapRef.current = onTap;
-  const selectionModeRef = useRef(selectionMode);
-  selectionModeRef.current = selectionMode;
   const interactionBlockedRef = useRef(interactionBlocked);
   interactionBlockedRef.current = interactionBlocked;
   const readingModeRef = useRef(readingMode);
@@ -99,7 +94,7 @@ export default function EpubViewer({
   }
 
   const interaction = useReaderInteraction({
-    enabled: () => readingModeRef.current === 'paginated' && !selectionModeRef.current && !interactionBlockedRef.current,
+    enabled: () => readingModeRef.current === 'paginated' && !interactionBlockedRef.current,
     navigate: async (direction) => {
       const changed = await navigatorRef.current!.navigate(direction);
       if (!changed) return;
@@ -116,8 +111,8 @@ export default function EpubViewer({
   themeRef.current = theme;
 
   // 用 ref 持有最新样式参数，供 rendition 钩子读取，避免重建
-  const styleRef = useRef({ fontSize, fontFamily, lineHeight, letterSpacing, theme, selectionMode });
-  styleRef.current = { fontSize, fontFamily, lineHeight, letterSpacing, theme, selectionMode };
+  const styleRef = useRef({ fontSize, fontFamily, lineHeight, letterSpacing, theme });
+  styleRef.current = { fontSize, fontFamily, lineHeight, letterSpacing, theme };
 
   // ── 初始化 Book + Rendition（仅一次）──
   useEffect(() => {
@@ -189,7 +184,7 @@ export default function EpubViewer({
       renditionRef.current = rendition;
 
       const applyTheme = () => {
-        const { fontSize: fs, fontFamily: ff, lineHeight: lh, letterSpacing: ls, theme: t, selectionMode: selecting } = styleRef.current;
+        const { fontSize: fs, fontFamily: ff, lineHeight: lh, letterSpacing: ls, theme: t } = styleRef.current;
         const isDark = t === 'dark';
         rendition!.themes.register(THEME_NAME, {
           // 根因修复：epub.js 的 iframe 文档是 <html><body>，翻页平移时右侧露出的空白列
@@ -205,15 +200,15 @@ export default function EpubViewer({
             'letter-spacing': `${ls}em !important`,
             'background-color': isDark ? 'hsl(0, 0%, 8%)' : 'hsl(0, 0%, 98%)',
             'color': isDark ? 'hsl(0, 0%, 93%)' : 'hsl(0, 0%, 10%)',
-            'touch-action': 'pan-y',
-            'user-select': selecting ? 'text' : 'none',
-            '-webkit-user-select': selecting ? 'text' : 'none',
-            '-webkit-touch-callout': selecting ? 'default' : 'none',
+'touch-action': 'pan-y',
+            'user-select': 'text',
+            '-webkit-user-select': 'text',
+            '-webkit-touch-callout': 'default',
           },
           'p': {
             'margin': '0 0 0.8em 0',
-            'user-select': selecting ? 'text' : 'none',
-            '-webkit-user-select': selecting ? 'text' : 'none',
+            'user-select': 'text',
+            '-webkit-user-select': 'text',
           },
           'img': { 'max-width': '100%', 'height': 'auto' },
         });
@@ -346,14 +341,6 @@ export default function EpubViewer({
     r.flow(readingMode === 'paginated' ? 'paginated' : 'scrolled-doc');
   }, [readingMode]);
 
-  useEffect(() => {
-    if (selectionMode) return;
-    for (const doc of epubDocumentsRef.current) {
-      doc.defaultView?.getSelection()?.removeAllRanges();
-    }
-    onSelectionTextChangeRef.current?.('');
-  }, [selectionMode]);
-
   // ── 样式变化 + 暗色模式切换：themes 实时生效，不重建 ──
   useEffect(() => {
     const r = renditionRef.current;
@@ -370,20 +357,20 @@ export default function EpubViewer({
         'letter-spacing': `${letterSpacing}em !important`,
         'background-color': isDark ? 'hsl(0, 0%, 8%)' : 'hsl(0, 0%, 98%)',
         'color': isDark ? 'hsl(0, 0%, 93%)' : 'hsl(0, 0%, 10%)',
-        'touch-action': 'pan-y',
-        'user-select': selectionMode ? 'text' : 'none',
-        '-webkit-user-select': selectionMode ? 'text' : 'none',
-        '-webkit-touch-callout': selectionMode ? 'default' : 'none',
+'touch-action': 'pan-y',
+        'user-select': 'text',
+        '-webkit-user-select': 'text',
+        '-webkit-touch-callout': 'default',
       },
       'p': {
         'margin': '0 0 0.8em 0',
-        'user-select': selectionMode ? 'text' : 'none',
-        '-webkit-user-select': selectionMode ? 'text' : 'none',
+        'user-select': 'text',
+        '-webkit-user-select': 'text',
       },
       'img': { 'max-width': '100%', 'height': 'auto' },
     });
     r.themes.select(THEME_NAME);
-  }, [fontSize, fontFamily, lineHeight, letterSpacing, theme, selectionMode]);
+  }, [fontSize, fontFamily, lineHeight, letterSpacing, theme]);
 
   if (error) {
     return (
