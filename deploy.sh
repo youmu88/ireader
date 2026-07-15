@@ -475,8 +475,8 @@ do_deploy() {
     log "从源码复制 backend/node_modules (快速)..."
     cp -r "${SOURCE_DIR}/backend/node_modules" "${APP_DIR}/backend/"
     # 仅编译原生模块（better-sqlite3 需要按目标机 Node ABI 编译）
-    log "强制编译原生模块 (better-sqlite3)..."
-    if ! (cd "${APP_DIR}/backend" && pnpm rebuild better-sqlite3 --force 2>&1 | while IFS= read -r line; do log "  rebuild: ${line}"; done); then
+    log "编译原生模块 (better-sqlite3)..."
+    if ! (cd "${APP_DIR}/backend" && pnpm rebuild better-sqlite3 2>&1 | while IFS= read -r line; do log "  rebuild: ${line}"; done); then
       log "❌ better-sqlite3 重编译失败"
       exit 1
     fi
@@ -491,7 +491,7 @@ do_deploy() {
       log "❌ backend 生产依赖安装失败"
       exit 1
     fi
-    if ! (cd "${APP_DIR}/backend" && pnpm rebuild better-sqlite3 --force 2>&1 | while IFS= read -r line; do log "  rebuild: ${line}"; done); then
+    if ! (cd "${APP_DIR}/backend" && pnpm rebuild better-sqlite3 2>&1 | while IFS= read -r line; do log "  rebuild: ${line}"; done); then
       log "❌ better-sqlite3 重编译失败"
       exit 1
     fi
