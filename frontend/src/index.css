@@ -548,20 +548,29 @@ button, a, [role="button"] {
 }
 
 /* ════════════════════════════════════════
-   翻页模式：禁止浏览器接管任何手势（touch-action: none）
-   - JS 全权接管 swipe/tap 检测，杜绝浏览器原生滚动劫持
-   - 左右滑动翻页 + 点击/图标菜单均由 useGesture 统一处理
+   阅读交互策略
+   - 普通模式：纵向浏览器行为保留，横向手势由 InteractionController 识别
+   - 点选模式：暂停翻页并显式开放原生文字选择
+   - EPUB iframe 内部的同名策略由 EpubViewer theme 注入
    ════════════════════════════════════════ */
 .epub-viewer-canvas,
-.epub-viewer-canvas iframe {
+.epub-viewer-canvas iframe,
+.paginated-scroll {
   overscroll-behavior: contain;
-  touch-action: none;
+  touch-action: pan-y;
 }
 .epub-viewer-canvas iframe {
   overflow: hidden;
 }
-/* TXT 翻页容器：禁止浏览器接管手势，JS 全权处理 */
-.paginated-scroll {
-  touch-action: none;
-  overscroll-behavior: contain;
+.reader-root:not(.reader-selection-mode) .paginated-scroll,
+.reader-root:not(.reader-selection-mode) .paginated-scroll * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.reader-selection-mode .paginated-scroll,
+.reader-selection-mode .paginated-scroll * {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }

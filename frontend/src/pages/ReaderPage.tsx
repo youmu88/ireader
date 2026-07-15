@@ -22,7 +22,7 @@ import {
 } from '../services/ttsPlayer';
 import type { BookCacheDetailedStats } from '../services/offlineCacheService';
 import EpubViewer from '../components/EpubViewer';
-import { useGesture } from '../hooks/useGesture';
+import { useReaderInteraction } from '../interaction/useReaderInteraction';
 import { useAuth } from '../contexts/AuthContext';
 import { getToken } from '../services/authService';
 
@@ -141,6 +141,10 @@ function ReaderPage() {
   const [showUi, setShowUi] = useState(false);
   const showUiRef = useRef(false);
   useEffect(() => { showUiRef.current = showUi; }, [showUi]);
+  /** 点选模式是显式交互状态：开启后允许原生选区并暂停滑动翻页。 */
+  const [selectionMode, setSelectionMode] = useState(false);
+  const selectionModeRef = useRef(false);
+  useEffect(() => { selectionModeRef.current = selectionMode; }, [selectionMode]);
   /** TXT 或 EPUB iframe 中最后一次有效的文字选区。 */
   const [selectedText, setSelectedText] = useState('');
   const [copiedToast, setCopiedToast] = useState(false);
@@ -153,6 +157,7 @@ function ReaderPage() {
   const loadingNextChapterRef = useRef(false);
   const bottomSentinelRef = useRef<HTMLDivElement>(null);
   const goToNextChapterRef = useRef<((_fromAutoScroll?: boolean) => Promise<void>) | null>(null);
+  const goToPrevChapterRef = useRef<(() => Promise<void>) | null>(null);
   /** navigateToChapter ref — 用于翻页动画回调中访问（避免闭包过期） */
   const navigateToChapterRef = useRef<((chapter: Chapter, _append?: boolean) => Promise<void>) | null>(null);
   /** TTS 自动进入下一章 — ref 包装避免闭包过期 */
@@ -170,38 +175,35 @@ function ReaderPage() {
 
 
 
-  // ── 统一手势入口（gesture hub）──
-// 集中管理阅读区手势：滑动翻页、点击关闭目录。
-// 不再散落在 handleSwipeStart/End 各处；阈值由 GESTURE_CONFIG 统一。
-// 说明：epub 模式的滑动已由 EpubViewer 内部（iframe 内）用同一 useGesture 接管，
-//       故此处外层只负责 txt 模式 + tap 关闭目录（外层 touch 进不了 iframe，互不冲突）。
-// 菜单不再由长按触发，改为左下角半透明汉堡图标（☰）点击弹出。
-const toggleFloatMenu = useCallback(() => {
-  if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current) return;
-  if (book?.format === 'txt') {
-    setSelectedText(window.getSelection()?.toString().trim() ?? '');
-  }
-  setShowUi(v => !v);
-}, [book?.format]);
+  // ── 阅读区交互装配 ──
+  // 菜单仅由左下角按钮触发；滑动和文字点选通过显式模式互斥。
+  const toggleFloatMenu = useCallback(() => {
+    if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current) return;
+    if (book?.format === 'txt') {
+      setSelectedText(window.getSelection()?.toString().trim() ?? '');
+    }
+    setShowUi(v => !v);
+  }, [book?.format]);
 
-const closeMenu = useCallback(() => {
-  setShowUi(false);
-}, []);
+  const closeMenu = useCallback(() => setShowUi(false), []);
 
-const gesture = useGesture({
-  // 左右滑动翻页（仅 txt 模式；epub 模式的翻页在 EpubViewer 内处理）
-  onSwipe: (dir) => {
-    if (readingModeRef.current !== 'paginated' || isPageTurningRef.current) return;
-    if (ttsStateRef.current !== 'idle' || showSearchRef.current) return;
-    if (book?.format === 'epub') return; // epub 翻页在 iframe 内处理
-    performPageTurnRef.current(dir === 'left' ? 'next' : 'prev');
-  },
-  // 短按：若浮动菜单已打开，点击阅读区关闭菜单；若目录已打开也关闭目录
-  onTap: () => {
-    if (showUiRef.current) closeMenu();
-    else if (showTocRef.current) setShowToc(false);
-  },
-});
+  const interaction = useReaderInteraction({
+    enabled: () => (
+      readingModeRef.current === 'paginated'
+      && !selectionModeRef.current
+      && !showUiRef.current
+      && !showTocRef.current
+      && !isPageTurningRef.current
+      && ttsStateRef.current === 'idle'
+      && !showSearchRef.current
+      && book?.format === 'txt'
+    ),
+    navigate: (direction) => performPageTurnRef.current(direction === 'next' ? 'next' : 'prev'),
+    tap: () => {
+      if (showUiRef.current) closeMenu();
+      else if (showTocRef.current) setShowToc(false);
+    },
+  });
 
 /** 打开目录时自动滚动到当前章节位置 */
 useEffect(() => {
@@ -235,13 +237,26 @@ useEffect(() => {
   const showTocRef = useRef(false);
   useEffect(() => { showTocRef.current = showToc; }, [showToc]);
 
-  /** 执行翻页 — ref 包装，供统一手势入口（useGesture）与键盘快捷键复用 */
-  // TXT 模式翻页：直接走章节导航（EPUB 由 EpubViewer 内部处理，不在此调用）
+  /** TXT 统一分页出口：优先移动一页，只在当前章节分页边界时跨章。 */
   const performPageTurnRef = useRef<(direction: 'prev' | 'next') => Promise<void>>(async (direction) => {
     setIsPageTurning(true);
     try {
-      if (direction === 'next') await goToNextChapter();
-      else await goToPrevChapter();
+      const container = paginatedScrollRef.current;
+      if (!container) return;
+      const pageWidth = Math.max(1, container.clientWidth);
+      const pages = Math.max(1, Math.ceil(container.scrollWidth / pageWidth));
+      const current = Math.max(0, Math.min(pages - 1, Math.round(container.scrollLeft / pageWidth)));
+      const target = direction === 'next' ? current + 1 : current - 1;
+
+      if (target >= 0 && target < pages) {
+        container.scrollTo({ left: target * pageWidth, behavior: 'smooth' });
+        setPageIndex(target);
+        charOffsetRatioRef.current = pages > 1 ? target / (pages - 1) : 0;
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 280));
+        return;
+      }
+      if (direction === 'next') await goToNextChapterRef.current?.();
+      else await goToPrevChapterRef.current?.();
     } finally {
       setIsPageTurning(false);
     }
@@ -1327,6 +1342,7 @@ function stripHtml(html: string): string {
       await navigateToChapter(chapters[idx - 1]);
     }
   };
+  goToPrevChapterRef.current = goToPrevChapter;
 
   /**
    * TTS 自动进入下一章：严格单章播放模式
@@ -2190,18 +2206,13 @@ function stripHtml(html: string): string {
   }
 
   return (
-         <div className="reader-root h-[100dvh]" style={{background: 'var(--color-bg)'}}>
+         <div className={`reader-root h-[100dvh] ${selectionMode ? 'reader-selection-mode' : ''}`} style={{background: 'var(--color-bg)'}}>
       <div className="h-full relative">
 
         {/* Reader Content - full screen, no fixed toolbar */}
         <div className="h-full flex flex-col">
           <div
-            ref={(el) => {
-              if (el && !(el as HTMLElement & { __gestureAttached?: boolean }).__gestureAttached) {
-                (el as HTMLElement & { __gestureAttached?: boolean }).__gestureAttached = true;
-                gesture.attachToElement(el);
-              }
-            }}
+            ref={interaction.attachElement}
             className="flex-1 flex overflow-hidden relative"
           >
         {/* TOC Sidebar */}
@@ -2298,6 +2309,8 @@ function stripHtml(html: string): string {
             pageControlRef={epubPageControlRef}
             chapterNavRef={epubChapterNavRef}
             onTap={closeMenu}
+            selectionMode={selectionMode}
+            interactionBlocked={showUi || showToc || showSearch || ttsState !== 'idle'}
             onSelectionTextChange={setSelectedText}
             onLocationChange={(cfi) => {
               epubCfiRef.current = cfi;
@@ -2317,7 +2330,7 @@ function stripHtml(html: string): string {
             }}
             className={`flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto ${readingMode === 'scroll' ? 'overflow-y-auto' : 'overflow-hidden flex flex-col'}`}
             data-l-spacing={letterSpacing}
-            style={readingMode === 'paginated' ? { touchAction: 'pan-y', overscrollBehavior: 'none' } : undefined}
+            style={readingMode === 'paginated' ? { overscrollBehavior: 'none' } : undefined}
           >
             {(displayChapter || currentChapter) && (
               <div className="mb-4">
@@ -2337,7 +2350,7 @@ function stripHtml(html: string): string {
                 fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
                 lineHeight,
                 letterSpacing: `${letterSpacing}em`,
-                ...(readingMode === 'paginated' ? { touchAction: 'pan-y', overscrollBehavior: 'none' } : {}),
+                ...(readingMode === 'paginated' ? { overscrollBehavior: 'none' } : {}),
               }}
             >
               {chapterLoading ? (
@@ -2751,9 +2764,21 @@ function stripHtml(html: string): string {
                      )}
                   </div>
 
-                  {/* ── 复制选中文字 ── */}
+                  {/* ── 点选与复制 ── */}
                   <div className="pt-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
-                    <div className="flex items-center justify-center">
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => {
+                          setSelectionMode(true);
+                          setSelectedText('');
+                          closeMenu();
+                        }}
+                        className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
+                        style={{ background: selectionMode ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)', color: selectionMode ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}
+                        title="进入文字点选模式，滑动翻页将暂时停用"
+                      >
+                        点选
+                      </button>
                       <button
                         onClick={async () => {
                           const text = selectedText || window.getSelection()?.toString().trim() || '';
@@ -2761,6 +2786,9 @@ function stripHtml(html: string): string {
                           try {
                             await navigator.clipboard.writeText(text);
                             setCopiedToast(true);
+                            setSelectionMode(false);
+                            setSelectedText('');
+                            window.getSelection()?.removeAllRanges();
                             closeMenu();
                             setTimeout(() => setCopiedToast(false), 2000);
                           } catch {
@@ -2770,11 +2798,25 @@ function stripHtml(html: string): string {
                         disabled={!selectedText && !window.getSelection()?.toString().trim()}
                         className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active disabled:opacity-40 disabled:cursor-not-allowed"
                         style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                        title={selectedText ? `复制已选中的 ${selectedText.length} 个字符` : '请先选择文字'}
+                        title={selectedText ? `复制已选中的 ${selectedText.length} 个字符` : '请先点选文字'}
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                         复制
                       </button>
+                      {selectionMode && (
+                        <button
+                          onClick={() => {
+                            setSelectionMode(false);
+                            setSelectedText('');
+                            window.getSelection()?.removeAllRanges();
+                            closeMenu();
+                          }}
+                          className="text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
+                          style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                        >
+                          取消点选
+                        </button>
+                      )}
                     </div>
                   </div>
 
