@@ -474,13 +474,31 @@ do_deploy() {
   if [ -d "${SOURCE_DIR}/backend/node_modules" ]; then
     log "从源码复制 backend/node_modules (快速)..."
     cp -r "${SOURCE_DIR}/backend/node_modules" "${APP_DIR}/backend/"
-    # 仅编译原生模块（better-sqlite3 需要编译出 .node 文件）
-    log "编译原生模块 (pnpm rebuild)..."
-    cd "${APP_DIR}/backend" && pnpm rebuild 2>&1 | while IFS= read -r line; do log "  rebuild: ${line}"; done
+    # 仅编译原生模块（better-sqlite3 需要按目标机 Node ABI 编译）
+    log "强制编译原生模块 (better-sqlite3)..."
+    if ! (cd "${APP_DIR}/backend" && pnpm rebuild better-sqlite3 --force 2>&1 | while IFS= read -r line; do log "  rebuild: ${line}"; done); then
+      log "❌ better-sqlite3 重编译失败"
+      exit 1
+    fi
+    if ! (cd "${APP_DIR}/backend" && node -e "require('better-sqlite3'); console.log('better-sqlite3 ABI 校验通过')" 2>&1 | while IFS= read -r line; do log "  native-check: ${line}"; done); then
+      log "❌ better-sqlite3 ABI 校验失败，请确认部署机 Node.js 与编译环境一致"
+      exit 1
+    fi
     cd "${SOURCE_DIR}"
   else
     log "源码无 node_modules，执行 pnpm install --prod..."
-    cd "${APP_DIR}/backend" && pnpm install --prod 2>&1 | while IFS= read -r line; do log "  pnpm: ${line}"; done
+    if ! (cd "${APP_DIR}/backend" && pnpm install --prod 2>&1 | while IFS= read -r line; do log "  pnpm: ${line}"; done); then
+      log "❌ backend 生产依赖安装失败"
+      exit 1
+    fi
+    if ! (cd "${APP_DIR}/backend" && pnpm rebuild better-sqlite3 --force 2>&1 | while IFS= read -r line; do log "  rebuild: ${line}"; done); then
+      log "❌ better-sqlite3 重编译失败"
+      exit 1
+    fi
+    if ! (cd "${APP_DIR}/backend" && node -e "require('better-sqlite3'); console.log('better-sqlite3 ABI 校验通过')" 2>&1 | while IFS= read -r line; do log "  native-check: ${line}"; done); then
+      log "❌ better-sqlite3 ABI 校验失败，请确认部署机 Node.js 与编译环境一致"
+      exit 1
+    fi
     cd "${SOURCE_DIR}"
   fi
 
