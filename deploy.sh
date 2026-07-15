@@ -473,7 +473,11 @@ do_deploy() {
   # --prefer-offline 在无缓存时仍然会触发网络请求导致超时，故改此方案。
   if [ -d "${SOURCE_DIR}/backend/node_modules" ]; then
     log "从源码复制 backend/node_modules (快速)..."
-    cp -r "${SOURCE_DIR}/backend/node_modules" "${APP_DIR}/backend/"
+    # 必须用 -R（大写）而非 -r（小写）：
+    # macOS cp -r 会跟随符号链接，破坏 pnpm 的虚拟存储结构，
+    # 导致间接依赖（如 epub → fast-xml-parser）丢失。
+    # cp -R 保留符号链接，维持 pnpm .pnpm/ 虚拟存储完整性。
+    cp -R "${SOURCE_DIR}/backend/node_modules" "${APP_DIR}/backend/"
     # 仅编译原生模块（better-sqlite3 需要按目标机 Node ABI 编译）
     log "编译原生模块 (better-sqlite3)..."
     if ! (cd "${APP_DIR}/backend" && pnpm rebuild better-sqlite3 2>&1 | while IFS= read -r line; do log "  rebuild: ${line}"; done); then
