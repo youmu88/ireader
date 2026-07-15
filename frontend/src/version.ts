@@ -61,7 +61,7 @@
  *      浮动菜单移除全屏遮罩阻断(改为单层背景+底部面板)；EPUB iframe 手势挂载增加 DOM 直查回退，
  *      gesture prop 拆分为 onLongPress(开菜单)+onTap(关菜单)。
  */
-export const APP_VERSION = '2.15.1';
+export const APP_VERSION = '2.15.2';
 /**
  * 2.15.1 (2026-07-15): [FIX] 滑动翻页根因修复 — passive: true → false
  *   根因：touch 事件监听器的 passive:true 与 touch-action:none 矛盾，
@@ -218,4 +218,21 @@ export const APP_VERSION = '2.15.1';
  *   2) 修复：在 themes 注册处（applyTheme 初始化 + 样式变化 effect 两处）均给 'html' 追加与 body
  *      同色的 background-color，翻页露出的空白列与页面同色，白条消失。这是修根（让露出区域颜色
  *      正确），非在父层加遮挡补丁，复杂度不变。
+ */
+
+/**
+ * 2.15.2 (2026-07-15): [BUGFIX] 修复登录页点击「离线使用」后卡死在「加载中…」无法返回/退出
+ *   1) 根因：AuthProvider 的认证初始化 useEffect 依赖为 [handleUnauthorized, navigate]，永远不变，
+ *      仅在组件挂载时运行一次。登录页点击「离线使用」调用 enterOfflineMode()（置 isOfflineMode=true）
+ *      后再 navigate('/') 切换路由，AuthProvider 不重新执行初始化逻辑，读到旧 isOfflineMode=false
+ *      → 走 getCurrentUser() 的 axios 请求分支；离线态下该请求挂起/失败，最终 setLoading(false) 收尾，
+ *      但用户已卡在「加载中」且书架页离线无缓存时缺「返回登录页」入口，表现为持续加载、无法退出。
+ *   2) 修复（修根，非打补丁）：
+ *      - AuthContext：初始化 useEffect 依赖加入 isOfflineMode，使进入离线模式后重跑 → 立即
+ *        setLoading(false) 跳过认证；并统一「主动离线 / 物理断网」两条跳过认证分支，离线时清空残留登录态。
+ *      - LoginPage：离线按钮注释明确「先 enterOfflineMode 再 navigate」，确保 BookshelfPage 挂载时
+ *        AuthProvider 已处于离线态，ProtectedRoute 直接放行、走离线分支。
+ *      - BookshelfPage：离线无缓存的 error 态新增「返回登录页」按钮，离线登录用户有唯一逃生出口。
+ *   3) 验证：tsc --noEmit 全绿；新增 AuthContext 离线模式单测（离线态 loading 立即 false、不请求 API、
+ *      isAuthenticated 为真）；全量 vitest 46 项通过。
  */

@@ -50,20 +50,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // 初始化：设置拦截器 + 检查已有 Token
+  /**
+   * 认证初始化 / 离线态切换的统一处理。
+   * 关键修复：useEffect 依赖加入 isOfflineMode，使「进入离线模式」后能重新进入本逻辑，
+   * 立即 setLoading(false) 跳过认证，避免离线态下仍走 axios 请求分支并卡在「加载中」。
+   * 场景：
+   *  - 应用首次加载即离线（localStorage 残留离线标志 / 物理断网）→ 直接跳过认证
+   *  - 登录页点击「离线使用」→ enterOfflineMode 置 isOfflineMode=true → 本 effect 重跑 → 跳过认证
+   */
   useEffect(() => {
     navigateRef.current = navigate;
 
-    // ── 离线模式（用户主动选择）：完全跳过认证 ──
-    if (isOfflineMode) {
-      console.log('[Auth] 离线模式（用户主动选择）：跳过认证');
-      setLoading(false);
-      return;
-    }
-
-    // ── 离线策略（网络不可用）：完全跳过认证，允许访问本地缓存数据 ──
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    // ── 离线模式（用户主动选择 或 物理断网）：完全跳过认证 ──
+    if (isOfflineMode || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
       console.log('[Auth] 离线模式：跳过认证，允许访问本地缓存数据');
+      // 离线时清空任何残留登录态，保证 ProtectedRoute 仅靠 isOfflineMode 放行
+      setUser(null);
+      removeToken();
       setLoading(false);
       return;
     }
@@ -100,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       setLoading(false);
     }
-  }, [handleUnauthorized, navigate]);
+  }, [handleUnauthorized, navigate, isOfflineMode]);
 
   const login = useCallback(async (email: string, password: string): Promise<string | null> => {
     try {

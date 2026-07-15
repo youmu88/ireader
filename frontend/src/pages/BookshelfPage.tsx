@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, getLastPlaybackFromLocalStorage, type PlayerState } from '../services/ttsPlayer';
 import UploadQueue, { type UploadQueueStats, type UploadQueueHandle } from '../components/UploadQueue';
@@ -58,6 +58,7 @@ interface Category {
 
 export default function BookshelfPage() {
   const { isOfflineMode, exitOfflineMode } = useAuth();
+  const navigate = useNavigate();
   const [books, setBooks] = useState<Book[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -522,13 +523,21 @@ useEffect(() => {
       <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <p className="text-red-700 dark:text-red-300">{error}</p>
-          <div className="flex gap-2 mt-3">
+          <div className="flex flex-wrap gap-2 mt-3">
             <button
               onClick={loadData}
               className="px-4 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 text-sm font-medium"
             >
               重试
             </button>
+            {isOfflineMode && (
+              <button
+                onClick={() => navigate('/login', { replace: true })}
+                className="px-4 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium"
+              >
+                返回登录页
+              </button>
+            )}
             <button
               onClick={exitOfflineMode}
               className="px-4 py-1.5 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-sm font-medium"

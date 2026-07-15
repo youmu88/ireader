@@ -187,6 +187,9 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => {
+                // 先设置离线标志（localStorage + isOfflineMode 状态），再导航。
+                // 这样 BookshelfPage 挂载时 AuthProvider 已处于离线态，ProtectedRoute
+                // 直接放行、BookshelfPage 走离线分支，不会卡在「加载中」。
                 enterOfflineMode();
                 navigate('/', { replace: true });
               }}
