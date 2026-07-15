@@ -141,8 +141,6 @@ function ReaderPage() {
   const [showUi, setShowUi] = useState(false);
   const showUiRef = useRef(false);
   useEffect(() => { showUiRef.current = showUi; }, [showUi]);
-  /** 长按菜单的触摸坐标，null 表示未打开。 */
-  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   /** TXT 或 EPUB iframe 中最后一次有效的文字选区。 */
   const [selectedText, setSelectedText] = useState('');
   const [copiedToast, setCopiedToast] = useState(false);
@@ -173,22 +171,21 @@ function ReaderPage() {
 
 
   // ── 统一手势入口（gesture hub）──
-// 集中管理阅读区手势：滑动翻页、长按浮窗、点击关闭目录。
-// 不再散落在 handleSwipeStart/End、longPressStart/Cancel 各处；阈值由 GESTURE_CONFIG 统一。
-// 说明：epub 模式的滑动/长按已由 EpubViewer 内部（iframe 内）用同一 useGesture 接管，
+// 集中管理阅读区手势：滑动翻页、点击关闭目录。
+// 不再散落在 handleSwipeStart/End 各处；阈值由 GESTURE_CONFIG 统一。
+// 说明：epub 模式的滑动已由 EpubViewer 内部（iframe 内）用同一 useGesture 接管，
 //       故此处外层只负责 txt 模式 + tap 关闭目录（外层 touch 进不了 iframe，互不冲突）。
-const openFloatMenu = useCallback((pos?: { x: number; y: number }) => {
+// 菜单不再由长按触发，改为左下角半透明汉堡图标（☰）点击弹出。
+const toggleFloatMenu = useCallback(() => {
   if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current) return;
   if (book?.format === 'txt') {
     setSelectedText(window.getSelection()?.toString().trim() ?? '');
   }
-  if (pos) setMenuPosition(pos);
-  setShowUi(true);
+  setShowUi(v => !v);
 }, [book?.format]);
 
 const closeMenu = useCallback(() => {
   setShowUi(false);
-  setMenuPosition(null);
 }, []);
 
 const gesture = useGesture({
@@ -199,8 +196,6 @@ const gesture = useGesture({
     if (book?.format === 'epub') return; // epub 翻页在 iframe 内处理
     performPageTurnRef.current(dir === 'left' ? 'next' : 'prev');
   },
-  // 长按：TTS/搜索/目录打开时不弹菜单
-  onLongPress: (pos) => openFloatMenu(pos),
   // 短按：若浮动菜单已打开，点击阅读区关闭菜单；若目录已打开也关闭目录
   onTap: () => {
     if (showUiRef.current) closeMenu();
@@ -2302,7 +2297,6 @@ function stripHtml(html: string): string {
             initialCfi={epubCfiRef.current}
             pageControlRef={epubPageControlRef}
             chapterNavRef={epubChapterNavRef}
-            onLongPress={openFloatMenu}
             onTap={closeMenu}
             onSelectionTextChange={setSelectedText}
             onLocationChange={(cfi) => {
@@ -2509,20 +2503,29 @@ function stripHtml(html: string): string {
           </div>
         )}
 
-        {/* ⏫ 悬浮操作面板：默认隐藏，长按阅读区显示，点触阅读区/点击半透明背景关闭 */}
+        {/* ☰ 左下角半透明菜单图标 — 点击弹出/关闭浮动操作面板 */}
+        <button
+          onClick={(e) => { e.stopPropagation(); toggleFloatMenu(); }}
+          className="absolute bottom-6 left-6 z-35 w-11 h-11 rounded-full flex items-center justify-center transition-opacity duration-200 hover:opacity-80 active:scale-90"
+          style={{ background: 'rgba(128,128,128,0.5)', opacity: 0.5 }}
+          aria-label="菜单"
+          title="菜单"
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="3" y1="6" x2="21" y2="6"/>
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+
+        {/* ☰ 悬浮操作面板：点击左下角半透明图标弹出，点击半透明背景关闭 */}
         {showUi && (
           <>
-            {/* 半透明背景：仅覆盖阅读区，不吞事件——点击关闭菜单，但 pointer-events 仅作用于自身 */}
+            {/* 半透明背景：仅覆盖阅读区，点击关闭菜单 */}
             <div className="absolute inset-0 z-30 bg-black/30" onClick={closeMenu} />
 
-          {/* 底部控制面板 — P2-1：水平跟随触摸点；阻止点击冒泡 */}
-          <div className="absolute bottom-0 left-0 right-0 z-40 pointer-events-none"
-            style={menuPosition ? {
-              display: 'flex',
-              justifyContent: 'center',
-              paddingLeft: Math.max(0, Math.min(menuPosition.x - 160, window.innerWidth - 336)),
-            } : undefined}
-          >
+          {/* 底部控制面板 — 居中显示；阻止点击冒泡 */}
+          <div className="absolute bottom-0 left-0 right-0 z-40">
               <div className="pointer-events-auto glass-bar rounded-2xl shadow-2xl mx-auto max-w-3xl animate-slide-up" onClick={(e) => e.stopPropagation()}>
                   <div className="p-5 space-y-4">
                     {/* ── 第一行：返回 + 搜索 + 书名 + 目录 ── */}

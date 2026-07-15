@@ -44,38 +44,15 @@ describe('createGestureDetector', () => {
     expect(onSwipe).not.toHaveBeenCalled();
   });
 
-  it('长按 ≥ LONG_PRESS_MS 且未移动触发 onLongPress', () => {
-    const onLongPress = vi.fn();
-    const d = createGestureDetector({ onLongPress });
-    const el = document.createElement('div');
-    d.attachToElement(el);
-    el.dispatchEvent(new TouchEvent('touchstart', { touches: [makeTouch(200, 200)] }));
-    vi.advanceTimersByTime(GESTURE_CONFIG.LONG_PRESS_MS + 10);
-    expect(onLongPress).toHaveBeenCalledTimes(1);
-  });
-
-  it('长按期间移动取消长按', () => {
-    const onLongPress = vi.fn();
-    const d = createGestureDetector({ onLongPress });
-    const el = document.createElement('div');
-    d.attachToElement(el);
-    el.dispatchEvent(new TouchEvent('touchstart', { touches: [makeTouch(200, 200)] }));
-    el.dispatchEvent(new TouchEvent('touchmove', { touches: [makeTouch(220, 220)] }));
-    vi.advanceTimersByTime(GESTURE_CONFIG.LONG_PRESS_MS + 10);
-    expect(onLongPress).not.toHaveBeenCalled();
-  });
-
   it('短按未达阈值触发 onTap', () => {
     const onTap = vi.fn();
-    const onLongPress = vi.fn();
-    const d = createGestureDetector({ onTap, onLongPress });
+    const d = createGestureDetector({ onTap });
     const el = document.createElement('div');
     d.attachToElement(el);
     el.dispatchEvent(new TouchEvent('touchstart', { touches: [makeTouch(200, 200)] }));
     vi.advanceTimersByTime(100);
     el.dispatchEvent(new TouchEvent('touchend', { changedTouches: [makeTouch(201, 200)] }));
     expect(onTap).toHaveBeenCalledTimes(1);
-    expect(onLongPress).not.toHaveBeenCalled();
   });
 
   it('EPUB iframe 中已有选区时不触发滑动翻页', () => {
@@ -114,7 +91,7 @@ describe('createGestureDetector', () => {
   });
 
   it('GESTURE_CONFIG 阈值合理', () => {
-    expect(GESTURE_CONFIG.LONG_PRESS_MS).toBe(1000);
     expect(GESTURE_CONFIG.SWIPE_MIN_DISTANCE).toBe(50);
+    expect(GESTURE_CONFIG.TAP_MOVE_TOLERANCE).toBe(10);
   });
 });

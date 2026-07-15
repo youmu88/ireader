@@ -548,23 +548,20 @@ button, a, [role="button"] {
 }
 
 /* ════════════════════════════════════════
-   翻页模式：手势事件分层策略
-   - pan-y: 浏览器只接管纵向手势（竖滚/文字选择拖拽），
-     横向手势完整传递给 JS gesture 检测器 → 滑动翻页
-   - 这是修复"移除遮罩后滑动翻页长按菜单失效"的关键 CSS 配置
+   翻页模式：禁止浏览器接管任何手势（touch-action: none）
+   - JS 全权接管 swipe/tap 检测，杜绝浏览器原生滚动劫持
+   - 左右滑动翻页 + 点击/图标菜单均由 useGesture 统一处理
    ════════════════════════════════════════ */
 .epub-viewer-canvas,
 .epub-viewer-canvas iframe {
   overscroll-behavior: contain;
-  /* pan-y: 浏览器只接管纵向（文字选择拖拽 / scroll 模式竖滚），
-     横向手势不被原生滚动劫持，交给 JS gesture 检测器处理翻页 */
-  touch-action: pan-y;
+  touch-action: none;
 }
 .epub-viewer-canvas iframe {
   overflow: hidden;
 }
-/* TXT 翻页容器：同上，纵向穿透（文字选择），横向由 JS 手势接管 */
+/* TXT 翻页容器：禁止浏览器接管手势，JS 全权处理 */
 .paginated-scroll {
-  touch-action: pan-y;
+  touch-action: none;
   overscroll-behavior: contain;
 }

@@ -23,9 +23,6 @@ interface EpubViewerProps {
   pageControlRef?: React.MutableRefObject<{ prev: () => void; next: () => void } | null>;
   /** 暴露章节跳转控制——EPUB 模式点击目录时使用。接收章节的 spine index（从0开始） */
   chapterNavRef?: React.MutableRefObject<((chapterIndex: number) => Promise<void>) | null>;
-  /** 长按阅读区时回调（弹出浮动操作面板）。epub.js 的 iframe 会吞掉事件，故在此转发。
-   * 传入触摸坐标（可选），供菜单位置跟随 */
-  onLongPress?: (pos?: { x: number; y: number }) => void;
   /** 点触阅读区时回调（关闭浮动面板）。 */
   onTap?: () => void;
   /** EPUB iframe 内的文字选区变化，供父层复制按钮使用。 */
@@ -60,7 +57,6 @@ export default function EpubViewer({
   onLocationChange,
   pageControlRef,
   chapterNavRef,
-  onLongPress,
   onTap,
   onSelectionTextChange,
 }: EpubViewerProps) {
@@ -75,26 +71,15 @@ export default function EpubViewer({
   const initialCfiRef = useRef<string | null>(initialCfi ?? null);
   const onLocRef = useRef(onLocationChange);
   onLocRef.current = onLocationChange;
-  const onLongPressRef = useRef(onLongPress);
-  onLongPressRef.current = onLongPress;
   const onTapRef = useRef(onTap);
   onTapRef.current = onTap;
   const onSelectionTextChangeRef = useRef(onSelectionTextChange);
   onSelectionTextChangeRef.current = onSelectionTextChange;
   const epubDocumentsRef = useRef<Document[]>([]);
 
-  const readEpubSelection = () => {
-    for (const doc of epubDocumentsRef.current) {
-      const text = doc.defaultView?.getSelection()?.toString().trim();
-      if (text) return text;
-    }
-    return '';
-  };
-
-  // 统一手势入口（gesture hub）：接管 epub 阅读区的 swipe/longpress/tap。
+  // 统一手势入口（gesture hub）：接管 epub 阅读区的 swipe/tap。
   //   - swipe left/right → rendition 翻页（修根：恢复 epub 模式左右滑动翻页）
-  //   - longpress → 触发父层浮动菜单 onTap（替代第19轮不可靠的 rendition.on('click') 长按）
-  //   - tap → 不拦截，书内 TOC 跳转/文字选择原生穿透
+  //   - tap → 关闭浮动菜单（菜单由左下角图标独立触发）
   const gesture = useGesture({
     onSwipe: (dir) => {
       if (readingMode !== 'paginated') return; // 仅翻页模式支持滑动翻页
@@ -103,10 +88,6 @@ export default function EpubViewer({
       setTimeout(() => setSwipeIndicator(null), 600);
       if (dir === 'left') renditionRef.current?.next();
       else renditionRef.current?.prev();
-    },
-    onLongPress: (pos) => {
-      onSelectionTextChangeRef.current?.(readEpubSelection());
-      onLongPressRef.current?.(pos);
     },
     onTap: () => {
       onTapRef.current?.();
@@ -228,15 +209,11 @@ export default function EpubViewer({
         if (cfi) onLocRef.current?.(cfi);
       });
 
-      // 根因修复（替代全屏透明 <button> 遮罩 + 不可靠的 rendition.on('click') 长按）：
-      // 浏览器安全机制规定 iframe 内的 touch 事件不会冒泡到父层 DOM，外层 ReaderPage 的
-      // onTouchStart/End 因此到不了 epub 内容 → 滑动翻页/长按双双失效。
-      // 修复：用统一手势入口 useGesture 的 attachToEpubContents，在 iframe 的 document 上
-      // 直接注入 touch 监听（epub.js 官方通道 rendition.getContents() 暴露的 iframe 文档），
-      // 完整捕获 swipe/longpress/tap，并统一阈值常量（修根，非 hack）。
+      // 浏览器安全机制：iframe 内 touch 事件不会冒泡到父层 DOM。
+      // 修复：用 useGesture 的 attachToEpubContents 在 iframe document 上直接注入 touch 监听，
+      // 完整捕获 swipe/tap（修根，非 hack）。
       //   - swipe left/right → rendition.next()/prev()（真正翻页）
-      //   - longpress → 触发父层浮动菜单（onTap 回调）
-      //   - tap → 不拦截书内 TOC 点击/文字选择（原生穿透）
+      //   - tap → 关闭浮动菜单
       // getContents() 在 display 后才有内容，且翻页会变，故在 display 成功后动态 attach。
       let attachGestureRetries = 0;
       const MAX_ATTACH_RETRIES = 3;

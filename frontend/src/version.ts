@@ -61,7 +61,14 @@
  *      浮动菜单移除全屏遮罩阻断(改为单层背景+底部面板)；EPUB iframe 手势挂载增加 DOM 直查回退，
  *      gesture prop 拆分为 onLongPress(开菜单)+onTap(关菜单)。
  */
-export const APP_VERSION = '2.14.0';
+export const APP_VERSION = '2.15.0';
+/**
+ * 2.15.0 (2026-07-15): [REFACTOR] 菜单触发方式重构 + 手势系统简化
+ *   1) 移除长按菜单：useGesture 删除 onLongPress + longPressTimer 状态机，EpubViewer 移除 onLongPress prop
+ *   2) 新增左下角半透明汉堡图标（☰）：点击 toggle 浮动操作面板，opacity 0.5/hover 0.8
+ *   3) CSS touch-action pan-y → none：彻底禁止浏览器插手，JS 全权处理 swipe/tap
+ *   4) 测试更新：移除 2 个长按测试用例，更新 GESTURE_CONFIG 断言。净减 73 行，复杂度下降
+ */
 /**
  * 2.12.0 (2026-07-14): [FEAT] 文字选择复制功能 + deploy.sh 权限防御
  *   1) 复制选中文字：浮动操作面板中新增"复制"按钮，支持 Clipboard API 写入剪贴板 + Toast 反馈

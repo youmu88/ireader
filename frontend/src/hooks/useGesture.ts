@@ -2,17 +2,14 @@ import { useCallback, useEffect, useRef } from 'react';
 
 /** 阅读器手势的唯一配置来源。 */
 export const GESTURE_CONFIG = {
-  /** 按住至少 1 秒才触发菜单，避免与点击、轻扫争抢。 */
-  LONG_PRESS_MS: 1000,
   SWIPE_MIN_DISTANCE: 50,
   SWIPE_MAX_VERTICAL_RATIO: 1.5,
   SWIPE_MAX_DURATION: 500,
-  LONG_PRESS_MOVE_TOLERANCE: 10,
+  TAP_MOVE_TOLERANCE: 10,
 } as const;
 
 export interface GestureHandlers {
   onSwipe?: (direction: 'left' | 'right') => void;
-  onLongPress?: (position: { x: number; y: number }) => void;
   onTap?: () => void;
 }
 
@@ -23,8 +20,6 @@ interface PointerState {
   startY: number;
   startedAt: number;
   moved: boolean;
-  longPressFired: boolean;
-  longPressTimer: ReturnType<typeof setTimeout> | null;
 }
 
 type GestureTarget = HTMLElement | Document;
@@ -51,49 +46,29 @@ export function createGestureDetector(handlers: GestureHandlers) {
     startY: 0,
     startedAt: 0,
     moved: false,
-    longPressFired: false,
-    longPressTimer: null,
   };
   let ignoreMouseUntil = 0;
-
-  const clearLongPress = () => {
-    if (state.longPressTimer !== null) {
-      clearTimeout(state.longPressTimer);
-      state.longPressTimer = null;
-    }
-  };
 
   const cancel = () => {
     state.active = false;
     state.input = null;
-    clearLongPress();
   };
 
   const start = (clientX: number, clientY: number, input: 'touch' | 'mouse') => {
-    clearLongPress();
     state.active = true;
     state.input = input;
     state.startX = clientX;
     state.startY = clientY;
     state.startedAt = Date.now();
     state.moved = false;
-    state.longPressFired = false;
-    state.longPressTimer = setTimeout(() => {
-      state.longPressTimer = null;
-      if (!state.active || state.moved) return;
-      state.longPressFired = true;
-      try { navigator.vibrate?.(15); } catch { /* unsupported */ }
-      handlersRef.current.onLongPress?.({ x: state.startX, y: state.startY });
-    }, GESTURE_CONFIG.LONG_PRESS_MS);
   };
 
   const move = (clientX: number, clientY: number) => {
     if (!state.active) return;
     const dx = Math.abs(clientX - state.startX);
     const dy = Math.abs(clientY - state.startY);
-    if (dx > GESTURE_CONFIG.LONG_PRESS_MOVE_TOLERANCE || dy > GESTURE_CONFIG.LONG_PRESS_MOVE_TOLERANCE) {
+    if (dx > GESTURE_CONFIG.TAP_MOVE_TOLERANCE || dy > GESTURE_CONFIG.TAP_MOVE_TOLERANCE) {
       state.moved = true;
-      clearLongPress();
     }
   };
 
@@ -101,7 +76,6 @@ export function createGestureDetector(handlers: GestureHandlers) {
     if (!state.active) return;
     state.active = false;
     state.input = null;
-    clearLongPress();
 
     const dx = clientX - state.startX;
     const dy = clientY - state.startY;
@@ -109,7 +83,7 @@ export function createGestureDetector(handlers: GestureHandlers) {
     const absDy = Math.abs(dy);
     const duration = Date.now() - state.startedAt;
 
-    if (state.longPressFired || getSelectedText(doc)) return;
+    if (getSelectedText(doc)) return;
 
     if (
       absDx >= GESTURE_CONFIG.SWIPE_MIN_DISTANCE &&
@@ -120,7 +94,7 @@ export function createGestureDetector(handlers: GestureHandlers) {
       return;
     }
 
-    if (absDx <= GESTURE_CONFIG.LONG_PRESS_MOVE_TOLERANCE && absDy <= GESTURE_CONFIG.LONG_PRESS_MOVE_TOLERANCE) {
+    if (!state.moved) {
       handlersRef.current.onTap?.();
     }
   };
@@ -221,7 +195,6 @@ export function useGesture(handlers: GestureHandlers) {
   if (!detectorRef.current) {
     detectorRef.current = createGestureDetector({
       onSwipe: (direction) => handlersRef.current.onSwipe?.(direction),
-      onLongPress: (position) => handlersRef.current.onLongPress?.(position),
       onTap: () => handlersRef.current.onTap?.(),
     });
   }
