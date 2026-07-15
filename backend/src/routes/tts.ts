@@ -63,7 +63,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     // ⭐ 全局资源查找：全局资源表的 book_id 是 globalBookId，需要映射
     if (!no_cache && dataDir && book_id) {
       try {
-        const textHash = crypto.createHash('md5').update(`${voice || 'zh-CN-XiaoxiaoNeural'}|${speed || 1.0}|${input}`).digest('hex');
+        const textHash = crypto.createHash('md5').update(`${source}|${voice || 'zh-CN-XiaoxiaoNeural'}|${speed || 1.0}|${input}`).digest('hex');
 
         // localBookId → globalBookId 映射
         const userRef = db.select().from(userBookRefs).where(
@@ -72,7 +72,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         const globalBookId = userRef?.globalBookId || book_id;
 
         // 先查全局资源（同书+同文本+同音色共享）
-        const globalRes = findTtsGlobalResource(db, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalBookId);
+        const globalRes = findTtsGlobalResource(db, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalBookId, source);
         if (globalRes && fs.existsSync(globalRes.audioPath)) {
           // 创建/更新用户的 tts_ref
           const existingRef = db.select().from(ttsRefs).where(
@@ -97,7 +97,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     // ⭐ 回退到本地缓存（按用户隔离）
     if (!no_cache && dataDir) {
       try {
-        const cached = findCache(db, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, userId);
+        const cached = findCache(db, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, userId, source);
         if (cached && isCacheValid(cached)) {
           const audioBuffer = fs.readFileSync(cached.audioPath);
           const ext = path.extname(cached.audioPath).toLowerCase();
@@ -120,7 +120,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     // ⭐ 合成成功 → 保存到全局资源 + 本地缓存
     if (!no_cache && dataDir && result.audio) {
       try {
-        const textHash = crypto.createHash('md5').update(`${voice || 'zh-CN-XiaoxiaoNeural'}|${speed || 1.0}|${input}`).digest('hex');
+        const textHash = crypto.createHash('md5').update(`${source}|${voice || 'zh-CN-XiaoxiaoNeural'}|${speed || 1.0}|${input}`).digest('hex');
 
         // 检查全局是否已有（防并发重复写入）
         // 先做 localBookId → globalBookId 映射
@@ -131,7 +131,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           return ref?.globalBookId || book_id;
         })();
 
-        let globalRes = findTtsGlobalResource(db, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalBookId2);
+        let globalRes = findTtsGlobalResource(db, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalBookId2, source);
         if (!globalRes && book_id) {
           // 存到全局目录
           const audioFormat = response_format || 'wav';
@@ -141,7 +141,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           const globalAudioPath = path.join(globalAudioDir, `${textHash}${audioExt}`);
           fs.writeFileSync(globalAudioPath, result.audio);
 
-          globalRes = createTtsGlobalResource(db, globalBookId2, null, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalAudioPath, result.audio.length);
+          globalRes = createTtsGlobalResource(db, globalBookId2, null, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalAudioPath, result.audio.length, null, source);
         }
 
         if (globalRes) {
@@ -149,7 +149,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         }
 
         // 同时保持本地缓存（向后兼容）
-        saveToCache(db, dataDir, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, result.audio, response_format || 'wav', userId, book_id);
+        saveToCache(db, dataDir, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, result.audio, response_format || 'wav', userId, book_id, null, null, source);
       } catch { /* 缓存写入失败不影响主流程 */ }
     }
 
@@ -296,6 +296,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       const { bookId } = req.params;
       const voice = (req.query.voice as string) || 'zh-CN-XiaoxiaoNeural';
       const speed = parseFloat(req.query.speed as string) || 1.0;
+      const source = (req.query.source as string) || 'edgetts';
 
       // 1. 查全局资源：需要将 localBookId → globalBookId
       const userRef = db.select()
@@ -306,7 +307,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
 
       const globalEntries = db.select()
         .from(ttsGlobalResources)
-        .where(sql`book_id = ${globalBookId} AND voice = ${voice} AND speed = ${speed} AND deleted_at IS NULL`)
+        .where(sql`book_id = ${globalBookId} AND voice = ${voice} AND speed = ${speed} AND source = ${source} AND deleted_at IS NULL`)
         .all() as any[];
 
       const segments: any[] = [];
@@ -323,6 +324,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         }
         segments.push({
           chapterId: entry.chapterId,
+          segmentIndex: entry.segmentIndex,
           textHash: entry.textHash,
           audioUrl: `/api/tts/cache-file/${entry.id}`,
           voice: entry.voice,
@@ -333,13 +335,15 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       }
 
       // 2. 补充本地缓存（未在全局资源表中的）
-      const localEntries = findCachedSegmentsByBook(db, bookId, voice, speed, userId);
+      const localEntries = findCachedSegmentsByBook(db, bookId, voice, speed, userId)
+        .filter(entry => (entry.source || 'edgetts') === source);
       for (const local of localEntries) {
         // 去重：如果已包含相同 text_hash+voice+speed 的全局资源，跳过
         const alreadyExists = segments.some(s => s.textHash === local.textHash && s.voice === local.voice && s.speed === local.speed);
-        if (!alreadyExists) {
+        if (!alreadyExists && local.chapterId && local.segmentIndex != null) {
           segments.push({
             chapterId: local.chapterId,
+            segmentIndex: local.segmentIndex,
             textHash: local.textHash,
             audioUrl: `/api/tts/cache-file/${local.id}`,
             voice: local.voice,
@@ -350,7 +354,11 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         }
       }
 
-      res.json({ success: true, data: segments, total: segments.length });
+      res.json({
+        success: true,
+        data: segments.filter(segment => segment.chapterId && segment.segmentIndex != null),
+        total: segments.filter(segment => segment.chapterId && segment.segmentIndex != null).length,
+      });
     } catch (error: any) {
       console.error('[TTS] 批量获取缓存失败:', error);
       res.status(500).json({ success: false, error: '批量获取缓存失败' });

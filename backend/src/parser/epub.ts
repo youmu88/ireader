@@ -3,8 +3,31 @@ import path from 'path';
 import { execSync } from 'child_process';
 import yauzl from 'yauzl';
 import EPub from 'epub';
+import crypto from 'crypto';
 
 const TEXT_ENCODING = 'utf-8';
+
+function normalizeHtmlText(html: string): string {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p\s*>|<\/div\s*>|<\/h[1-6]\s*>|<\/li\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function contentHash(text: string): string {
+  return crypto.createHash('sha256').update(text, TEXT_ENCODING).digest('hex');
+}
 
 export interface EpubMeta {
   title: string;
@@ -16,6 +39,10 @@ export interface EpubChapter {
   id: string;
   title: string;
   href: string;
+  fragment: string | null;
+  spineIndex: number;
+  normalizedText: string;
+  contentHash: string;
   order: number;
   level: number;
 }
@@ -80,6 +107,10 @@ function extractTocChapters(tocItems: any[], baseOrder: number, seenHrefs: Set<s
             id: `ch-toc-${order}`,
             title: item.title,
             href: resolved,
+            fragment: null,
+            spineIndex: -1,
+            normalizedText: '',
+            contentHash: '',
             order,
             level: Math.min(depth + 1, 9),
           });
@@ -326,6 +357,10 @@ export async function parseEpub(epubPath: string, outputDir: string): Promise<Ep
       id: `ch-${order}`,
       title: chapterTitle,
       href: resolvedHref,
+      fragment: null,
+      spineIndex: order - 1,
+      normalizedText: '',
+      contentHash: '',
       order,
       level,
     });
@@ -416,6 +451,26 @@ export async function parseEpub(epubPath: string, outputDir: string): Promise<Ep
       zipfile.on('error', reject);
     });
   });
+
+  // 解压完成后生成统一章节内容快照，供阅读、搜索、TTS 和离线缓存复用。
+  for (const chapter of chapters) {
+    const [hrefPath, fragment] = chapter.href.split('#', 2);
+    chapter.href = hrefPath;
+    chapter.fragment = fragment || null;
+    const resolvedPath = path.resolve(extractedDir, decodeURIComponent(hrefPath));
+    const root = path.resolve(extractedDir);
+    const insideRoot = resolvedPath.startsWith(`${root}${path.sep}`);
+    if (!insideRoot || !fs.existsSync(resolvedPath)) continue;
+
+    let rawHtml = fs.readFileSync(resolvedPath, TEXT_ENCODING);
+    if (chapter.fragment) {
+      const escaped = chapter.fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const anchor = new RegExp(`<([a-z0-9]+)\\b[^>]*(?:id|name)=["']${escaped}["'][^>]*>[\\s\\S]*?(?=<h[1-6]\\b|$)`, 'i').exec(rawHtml);
+      if (anchor) rawHtml = anchor[0];
+    }
+    chapter.normalizedText = normalizeHtmlText(rawHtml);
+    chapter.contentHash = contentHash(chapter.normalizedText);
+  }
 
   return {
     meta: { title, author, coverPath },

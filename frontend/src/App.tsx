@@ -6,17 +6,12 @@ import ReaderPage from './pages/ReaderPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
 
-/** 判断当前是否离线 */
-function isOffline(): boolean {
-  return typeof navigator !== 'undefined' && navigator.onLine === false;
-}
-
 /** 受保护路由：未登录跳转到登录页（离线时跳过认证，允许访问缓存的本地内容） */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, loading } = useAuth();
-  const offline = isOffline();
+  const { isAuthenticated, isOfflineMode, loading } = useAuth();
+  const offline = isOfflineMode || (typeof navigator !== 'undefined' && navigator.onLine === false);
 
-  // 离线时：跳过认证检查，直接渲染子组件（信任本地缓存）
+  // 物理断网或用户主动离线时：跳过认证检查，直接渲染本地内容。
   if (offline) {
     return <>{children}</>;
   }

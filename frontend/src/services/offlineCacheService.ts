@@ -13,7 +13,56 @@
 import { openDB, type IDBPDatabase } from 'idb';
 
 const DB_NAME = 'ireader_cache';
-const DB_VERSION = 1;
+const DB_VERSION = 4;
+
+export type OfflinePackageStatus = 'downloading' | 'ready' | 'failed' | 'stale';
+
+export interface OfflineBookPackageMeta {
+  bookId: string;
+  versionHash: string | null;
+  status: OfflinePackageStatus;
+  totalResources: number;
+  cachedResources: number;
+  updatedAt: number;
+}
+
+interface EpubResourceCache {
+  key: string;
+  bookId: string;
+  path: string;
+  contentType: string;
+  hash: string;
+  data: ArrayBuffer;
+  cachedAt: number;
+}
+
+interface EpubArchiveCache {
+  bookId: string;
+  versionHash: string | null;
+  data: ArrayBuffer;
+  cachedAt: number;
+}
+
+export interface TTSAudioIdentity {
+  voice: string;
+  speed: number;
+  source: string;
+  text: string;
+}
+
+function fingerprintText(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function getTTSAudioKey(bookId: string, chapterId: string, segmentIndex: number, identity?: TTSAudioIdentity): string {
+  if (!identity) return `${bookId}:${chapterId}:${segmentIndex}`;
+  return `${bookId}:${chapterId}:${segmentIndex}:${encodeURIComponent(identity.source)}:${encodeURIComponent(identity.voice)}:${identity.speed}:${fingerprintText(identity.text)}`;
+}
 
 interface BookChapterCache {
   key: string;       // "bookId:chapterId"
@@ -26,13 +75,17 @@ interface BookChapterCache {
 }
 
 interface TTSAudioCache {
-  key: string;       // "bookId:chapterId:segmentIndex"
+  key: string;
   bookId: string;
   chapterId: string;
   segmentIndex: number;
   audioData: ArrayBuffer;
-  duration: number;  // 估计时长（秒）
+  duration: number;
   cachedAt: number;
+  voice?: string;
+  speed?: number;
+  source?: string;
+  textFingerprint?: string;
 }
 
 interface CacheMeta {
@@ -43,6 +96,7 @@ interface CacheMeta {
   totalAudioSegments: number;
   cachedAudioSegments: number;
   lastCachedAt: number;
+  offlinePackage?: OfflineBookPackageMeta;
 }
 
 /**
@@ -81,6 +135,13 @@ function getDB(): Promise<IDBPDatabase> {
         }
         if (!db.objectStoreNames.contains('cacheMeta')) {
           db.createObjectStore('cacheMeta', { keyPath: 'bookId' });
+        }
+        if (!db.objectStoreNames.contains('epubResources')) {
+          const store = db.createObjectStore('epubResources', { keyPath: 'key' });
+          store.createIndex('bookId', 'bookId', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('epubArchives')) {
+          db.createObjectStore('epubArchives', { keyPath: 'bookId' });
         }
       },
     });
@@ -249,6 +310,140 @@ export async function getOfflineBookInfo(bookId: string): Promise<{
 }
 
 // ==========================
+// EPUB 离线资源包
+// ==========================
+
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem('ireader_auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function verifySha256(data: ArrayBuffer, expected: string): Promise<boolean> {
+  if (!expected || typeof crypto === 'undefined' || !crypto.subtle) return true;
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  const actual = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return actual === expected;
+}
+
+export async function getOfflinePackageMeta(bookId: string): Promise<OfflineBookPackageMeta | null> {
+  try {
+    const db = await getDB();
+    const meta = await db.get('cacheMeta', bookId) as CacheMeta | undefined;
+    return meta?.offlinePackage || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getCachedEpubResource(bookId: string, resourcePath: string): Promise<{ data: ArrayBuffer; contentType: string } | null> {
+  try {
+    const db = await getDB();
+    const resource = await db.get('epubResources', `${bookId}:${resourcePath}`) as EpubResourceCache | undefined;
+    return resource ? { data: resource.data, contentType: resource.contentType } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getCachedEpubArchive(bookId: string): Promise<{ data: ArrayBuffer; versionHash: string | null } | null> {
+  try {
+    const db = await getDB();
+    const archive = await db.get('epubArchives', bookId) as EpubArchiveCache | undefined;
+    return archive ? { data: archive.data, versionHash: archive.versionHash } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function downloadOfflineEpubPackage(
+  bookId: string,
+  bookTitle: string,
+  chapters: ChapterCacheInput[],
+  onProgress?: (completed: number, total: number) => void,
+): Promise<OfflineBookPackageMeta> {
+  const db = await getDB();
+  const setStatus = async (value: OfflineBookPackageMeta) => {
+    const existing = await db.get('cacheMeta', bookId) as CacheMeta | undefined;
+    await db.put('cacheMeta', {
+      ...(existing || { bookId, bookTitle, totalChapters: chapters.length, cachedChapters: 0, totalAudioSegments: 0, cachedAudioSegments: 0, lastCachedAt: Date.now() }),
+      bookTitle,
+      offlinePackage: value,
+      lastCachedAt: Date.now(),
+    } as CacheMeta);
+  };
+
+  try {
+    const manifestResponse = await fetch(`/api/books/${encodeURIComponent(bookId)}/resources`, { headers: authHeaders() });
+    if (!manifestResponse.ok) throw new Error('无法获取 EPUB 资源清单');
+    const manifestJson = await manifestResponse.json();
+    const manifest = manifestJson?.data;
+    if (!manifest?.resources?.length) throw new Error('EPUB 资源清单为空');
+
+    const total = chapters.length + manifest.resources.length;
+    let completed = 0;
+    const packageMeta: OfflineBookPackageMeta = {
+      bookId,
+      versionHash: manifest.versionHash || null,
+      status: 'downloading',
+      totalResources: manifest.resources.length,
+      cachedResources: 0,
+      updatedAt: Date.now(),
+    };
+    await setStatus(packageMeta);
+
+    await cacheBookChapters(bookId, bookTitle, chapters);
+    completed += chapters.length;
+    onProgress?.(completed, total);
+
+    const archiveResponse = await fetch(`/api/books/${encodeURIComponent(bookId)}/file/`, { headers: authHeaders() });
+    if (!archiveResponse.ok) throw new Error('EPUB 原始文件下载失败');
+    const archiveTx = db.transaction('epubArchives', 'readwrite');
+    await archiveTx.objectStore('epubArchives').put({ bookId, versionHash: manifest.versionHash || null, data: await archiveResponse.arrayBuffer(), cachedAt: Date.now() } as EpubArchiveCache);
+    await archiveTx.done;
+
+    for (const resource of manifest.resources as Array<{ path: string; contentType: string; hash: string }>) {
+      const urlPath = resource.path.split('/').map(encodeURIComponent).join('/');
+      const response = await fetch(`/api/books/${encodeURIComponent(bookId)}/file/${urlPath}`, { headers: authHeaders() });
+      if (!response.ok) throw new Error(`资源下载失败：${resource.path}`);
+      const data = await response.arrayBuffer();
+      if (!(await verifySha256(data, resource.hash))) throw new Error(`资源校验失败：${resource.path}`);
+      const resourceTx = db.transaction('epubResources', 'readwrite');
+      await resourceTx.objectStore('epubResources').put({
+        key: `${bookId}:${resource.path}`,
+        bookId,
+        path: resource.path,
+        contentType: resource.contentType,
+        hash: resource.hash,
+        data,
+        cachedAt: Date.now(),
+      } as EpubResourceCache);
+      await resourceTx.done;
+      completed += 1;
+      packageMeta.cachedResources += 1;
+      packageMeta.updatedAt = Date.now();
+      await setStatus(packageMeta);
+      onProgress?.(completed, total);
+    }
+
+    packageMeta.status = 'ready';
+    packageMeta.updatedAt = Date.now();
+    await setStatus(packageMeta);
+    return packageMeta;
+  } catch (error) {
+    const failed: OfflineBookPackageMeta = {
+      bookId,
+      versionHash: null,
+      status: 'failed',
+      totalResources: 0,
+      cachedResources: 0,
+      updatedAt: Date.now(),
+    };
+    await setStatus(failed);
+    throw error;
+  }
+}
+
+// ==========================
 // TTS 音频缓存
 // ==========================
 
@@ -257,6 +452,7 @@ export interface TTSAudioCacheInput {
   segmentIndex: number;
   audioData: ArrayBuffer;
   duration?: number;
+  identity?: TTSAudioIdentity;
 }
 
 /**
@@ -268,13 +464,14 @@ export async function cacheTTSAudio(
   segmentIndex: number,
   audioData: ArrayBuffer,
   duration?: number,
+  identity?: TTSAudioIdentity,
 ): Promise<void> {
   const db = await getDB();
   const tx = db.transaction(['ttsAudio', 'cacheMeta'], 'readwrite');
   const audioStore = tx.objectStore('ttsAudio');
   const metaStore = tx.objectStore('cacheMeta');
 
-  const key = `${bookId}:${chapterId}:${segmentIndex}`;
+  const key = getTTSAudioKey(bookId, chapterId, segmentIndex, identity);
   await audioStore.put({
     key,
     bookId,
@@ -283,6 +480,10 @@ export async function cacheTTSAudio(
     audioData,
     duration: duration ?? 0,
     cachedAt: Date.now(),
+    voice: identity?.voice,
+    speed: identity?.speed,
+    source: identity?.source,
+    textFingerprint: identity ? fingerprintText(identity.text) : undefined,
   } as TTSAudioCache);
 
   // 更新元数据（不存在则创建）
@@ -321,7 +522,7 @@ export async function cacheTTSAudioBatch(
   const now = Date.now();
 
   for (const item of items) {
-    const key = `${bookId}:${item.chapterId}:${item.segmentIndex}`;
+    const key = getTTSAudioKey(bookId, item.chapterId, item.segmentIndex, item.identity);
     await audioStore.put({
       key,
       bookId,
@@ -330,6 +531,10 @@ export async function cacheTTSAudioBatch(
       audioData: item.audioData,
       duration: item.duration ?? 0,
       cachedAt: now,
+      voice: item.identity?.voice,
+      speed: item.identity?.speed,
+      source: item.identity?.source,
+      textFingerprint: item.identity ? fingerprintText(item.identity.text) : undefined,
     } as TTSAudioCache);
   }
 
@@ -362,12 +567,14 @@ export async function cacheTTSAudioBatch(
 export async function getAllCachedTTSAudioForChapter(
   bookId: string,
   chapterId: string,
+  identities?: TTSAudioIdentity[],
 ): Promise<{ segmentIndex: number; audioData: ArrayBuffer }[]> {
   try {
     const db = await getDB();
     const entries = await db.getAllFromIndex('ttsAudio', 'chapterId', chapterId) as TTSAudioCache[];
     return entries
       .filter(e => e.bookId === bookId)
+      .filter(e => !identities || Boolean(identities[e.segmentIndex]) && e.key === getTTSAudioKey(bookId, chapterId, e.segmentIndex, identities[e.segmentIndex]))
       .sort((a, b) => a.segmentIndex - b.segmentIndex)
       .map(e => ({ segmentIndex: e.segmentIndex, audioData: e.audioData }));
   } catch {
@@ -382,22 +589,25 @@ export async function getCachedTTSAudio(
   bookId: string,
   chapterId: string,
   segmentIndex: number,
+  identity?: TTSAudioIdentity,
 ): Promise<ArrayBuffer | null> {
   try {
     const db = await getDB();
-    const key = `${bookId}:${chapterId}:${segmentIndex}`;
+    const key = getTTSAudioKey(bookId, chapterId, segmentIndex, identity);
     const entry = await db.get('ttsAudio', key) as TTSAudioCache | undefined;
     if (!entry?.audioData) return null;
-    // fake-indexeddb 可能将 ArrayBuffer 存储为 Blob，统一转为 ArrayBuffer
-    if (entry.audioData instanceof Blob) {
+    // IndexedDB 返回值可能来自不同 Realm，不能只依赖 instanceof ArrayBuffer。
+    if (typeof Blob !== 'undefined' && entry.audioData instanceof Blob) {
       return await entry.audioData.arrayBuffer();
     }
-    if (entry.audioData instanceof ArrayBuffer) {
-      return entry.audioData;
+    if (ArrayBuffer.isView(entry.audioData as unknown as ArrayBufferView)) {
+      const view = entry.audioData as unknown as ArrayBufferView;
+      return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
     }
-    // 兜底：尝试当作 ArrayBufferView（用 as any 避免 TS 类型收缩问题）
-    const buf = entry.audioData as unknown as ArrayBufferView;
-    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    if (Object.prototype.toString.call(entry.audioData) === '[object ArrayBuffer]') {
+      return new Uint8Array(entry.audioData as ArrayBufferLike).slice().buffer;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -625,9 +835,10 @@ export async function getBookCacheDetailedStats(bookId: string): Promise<BookCac
  */
 export async function clearBookCache(bookId: string): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(['bookChapters', 'ttsAudio', 'cacheMeta'], 'readwrite');
+  const tx = db.transaction(['bookChapters', 'ttsAudio', 'epubResources', 'epubArchives', 'cacheMeta'], 'readwrite');
   const chapterStore = tx.objectStore('bookChapters');
   const audioStore = tx.objectStore('ttsAudio');
+  const resourceStore = tx.objectStore('epubResources');
   const metaStore = tx.objectStore('cacheMeta');
 
   // 删除所有该书的章节缓存
@@ -642,6 +853,15 @@ export async function clearBookCache(bookId: string): Promise<void> {
     await audioStore.delete(key);
   }
 
+  // 删除 EPUB 资源
+  const resourceKeys = await resourceStore.index('bookId').getAllKeys(bookId);
+  for (const key of resourceKeys) {
+    await resourceStore.delete(key);
+  }
+
+  // 删除 EPUB 原始归档
+  await tx.objectStore('epubArchives').delete(bookId);
+
   // 删除元数据
   await metaStore.delete(bookId);
 
@@ -653,9 +873,11 @@ export async function clearBookCache(bookId: string): Promise<void> {
  */
 export async function clearAllCache(): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(['bookChapters', 'ttsAudio', 'cacheMeta'], 'readwrite');
+  const tx = db.transaction(['bookChapters', 'ttsAudio', 'epubResources', 'epubArchives', 'cacheMeta'], 'readwrite');
   await tx.objectStore('bookChapters').clear();
   await tx.objectStore('ttsAudio').clear();
+  await tx.objectStore('epubResources').clear();
+  await tx.objectStore('epubArchives').clear();
   await tx.objectStore('cacheMeta').clear();
   await tx.done;
 }
@@ -668,14 +890,16 @@ export async function estimateCacheSize(): Promise<{ chapterBytes: number; audio
     const db = await getDB();
     const chapters = await db.getAll('bookChapters') as BookChapterCache[];
     const audios = await db.getAll('ttsAudio') as TTSAudioCache[];
+    const resources = await db.getAll('epubResources') as EpubResourceCache[];
 
     const chapterBytes = chapters.reduce((sum, c) => sum + new Blob([c.content]).size, 0);
     const audioBytes = audios.reduce((sum, a) => sum + a.audioData.byteLength, 0);
+    const resourceBytes = resources.reduce((sum, resource) => sum + resource.data.byteLength, 0);
 
     return {
-      chapterBytes,
+      chapterBytes: chapterBytes + resourceBytes,
       audioBytes,
-      totalBytes: chapterBytes + audioBytes,
+      totalBytes: chapterBytes + resourceBytes + audioBytes,
     };
   } catch {
     return { chapterBytes: 0, audioBytes: 0, totalBytes: 0 };
@@ -818,35 +1042,34 @@ export async function downloadBatchCachedAudio(
   bookId: string,
   voice: string,
   speed: number,
-  chapters: { id: string; title: string; order: number }[],
+  source: string,
+  chapterSegments: Map<string, string[]>,
   onProgress?: (chapterId: string, segIdx: number) => void,
 ): Promise<number> {
   try {
-    const res = await fetch(`/api/tts/batch-cache/${bookId}?voice=${encodeURIComponent(voice)}&speed=${speed}`);
+    const res = await fetch(`/api/tts/batch-cache/${bookId}?voice=${encodeURIComponent(voice)}&speed=${speed}&source=${encodeURIComponent(source)}`, {
+      headers: (() => {
+        const headers: Record<string, string> = {};
+        const token = localStorage.getItem('ireader_auth_token');
+        if (token) headers.Authorization = `Bearer ${token}`;
+        return headers;
+      })(),
+    });
     if (!res.ok) return 0;
     const json = await res.json();
     if (!json.success || !json.data || json.data.length === 0) return 0;
 
-    const segments: { chapterId: string; segIdx: number; audioUrl: string }[] = json.data.map((s: any) => {
-      // 从 chapterId 和 textHash 推断 segIdx（textHash 后两位作 segIdx 备用，优先解析）
-      // 但实际需要用章节段落顺序来映射，这里用 chapterId 分组后按出现顺序分配 segIdx
-      return {
+    const segments: { chapterId: string; segIdx: number; audioUrl: string; text?: string }[] = json.data
+      .filter((s: any) => s.chapterId && Number.isInteger(s.segmentIndex))
+      .map((s: any) => ({
         chapterId: s.chapterId,
         audioUrl: s.audioUrl,
-        segIdx: -1, // 稍后分配
-      };
-    });
+        segIdx: s.segmentIndex,
+        text: chapterSegments.get(s.chapterId)?.[s.segmentIndex],
+      }))
+      .filter((s: { text?: string }) => Boolean(s.text));
 
-    // 按 chapterId 分组，按服务器返回顺序分配 segIdx
-    const byChapter = new Map<string, typeof segments>();
-    for (const seg of segments) {
-      if (!byChapter.has(seg.chapterId)) byChapter.set(seg.chapterId, []);
-      byChapter.get(seg.chapterId)!.push(seg);
-    }
-
-    // 将有效章节目映射到段落范围（按 chapters 顺序）
-    const chapterOrderMap = new Map<string, number>();
-    chapters.forEach((ch, idx) => chapterOrderMap.set(ch.id, idx));
+    // 服务端返回明确 chapterId + segmentIndex，不再依赖数据库返回顺序猜测映射。
 
     // 并发下载所有段落（最大 6 并发）
     const MAX_DOWNLOAD = 6;
@@ -864,13 +1087,12 @@ export async function downloadBatchCachedAudio(
           const audioRes = await fetch(url);
           if (audioRes.ok) {
             const arrayBuffer = await audioRes.arrayBuffer();
-            // 计算在当前章节中的 segIdx
-            const chapterSegs = byChapter.get(seg.chapterId) || [];
-            const segIdx = chapterSegs.indexOf(seg);
+            const segIdx = seg.segIdx;
             audioItems.push({
               chapterId: seg.chapterId,
-              segmentIndex: segIdx >= 0 ? segIdx : idx,
+              segmentIndex: segIdx,
               audioData: arrayBuffer,
+              identity: { voice, speed, source, text: seg.text! },
             });
             downloadedCount++;
             onProgress?.(seg.chapterId, segIdx);

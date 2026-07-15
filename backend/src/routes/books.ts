@@ -199,6 +199,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
             bookId,
             title: ch.title,
             href: ch.href,
+            fragment: (ch as any).fragment ?? null,
+            spineIndex: (ch as any).spineIndex ?? null,
+            normalizedText: (ch as any).normalizedText ?? null,
+            contentHash: (ch as any).contentHash ?? null,
             startOffset: ch.startOffset,
             endOffset: ch.endOffset,
             order: ch.order,
@@ -216,8 +220,12 @@ export function createBooksRouter(db: any, dataDir: string): Router {
               bookId,
               title: ch.title,
               href: (ch as any).href || null,
-              startOffset: (ch as any).startOffset ?? null,
-              endOffset: (ch as any).endOffset ?? null,
+              fragment: (ch as any).fragment ?? null,
+              spineIndex: (ch as any).spineIndex ?? null,
+              normalizedText: (ch as any).normalizedText ?? null,
+              contentHash: (ch as any).contentHash ?? null,
+              startOffset: ch.startOffset ?? null,
+              endOffset: ch.endOffset ?? null,
               order: ch.order,
               level: ch.level,
             }).run();
@@ -537,6 +545,39 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     }
   });
 
+  // ── GET /api/books/:id/resources - 获取 EPUB 离线资源清单 ──
+  router.get('/:id/resources', requireAuth, (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const book = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
+      if (!book) throw new AppError(404, '图书不存在');
+      if (book.format !== 'epub') throw new AppError(400, '仅 EPUB 格式支持资源清单');
+
+      const root = path.resolve(path.dirname(book.filePath), 'extracted');
+      if (!fs.existsSync(root)) throw new AppError(404, 'EPUB 资源尚未解压');
+      const resources: Array<{ path: string; size: number; contentType: string; hash: string }> = [];
+      const getContentType = (filePath: string) => {
+        const ext = path.extname(filePath).toLowerCase();
+        return ({ '.xhtml': 'application/xhtml+xml', '.html': 'text/html', '.htm': 'text/html', '.css': 'text/css', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.woff2': 'font/woff2', '.xml': 'application/xml' } as Record<string, string>)[ext] || 'application/octet-stream';
+      };
+      const walk = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const absolute = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(absolute);
+          else {
+            const relative = path.relative(root, absolute).split(path.sep).join('/');
+            const data = fs.readFileSync(absolute);
+            resources.push({ path: relative, size: data.byteLength, contentType: getContentType(absolute), hash: crypto.createHash('sha256').update(data).digest('hex') });
+          }
+        }
+      };
+      walk(root);
+      res.json({ success: true, data: { bookId: book.id, versionHash: book.fileHash, resources } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // ── GET /api/books/:id/file - 获取原始文件 ──
   router.get('/:id/file', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -560,12 +601,12 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   // 请求形如 /api/books/:id/file/META-INF/container.xml。
   // 后端已把 EPUB 解压到 extracted/，此处从该目录按相对路径安全读取返回，
   // 使 epub.js 能从服务端按需获取条目，而非一次性下载整个 zip（根治「加载中」卡死）。
-  // 注：本路由不挂 requireAuth，以支持 epub.js 对 EPUB 内部资源（CSS/图片/字体）
-  // 的子请求（这些请求不自动携带 Authorization header）。EPUB 内部资源来自已解压的
-  // extracted/ 公开目录、不含任何敏感信息，仅做 book 存在性校验，不做用户归属强校验。
-  router.get('/:id/file/*', (req: Request, res: Response, next: NextFunction) => {
+  // epub.js 通过 requestHeaders 携带 Bearer Token，内部资源请求同样必须校验用户归属。
+  // 资源只能从当前用户拥有的书籍及其 extracted/ 根目录中读取。
+  router.get('/:id/file/*', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
-      const book = db.select().from(books).where(sql`id = ${req.params.id}`).get();
+      const userId = req.user!.userId;
+      const book = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
       if (!book) throw new AppError(404, '图书不存在');
       if (book.format !== 'epub') throw new AppError(400, '仅 EPUB 格式支持此操作');
 
@@ -588,11 +629,13 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       // Security: ensure resolved path stays within extracted directory
       const resolvedPath = path.resolve(filePath);
       const resolvedExtractedDir = path.resolve(extractedDir);
-      if (!resolvedPath.startsWith(resolvedExtractedDir)) {
+      const isInsideExtractedDir = resolvedPath === resolvedExtractedDir
+        || resolvedPath.startsWith(`${resolvedExtractedDir}${path.sep}`);
+      if (!isInsideExtractedDir) {
         throw new AppError(403, '禁止越权访问');
       }
 
-      res.sendFile(filePath);
+      res.sendFile(resolvedPath);
     } catch (err) {
       next(err);
     }
@@ -634,10 +677,9 @@ export function createBooksRouter(db: any, dataDir: string): Router {
           throw new AppError(400, '该章节没有偏移量信息');
         }
 
-        // Need to read the TXT file content
         const parseResult = parseTxt(book.filePath);
         const content = getChapterContent(parseResult.content, chapter.startOffset, chapter.endOffset || parseResult.content.length);
-        res.json({ success: true, data: { content, chapter } });
+        res.json({ success: true, data: { content, normalizedText: content, contentHash: chapter.contentHash, chapter } });
       } else {
         // For EPUB, return the extracted file path for the chapter
         if (!chapter.href) {
@@ -669,7 +711,15 @@ export function createBooksRouter(db: any, dataDir: string): Router {
             }
           }
 
-          res.json({ success: true, data: { content: chapterContent, chapter } });
+          res.json({
+            success: true,
+            data: {
+              content: chapterContent,
+              normalizedText: chapter.normalizedText || null,
+              contentHash: chapter.contentHash || null,
+              chapter,
+            },
+          });
         } else {
           res.json({ success: true, data: { content: null, chapter, note: 'EPUB 章节内容需由前端通过 epubjs 加载' } });
         }
@@ -729,16 +779,20 @@ export function createBooksRouter(db: any, dataDir: string): Router {
 
       // 插入新章节
       for (const chapter of parseResult.chapters) {
-        db.insert(bookChapters).values({
-          id: uuidv4(),
-          bookId,
-          title: chapter.title,
-          href: (chapter as any).href || null,
-          startOffset: (chapter as any).startOffset ?? null,
-          endOffset: (chapter as any).endOffset ?? null,
-          order: chapter.order,
-          level: chapter.level,
-        }).run();
+          db.insert(bookChapters).values({
+            id: uuidv4(),
+            bookId,
+            title: chapter.title,
+            href: (chapter as any).href || null,
+            fragment: (chapter as any).fragment ?? null,
+            spineIndex: (chapter as any).spineIndex ?? null,
+            normalizedText: (chapter as any).normalizedText ?? null,
+            contentHash: (chapter as any).contentHash ?? null,
+            startOffset: (chapter as any).startOffset ?? null,
+            endOffset: (chapter as any).endOffset ?? null,
+            order: chapter.order,
+            level: chapter.level,
+          }).run();
       }
 
       // 更新书籍元数据
@@ -954,11 +1008,13 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       // Security: ensure resolved path stays within extracted directory
       const resolvedPath = path.resolve(filePath);
       const resolvedExtractedDir = path.resolve(extractedDir);
-      if (!resolvedPath.startsWith(resolvedExtractedDir)) {
+      const isInsideExtractedDir = resolvedPath === resolvedExtractedDir
+        || resolvedPath.startsWith(`${resolvedExtractedDir}${path.sep}`);
+      if (!isInsideExtractedDir) {
         throw new AppError(403, '禁止越权访问');
       }
 
-      res.sendFile(filePath);
+      res.sendFile(resolvedPath);
     } catch (err) {
       next(err);
     }
@@ -1034,8 +1090,5 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     }
   });
 
-  return router;
-  return router;
-  return router;
   return router;
 }

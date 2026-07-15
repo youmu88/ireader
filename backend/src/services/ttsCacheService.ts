@@ -17,6 +17,8 @@ export interface CacheEntry {
   id: string;
   bookId?: string | null;
   chapterId?: string | null;
+  segmentIndex?: number | null;
+  source?: string;
   textHash: string;
   voice: string;
   speed: number;
@@ -29,8 +31,8 @@ export interface CacheEntry {
 /**
  * 根据文本、音色、语速生成唯一的缓存键（MD5）
  */
-export function generateCacheKey(text: string, voice: string, speed: number): string {
-  return crypto.createHash('md5').update(`${voice}|${speed}|${text}`).digest('hex');
+export function generateCacheKey(text: string, voice: string, speed: number, source = 'edgetts'): string {
+  return crypto.createHash('md5').update(`${source}|${voice}|${speed}|${text}`).digest('hex');
 }
 
 // ===== 缓存目录 =====
@@ -64,11 +66,12 @@ export function findCache(
   voice: string,
   speed: number,
   userId?: string,
+  source = 'edgetts',
 ): CacheEntry | null {
-  const textHash = generateCacheKey(text, voice, speed);
+  const textHash = generateCacheKey(text, voice, speed, source);
   let query: any = db.select()
     .from(ttsCache)
-    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed}`);
+    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed} AND source = ${source}`);
   if (userId) {
     query = query.where(sql`user_id = ${userId}`);
   }
@@ -114,8 +117,10 @@ export function saveToCache(
   userId?: string,
   bookId?: string | null,
   chapterId?: string | null,
+  segmentIndex?: number | null,
+  source = 'edgetts',
 ): CacheEntry {
-  const textHash = generateCacheKey(text, voice, speed);
+  const textHash = generateCacheKey(text, voice, speed, source);
   const cacheDir = getCacheDir(dataDir);
   const audioPath = getCacheFilePath(cacheDir, textHash, format);
 
@@ -127,7 +132,7 @@ export function saveToCache(
   // 检查是否已有记录（按用户隔离，同时过滤 voice + speed 防止跨音色/语速的意外覆盖）
   let query: any = db.select()
     .from(ttsCache)
-    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed}`);
+    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed} AND source = ${source}`);
   if (userId) {
     query = query.where(sql`user_id = ${userId}`);
   }
@@ -136,10 +141,10 @@ export function saveToCache(
   if (existing) {
     // 更新已有记录
     db.update(ttsCache)
-      .set({ audioPath, createdAt: now, bookId: bookId ?? existing.bookId, chapterId: chapterId ?? existing.chapterId })
+      .set({ audioPath, createdAt: now, source, bookId: bookId ?? existing.bookId, chapterId: chapterId ?? existing.chapterId, segmentIndex: segmentIndex ?? existing.segmentIndex })
       .where(sql`id = ${existing.id}`)
       .run();
-    return { ...existing, audioPath, createdAt: now, bookId: bookId ?? existing.bookId, chapterId: chapterId ?? existing.chapterId };
+    return { ...existing, audioPath, createdAt: now, source, bookId: bookId ?? existing.bookId, chapterId: chapterId ?? existing.chapterId, segmentIndex: segmentIndex ?? existing.segmentIndex };
   }
 
   // Insert new record
@@ -149,6 +154,8 @@ export function saveToCache(
     userId: userId || 'default-user',
     bookId: bookId || null,
     chapterId: chapterId || null,
+    segmentIndex: segmentIndex ?? null,
+    source,
     textHash,
     voice,
     speed,
@@ -159,7 +166,7 @@ export function saveToCache(
   // LRU eviction: keep max 1000 entries
   evictStaleCache(db, dataDir, 1000);
 
-  return { id, textHash, voice, speed, audioPath, createdAt: now };
+  return { id, bookId: bookId || null, chapterId: chapterId || null, segmentIndex: segmentIndex ?? null, source, textHash, voice, speed, audioPath, createdAt: now };
 }
 
 // ===== 批量查询 =====
@@ -178,7 +185,7 @@ export function findCachedSegmentsByBook(
   let query: any = db.select()
     .from(ttsCache)
     .where(sql`book_id = ${bookId} AND voice = ${voice} AND speed = ${speed}`)
-    .orderBy(sql`chapter_id ASC, created_at ASC`);
+    .orderBy(sql`chapter_id ASC, segment_index ASC, created_at ASC`);
   if (userId) {
     query = query.where(sql`user_id = ${userId}`);
   }

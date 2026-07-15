@@ -194,10 +194,11 @@ export function findTtsGlobalResource(
   voice: string,
   speed: number,
   bookId: string,
+  source = 'edgetts',
 ): any {
   return db.select()
     .from(ttsGlobalResources)
-    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed} AND book_id = ${bookId} AND deleted_at IS NULL`)
+    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed} AND source = ${source} AND book_id = ${bookId} AND deleted_at IS NULL`)
     .get() || null;
 }
 
@@ -213,6 +214,8 @@ export function createTtsGlobalResource(
   speed: number,
   audioPath: string,
   fileSize: number | null,
+  segmentIndex?: number | null,
+  source = 'edgetts',
 ): any {
   const now = new Date().toISOString();
   const id = uuidv4();
@@ -220,6 +223,8 @@ export function createTtsGlobalResource(
     id,
     bookId,
     chapterId,
+    segmentIndex: segmentIndex ?? null,
+    source,
     textHash,
     voice,
     speed,
@@ -228,7 +233,7 @@ export function createTtsGlobalResource(
     createdAt: now,
     deletedAt: null,
   }).run();
-  return { id, bookId, textHash, voice, speed, audioPath, createdAt: now };
+  return { id, bookId, chapterId, segmentIndex: segmentIndex ?? null, source, textHash, voice, speed, audioPath, createdAt: now };
 }
 
 /**

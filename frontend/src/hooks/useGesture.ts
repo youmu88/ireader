@@ -1,226 +1,242 @@
-import { useRef, useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
-/**
- * 统一手势识别入口（gesture hub）
- * --------------------------------------------------
- * 集中定义阅读器常见手势：左右滑动翻页、长按浮窗、点击、文字选择穿透。
- * 解决历史痛点：手势逻辑曾散落在 ReaderPage（外层 DOM）与 EpubViewer（iframe 内）两处，
- * 且因 epub 内容在 iframe 内、外层 touch 事件无法穿透，导致 epub 模式滑动翻页/长按双双失效。
- *
- * 本模块提供两种挂载方式：
- *  1. attachToElement(el)：外层普通 DOM（txt 模式 / 桌面端），直接绑原生事件。
- *  2. attachToEpubContents(contents[])：epub 模式，遍历 rendition.getContents() 在
- *     iframe 的 document 上注入 touch 监听（epub.js 官方注入通道，非 hack）。
- *
- * 设计护栏：
- *  - 不拦截文字选择：识别为 longpress 后才阻止后续 click 误触发，否则一律放行原生行为。
- *  - 阈值全为常量，调参只改一处。
- */
-
-// ── 统一手势常量（全应用唯一来源，消除历史 600/1000ms 不一致）──
+/** 阅读器手势的唯一配置来源。 */
 export const GESTURE_CONFIG = {
-  /** 长按触发阈值（ms）：取原 txt 1000 / epub 600 中值，体验均衡 */
-  LONG_PRESS_MS: 800,
-  /** 滑动最小水平位移（px） */
+  /** 按住至少 1 秒才触发菜单，避免与点击、轻扫争抢。 */
+  LONG_PRESS_MS: 1000,
   SWIPE_MIN_DISTANCE: 50,
-  /** 滑动水平位移需 > 垂直位移 * 该倍数，才判定为横向滑动 */
   SWIPE_MAX_VERTICAL_RATIO: 1.5,
-  /** 滑动最大允许耗时（ms），超过视为拖动而非滑动 */
   SWIPE_MAX_DURATION: 500,
-  /** 长按容忍的最大位移（px）：超过则判定为滚动/滑动，取消长按 */
   LONG_PRESS_MOVE_TOLERANCE: 10,
 } as const;
 
 export interface GestureHandlers {
-  /** 左右滑动：dir='left' 向左滑（下一页），dir='right' 向右滑（上一页） */
-  onSwipe?: (dir: 'left' | 'right') => void;
-  /** 长按（≥LONG_PRESS_MS 且未移动），传入触摸起始坐标供菜单位置跟随 */
-  onLongPress?: (pos: { x: number; y: number }) => void;
-  /** 点击（短按、无位移、未触发长按） */
+  onSwipe?: (direction: 'left' | 'right') => void;
+  onLongPress?: (position: { x: number; y: number }) => void;
   onTap?: () => void;
 }
 
 interface PointerState {
-  x: number;
-  y: number;
-  time: number;
-  longPressTimer: ReturnType<typeof setTimeout> | null;
-  longPressFired: boolean;
-  moved: boolean;
   active: boolean;
+  input: 'touch' | 'mouse' | null;
+  startX: number;
+  startY: number;
+  startedAt: number;
+  moved: boolean;
+  longPressFired: boolean;
+  longPressTimer: ReturnType<typeof setTimeout> | null;
+}
+
+type GestureTarget = HTMLElement | Document;
+
+function getSelectedText(doc: Document): string {
+  try {
+    return doc.defaultView?.getSelection()?.toString().trim() ?? '';
+  } catch {
+    return '';
+  }
 }
 
 /**
- * 创建手势识别器。返回 attach 方法，供不同挂载点复用同一套识别逻辑。
+ * 与 React 无关的手势状态机，普通 DOM 和 EPUB iframe 共用同一行为。
+ * 监听器全部是被动监听，不阻止浏览器原生文字选择。
  */
 export function createGestureDetector(handlers: GestureHandlers) {
   const handlersRef = { current: handlers };
-  handlersRef.current = handlers;
-
+  const mountedTargets = new Map<GestureTarget, () => void>();
   const state: PointerState = {
-    x: 0, y: 0, time: 0,
-    longPressTimer: null,
-    longPressFired: false,
-    moved: false,
     active: false,
+    input: null,
+    startX: 0,
+    startY: 0,
+    startedAt: 0,
+    moved: false,
+    longPressFired: false,
+    longPressTimer: null,
   };
+  let ignoreMouseUntil = 0;
 
   const clearLongPress = () => {
-    if (state.longPressTimer) {
+    if (state.longPressTimer !== null) {
       clearTimeout(state.longPressTimer);
       state.longPressTimer = null;
     }
   };
 
-  const start = (clientX: number, clientY: number) => {
-    state.x = clientX;
-    state.y = clientY;
-    state.time = Date.now();
-    state.longPressFired = false;
-    state.moved = false;
-    state.active = true;
+  const cancel = () => {
+    state.active = false;
+    state.input = null;
     clearLongPress();
+  };
+
+  const start = (clientX: number, clientY: number, input: 'touch' | 'mouse') => {
+    clearLongPress();
+    state.active = true;
+    state.input = input;
+    state.startX = clientX;
+    state.startY = clientY;
+    state.startedAt = Date.now();
+    state.moved = false;
+    state.longPressFired = false;
     state.longPressTimer = setTimeout(() => {
+      state.longPressTimer = null;
       if (!state.active || state.moved) return;
       state.longPressFired = true;
-      // 触觉反馈：15ms 短震动（设备不支持 vibrate 时静默跳过）
-      try { navigator.vibrate?.(15); } catch { /* noop */ }
-      handlersRef.current.onLongPress?.({ x: state.x, y: state.y });
+      try { navigator.vibrate?.(15); } catch { /* unsupported */ }
+      handlersRef.current.onLongPress?.({ x: state.startX, y: state.startY });
     }, GESTURE_CONFIG.LONG_PRESS_MS);
   };
 
   const move = (clientX: number, clientY: number) => {
     if (!state.active) return;
-    const dx = Math.abs(clientX - state.x);
-    const dy = Math.abs(clientY - state.y);
+    const dx = Math.abs(clientX - state.startX);
+    const dy = Math.abs(clientY - state.startY);
     if (dx > GESTURE_CONFIG.LONG_PRESS_MOVE_TOLERANCE || dy > GESTURE_CONFIG.LONG_PRESS_MOVE_TOLERANCE) {
       state.moved = true;
-      clearLongPress(); // 移动即取消长按（可能是滚动/滑动）
+      clearLongPress();
     }
   };
 
-  const end = (clientX: number, clientY: number) => {
+  const end = (clientX: number, clientY: number, doc: Document) => {
     if (!state.active) return;
     state.active = false;
+    state.input = null;
     clearLongPress();
-    const dx = clientX - state.x;
-    const dy = clientY - state.y;
-    const dt = Date.now() - state.time;
+
+    const dx = clientX - state.startX;
+    const dy = clientY - state.startY;
     const absDx = Math.abs(dx);
     const absDy = Math.abs(dy);
+    const duration = Date.now() - state.startedAt;
 
-    // 已触发长按 → 本次手势结束，不再触发 click/tap（由调用方处理 preventDefault 更佳）
-    if (state.longPressFired) return;
+    if (state.longPressFired || getSelectedText(doc)) return;
 
-    // 用户正在选择文字 → 不触发翻页，让原生选择行为继续
-    try {
-      const sel = window.getSelection();
-      if (sel && !sel.isCollapsed && sel.toString().length > 0) return;
-    } catch { /* 跨域 iframe 可能抛异常 */ }
-
-    // 横向滑动翻页判定
     if (
-      absDx > GESTURE_CONFIG.SWIPE_MIN_DISTANCE &&
+      absDx >= GESTURE_CONFIG.SWIPE_MIN_DISTANCE &&
       absDx > absDy * GESTURE_CONFIG.SWIPE_MAX_VERTICAL_RATIO &&
-      dt < GESTURE_CONFIG.SWIPE_MAX_DURATION
+      duration <= GESTURE_CONFIG.SWIPE_MAX_DURATION
     ) {
       handlersRef.current.onSwipe?.(dx < 0 ? 'left' : 'right');
       return;
     }
 
-    // 点击（无显著位移、未触发长按）
-    if (absDx < GESTURE_CONFIG.LONG_PRESS_MOVE_TOLERANCE && absDy < GESTURE_CONFIG.LONG_PRESS_MOVE_TOLERANCE) {
+    if (absDx <= GESTURE_CONFIG.LONG_PRESS_MOVE_TOLERANCE && absDy <= GESTURE_CONFIG.LONG_PRESS_MOVE_TOLERANCE) {
       handlersRef.current.onTap?.();
     }
   };
 
-  // ── 外层 DOM 挂载 ──
-  const attachToElement = (el: HTMLElement) => {
-    const onTs = (e: TouchEvent) => { const t = e.touches[0]; if (t) start(t.clientX, t.clientY); };
-    const onTm = (e: TouchEvent) => { const t = e.touches[0]; if (t) move(t.clientX, t.clientY); };
-    const onTe = (e: TouchEvent) => { const t = e.changedTouches[0]; if (t) end(t.clientX, t.clientY); };
-    const onMd = (e: MouseEvent) => start(e.clientX, e.clientY);
-    const onMm = (e: MouseEvent) => move(e.clientX, e.clientY);
-    const onMu = (e: MouseEvent) => end(e.clientX, e.clientY);
-    const onMl = () => { state.active = false; clearLongPress(); };
-    el.addEventListener('touchstart', onTs, { passive: true });
-    el.addEventListener('touchmove', onTm, { passive: true });
-    el.addEventListener('touchend', onTe, { passive: true });
-    el.addEventListener('mousedown', onMd);
-    el.addEventListener('mousemove', onMm);
-    el.addEventListener('mouseup', onMu);
-    el.addEventListener('mouseleave', onMl);
-    return () => {
-      el.removeEventListener('touchstart', onTs);
-      el.removeEventListener('touchmove', onTm);
-      el.removeEventListener('touchend', onTe);
-      el.removeEventListener('mousedown', onMd);
-      el.removeEventListener('mousemove', onMm);
-      el.removeEventListener('mouseup', onMu);
-      el.removeEventListener('mouseleave', onMl);
-      clearLongPress();
+  const attach = (target: GestureTarget, doc: Document) => {
+    const existingCleanup = mountedTargets.get(target);
+    if (existingCleanup) return existingCleanup;
+
+    const onTouchStart = (event: Event) => {
+      const touchEvent = event as TouchEvent;
+      if (touchEvent.touches.length !== 1) {
+        cancel();
+        return;
+      }
+      const touch = touchEvent.touches[0];
+      ignoreMouseUntil = Date.now() + 700;
+      start(touch.clientX, touch.clientY, 'touch');
     };
+    const onTouchMove = (event: Event) => {
+      const touchEvent = event as TouchEvent;
+      if (touchEvent.touches.length !== 1) {
+        cancel();
+        return;
+      }
+      const touch = touchEvent.touches[0];
+      move(touch.clientX, touch.clientY);
+    };
+    const onTouchEnd = (event: Event) => {
+      const touch = (event as TouchEvent).changedTouches[0];
+      if (touch) end(touch.clientX, touch.clientY, doc);
+      else cancel();
+    };
+    const onMouseDown = (event: Event) => {
+      const mouseEvent = event as MouseEvent;
+      if (mouseEvent.button !== 0 || Date.now() < ignoreMouseUntil) return;
+      start(mouseEvent.clientX, mouseEvent.clientY, 'mouse');
+    };
+    const onMouseMove = (event: Event) => {
+      if (state.input !== 'mouse') return;
+      const mouseEvent = event as MouseEvent;
+      move(mouseEvent.clientX, mouseEvent.clientY);
+    };
+    const onMouseUp = (event: Event) => {
+      if (state.input !== 'mouse') return;
+      const mouseEvent = event as MouseEvent;
+      end(mouseEvent.clientX, mouseEvent.clientY, doc);
+    };
+
+    target.addEventListener('touchstart', onTouchStart, { passive: true });
+    target.addEventListener('touchmove', onTouchMove, { passive: true });
+    target.addEventListener('touchend', onTouchEnd, { passive: true });
+    target.addEventListener('touchcancel', cancel, { passive: true });
+    target.addEventListener('mousedown', onMouseDown);
+    target.addEventListener('mousemove', onMouseMove);
+    target.addEventListener('mouseup', onMouseUp);
+    target.addEventListener('mouseleave', cancel);
+
+    const cleanup = () => {
+      target.removeEventListener('touchstart', onTouchStart);
+      target.removeEventListener('touchmove', onTouchMove);
+      target.removeEventListener('touchend', onTouchEnd);
+      target.removeEventListener('touchcancel', cancel);
+      target.removeEventListener('mousedown', onMouseDown);
+      target.removeEventListener('mousemove', onMouseMove);
+      target.removeEventListener('mouseup', onMouseUp);
+      target.removeEventListener('mouseleave', cancel);
+      if (mountedTargets.get(target) === cleanup) mountedTargets.delete(target);
+      cancel();
+    };
+    mountedTargets.set(target, cleanup);
+    return cleanup;
   };
 
-  // ── epub iframe 挂载：在 iframe document 上注入，解决外层 touch 进不去 iframe 的根因 ──
-  // 注入后会在 document 上设置 __ireaderGestureAttached 标记，防止重复绑定。
+  const attachToElement = (element: HTMLElement) => attach(element, element.ownerDocument);
+
   const attachToEpubContents = (contents: { document: Document } | Array<{ document: Document }>) => {
-    const GESTURE_INJECT_MARK = '__ireaderGestureAttached';
     const list = Array.isArray(contents) ? contents : [contents];
-    const cleanups: Array<() => void> = [];
-    for (const c of list) {
-      const doc = c.document;
-      if (!doc || (doc as any)[GESTURE_INJECT_MARK]) continue;
-      (doc as any)[GESTURE_INJECT_MARK] = true;
-      const onTs = (e: Event) => { const t = (e as TouchEvent).touches[0]; if (t) start(t.clientX, t.clientY); };
-      const onTm = (e: Event) => { const t = (e as TouchEvent).touches[0]; if (t) move(t.clientX, t.clientY); };
-      const onTe = (e: Event) => { const t = (e as TouchEvent).changedTouches[0]; if (t) end(t.clientX, t.clientY); };
-      const onMd = (e: Event) => { const me = e as MouseEvent; start(me.clientX, me.clientY); };
-      const onMm = (e: Event) => { const me = e as MouseEvent; move(me.clientX, me.clientY); };
-      const onMu = (e: Event) => { const me = e as MouseEvent; end(me.clientX, me.clientY); };
-      const onMl = () => { state.active = false; clearLongPress(); };
-      doc.addEventListener('touchstart', onTs, { passive: true });
-      doc.addEventListener('touchmove', onTm, { passive: true });
-      doc.addEventListener('touchend', onTe, { passive: true });
-      doc.addEventListener('mousedown', onMd);
-      doc.addEventListener('mousemove', onMm);
-      doc.addEventListener('mouseup', onMu);
-      doc.addEventListener('mouseleave', onMl);
-      cleanups.push(() => {
-        doc.removeEventListener('touchstart', onTs);
-        doc.removeEventListener('touchmove', onTm);
-        doc.removeEventListener('touchend', onTe);
-        doc.removeEventListener('mousedown', onMd);
-        doc.removeEventListener('mousemove', onMm);
-        doc.removeEventListener('mouseup', onMu);
-        doc.removeEventListener('mouseleave', onMl);
-      });
-    }
-    return () => { cleanups.forEach((fn) => fn()); clearLongPress(); };
+    const cleanups = list
+      .map((content) => content?.document)
+      .filter((doc): doc is Document => Boolean(doc))
+      .map((doc) => attach(doc, doc));
+    return () => cleanups.forEach((cleanup) => cleanup());
   };
 
-  return { attachToElement, attachToEpubContents, destroy: clearLongPress };
+  const destroy = () => {
+    Array.from(mountedTargets.values()).forEach((cleanup) => cleanup());
+    cancel();
+  };
+
+  return { attachToElement, attachToEpubContents, destroy };
 }
 
-/**
- * React Hook 包装：传入手势回调，返回 attach 方法供组件在 ref/effect 中调用。
- */
 export function useGesture(handlers: GestureHandlers) {
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
   const detectorRef = useRef<ReturnType<typeof createGestureDetector> | null>(null);
+
   if (!detectorRef.current) {
     detectorRef.current = createGestureDetector({
-      onSwipe: (d) => handlersRef.current.onSwipe?.(d),
-      onLongPress: (pos) => handlersRef.current.onLongPress?.(pos),
+      onSwipe: (direction) => handlersRef.current.onSwipe?.(direction),
+      onLongPress: (position) => handlersRef.current.onLongPress?.(position),
       onTap: () => handlersRef.current.onTap?.(),
     });
   }
-  const attachToElement = useCallback((el: HTMLElement) => detectorRef.current!.attachToElement(el), []);
+
+  useEffect(() => () => detectorRef.current?.destroy(), []);
+
+  const attachToElement = useCallback(
+    (element: HTMLElement) => detectorRef.current!.attachToElement(element),
+    [],
+  );
   const attachToEpubContents = useCallback(
     (contents: { document: Document } | Array<{ document: Document }>) =>
       detectorRef.current!.attachToEpubContents(contents),
     [],
   );
+
   return { attachToElement, attachToEpubContents };
 }

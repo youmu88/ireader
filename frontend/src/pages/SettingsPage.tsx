@@ -240,8 +240,9 @@ export default function SettingsPage() {
       setTtsSettings(updated);
       setSaveMessage('✓ 设置已保存');
 
-      // ⭐ 同步音色/语速到 localStorage（供 ReaderPage 和播放器预热使用）
+      // 同步完整语音身份到 localStorage，供离线播放器和本地缓存匹配使用。
       try {
+        localStorage.setItem('ireader_tts_source', selectedSource);
         localStorage.setItem('ireader_tts_voice', selectedVoice);
         localStorage.setItem('ireader_tts_speed', String(speed));
       } catch { /* ignore */ }

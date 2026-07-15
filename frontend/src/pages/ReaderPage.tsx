@@ -12,6 +12,7 @@ import {
   clearBookChapterCache,
   clearBookTTSAudioCache,
   downloadBatchCachedAudio,
+  downloadOfflineEpubPackage,
 } from '../services/offlineCacheService';
 import axios from 'axios';
 import {
@@ -22,6 +23,8 @@ import {
 import type { BookCacheDetailedStats } from '../services/offlineCacheService';
 import EpubViewer from '../components/EpubViewer';
 import { useGesture } from '../hooks/useGesture';
+import { useAuth } from '../contexts/AuthContext';
+import { getToken } from '../services/authService';
 
 interface Book {
   id: string;
@@ -54,6 +57,7 @@ function formatBytes(bytes: number): string {
 function ReaderPage() {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
+  const { isOfflineMode } = useAuth();
   const [book, setBook] = useState<Book | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
@@ -135,8 +139,10 @@ function ReaderPage() {
 
   // ── 悬浮UI控制（全屏阅读：点击屏幕显示/隐藏所有控件） ──
   const [showUi, setShowUi] = useState(false);
-  /** 长按菜单的触摸坐标（P2-1：菜单跟随触摸点），null=未打开 */
+  /** 长按菜单的触摸坐标，null 表示未打开。 */
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  /** TXT 或 EPUB iframe 中最后一次有效的文字选区。 */
+  const [selectedText, setSelectedText] = useState('');
   const [copiedToast, setCopiedToast] = useState(false);
   const txtPageRef = useRef<HTMLDivElement>(null);
   const progressSaveTimer = useRef<any>(null);
@@ -171,9 +177,12 @@ function ReaderPage() {
 //       故此处外层只负责 txt 模式 + tap 关闭目录（外层 touch 进不了 iframe，互不冲突）。
 const openFloatMenu = useCallback((pos?: { x: number; y: number }) => {
   if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current) return;
+  if (book?.format === 'txt') {
+    setSelectedText(window.getSelection()?.toString().trim() ?? '');
+  }
   if (pos) setMenuPosition(pos);
   setShowUi(true);
-}, []);
+}, [book?.format]);
 
 const closeMenu = useCallback(() => {
   setShowUi(false);
@@ -550,8 +559,13 @@ useEffect(() => {
     setCacheProgressText(textAlreadyCached ? '合成语音 0/' + chapters.length + ' 章' : '');
     try {
       // 阶段1：批量获取并缓存所有章节文字内容（已全部缓存时跳过）
-      const chapterData: { chapterId: string; title: string; order: number; content: string }[] = [];
-      if (!textAlreadyCached) {
+      let chapterData: { chapterId: string; title: string; order: number; content: string }[] = [];
+      if (textAlreadyCached) {
+        chapterData = (await Promise.all(chapters.map(async ch => {
+          const content = await getCachedChapterContent(bookId, ch.id);
+          return content ? { chapterId: ch.id, title: ch.title, order: ch.order, content } : null;
+        }))).filter((item): item is { chapterId: string; title: string; order: number; content: string } => item !== null);
+      } else {
         const totalCh = chapters.length;
         for (let ci = 0; ci < totalCh; ci++) {
           const ch = chapters[ci];
@@ -571,6 +585,17 @@ useEffect(() => {
         await cacheBookChapters(bookId, book.title, chapterData);
       }
 
+      // EPUB 还需要缓存 XHTML/CSS/图片/字体等渲染资源，只有资源全部校验后才标记离线包 ready。
+      if (book.format === 'epub') {
+        setCacheProgressText('下载 EPUB 离线资源');
+        await downloadOfflineEpubPackage(
+          bookId,
+          book.title,
+          chapterData,
+          (completed, total) => setCacheProgressText(`下载 EPUB 资源 ${completed}/${total}`),
+        );
+      }
+
       // 阶段2：全局并发池逐段合成语音并缓存到 IndexedDB
       // 将所有段落任务放入全局队列，跨章并发，充分利用并发能力
       const player = getDefaultPlayer();
@@ -584,7 +609,7 @@ useEffect(() => {
         } catch { return ttsSpeed; }
       })();
       const noCachePref = (() => {
-        try { return localStorage.getItem('ireader_tts_noCache') === 'true'; } catch { return true; }
+        try { return localStorage.getItem('ireader_tts_noCache') === 'true'; } catch { return false; }
       })();
 
       // 跳过实时合成模式
@@ -594,9 +619,14 @@ useEffect(() => {
 
         // ⭐ 阶段2a：先尝试批量拉取服务端已缓存的（后台预合成）音频
         // 这样已预合成的段落就走批量下载，不走逐段 POST /api/tts
-        setCacheProgressText('检测服务端缓存...');
+        const chapterSegments = new Map<string, string[]>();
+        for (const ch of chapters) {
+          const chData = chapterData.find(d => d.chapterId === ch.id);
+          if (chData?.content) chapterSegments.set(ch.id, splitText(chData.content));
+        }
+        const effectiveSource = localStorage.getItem('ireader_tts_source') || player.getSource();
         const batchDownloaded = await downloadBatchCachedAudio(
-          bookId, effectiveVoice, effectiveSpeed, chapters,
+          bookId, effectiveVoice, effectiveSpeed, effectiveSource, chapterSegments,
                       (_chId, _segIdx) => {
             // 每下载一段，更新一下进度（粗略按章节算）
             if (!chapterMarkedDoneForBatch) chapterMarkedDoneForBatch = new Set();
@@ -641,23 +671,28 @@ useEffect(() => {
               const idx = i++;
               const task = allTasks[idx];
               try {
-                const existing = await getCachedTTSAudio(bookId, task.chapter.id, task.segIdx);
+                const identity = { voice: effectiveVoice, speed: effectiveSpeed, source: effectiveSource, text: task.seg };
+                const existing = await getCachedTTSAudio(bookId, task.chapter.id, task.segIdx, identity);
                 if (!existing) {
                   const res = await fetch('/api/tts', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                      'Content-Type': 'application/json',
+                      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+                    },
                     body: JSON.stringify({
                       input: task.seg,
                       voice: effectiveVoice,
                       speed: effectiveSpeed,
                       response_format: 'wav',
-                      tts_source: 'kokoro',
+                      tts_source: effectiveSource,
                       no_cache: false,
+                      book_id: bookId,
                     }),
                   });
                   if (res.ok) {
                     const arrayBuffer = await res.arrayBuffer();
-                    await cacheTTSAudio(bookId, task.chapter.id, task.segIdx, arrayBuffer);
+                    await cacheTTSAudio(bookId, task.chapter.id, task.segIdx, arrayBuffer, undefined, identity);
                     totalCached++;
                   }
                 }
@@ -824,6 +859,7 @@ useEffect(() => {
 
         // 提前初始化播放器（创建 audio 元素 + 缓存 TTS 设置）
         await player.init({
+          source: localStorage.getItem('ireader_tts_source') || undefined,
           speed: savedSpeed || ttsSpeed,
           voice: savedVoice || ttsVoice,
           noCache: noCachePref,
@@ -856,7 +892,7 @@ useEffect(() => {
       setLoading(true);
 
       // ── 离线判断：navigator.onLine 或首次 API 请求失败时降级 ──
-      const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      const isOffline = isOfflineMode || (typeof navigator !== 'undefined' && navigator.onLine === false);
 
       let bookData: any = null;
       let chaptersData: any[] = [];
@@ -910,8 +946,10 @@ useEffect(() => {
       const isEpub = bookData.format === 'epub';
       let savedProgress: any = null;
       try {
-        const progRes = await axios.get(`/api/books/${bookId}/progress`);
-        savedProgress = progRes.data.data;
+        if (!isOffline) {
+          const progRes = await axios.get(`/api/books/${bookId}/progress`);
+          savedProgress = progRes.data.data;
+        }
         if (savedProgress?.chapterId) {
           const saved = chaptersData.find((c: Chapter) => c.id === savedProgress.chapterId);
           if (saved) {
@@ -1156,18 +1194,23 @@ function stripHtml(html: string): string {
     if (preloaded) {
       content = preloaded.content;
     } else {
-      try {
-        const res = await axios.get(`/api/books/${bookId}/chapters/${nextCh.id}/content`);
-        const raw = res.data.data?.content || '';
-        content = book?.format === 'epub' ? stripHtml(raw) : raw;
-      } catch { return; }
+      const cached = await getCachedChapterContent(bookId, nextCh.id);
+      if (cached) {
+        content = book?.format === 'epub' ? stripHtml(cached) : cached;
+      } else {
+        try {
+          const res = await axios.get(`/api/books/${bookId}/chapters/${nextCh.id}/content`);
+          const raw = res.data.data?.content || '';
+          content = book?.format === 'epub' ? stripHtml(raw) : raw;
+        } catch { return; }
+      }
     }
     if (!content) return;
     const segments = splitText(content);
     if (segments.length === 0) return;
     // 推入播放器的预取缓冲区（不阻塞当前播放）
     const player = getDefaultPlayer();
-    player.prefetchChapterSegments(segments).catch(() => {});
+    player.prefetchChapterSegments(segments, nextCh.id).catch(() => {});
   }, [chapters, bookId, book]);
 
   // Debounced progress save
@@ -1317,10 +1360,14 @@ function stripHtml(html: string): string {
     // 写入真实的全书进度
     debounceSaveProgress({ chapterId: currentChapterRef.current.id, percentage: chapterDonePct });
     try {
-      const res = await axios.get(`/api/books/${triggerBookId}/chapters/${nextCh.id}/content`);
+      let content = await getCachedChapterContent(triggerBookId!, nextCh.id);
+      if (!content) {
+        const res = await axios.get(`/api/books/${triggerBookId}/chapters/${nextCh.id}/content`);
+        content = res.data.data?.content || '';
+      }
       if (currentBookIdRef.current !== triggerBookId) return; // 书籍已切换
-      let rawContent = res.data.data?.content || '';
-      const content = book?.format === 'epub' ? stripHtml(rawContent) : rawContent;
+      if (!content) return;
+      content = book?.format === 'epub' ? stripHtml(content) : content;
       if (!content) return;
       // 更新章节 + 显示内容（严格同步）
       setCurrentChapter(nextCh);
@@ -1335,7 +1382,7 @@ function stripHtml(html: string): string {
       const loadedFromPrefetch = await player.loadFromPrefetched();
       if (!loadedFromPrefetch) {
         // 无预取数据时回退到标准加载（初次启动或极快切换场景）
-        await player.load(content, false);
+        await player.load(content, false, nextCh.id);
       }
       setActiveSegmentIndex(0);
       setTtsProgress(0);
@@ -1483,10 +1530,13 @@ function stripHtml(html: string): string {
       onError: (err) => {
         console.warn('TTS 朗读错误:', err);
         // ⭐ 段落级合成失败/无可用音频 → 播放器已自动跳过(playNext)，不弹横幅打扰用户
-        if (err.includes('合成失败') || err.includes('无可用音频')) {
+        if ((err.includes('合成失败') || err.includes('无可用音频')) && !err.includes('当前离线且该段语音未缓存')) {
           return;
         }
         let userMsg = err;
+        if (err.includes('当前离线且该段语音未缓存')) {
+          userMsg = '该章节的语音缓存不完整，联网后请重新缓存本章或全书。';
+        }
         if (err.includes('Failed to fetch') || err.includes('NetworkError') || err.includes('TTS service unavailable')) {
           userMsg = '语音服务连接失败，请检查设置面板中的 TTS 服务地址是否正确，或切换 TTS 后端';
         } else if (err.includes('502') || err.includes('TTS 合成失败')) {
@@ -1701,6 +1751,8 @@ function stripHtml(html: string): string {
         })();
         const useVoice = savedVoiceLs2 || player.getVoice() || ttsVoice;
         const useSpeed = savedSpeedLs2 || ttsSpeed;
+        const useSource = localStorage.getItem('ireader_tts_source') || player.getSource();
+        player.setSource(useSource);
         player.setVoice(useVoice);
         player.setSpeed(useSpeed);
         player['currentBookId'] = bookId;
@@ -1720,6 +1772,7 @@ function stripHtml(html: string): string {
           } catch { return null; }
         })();
         await player.init({
+          source: localStorage.getItem('ireader_tts_source') || undefined,
           speed: savedSpeedLs3 || ttsSpeed,
           voice: savedVoiceLs3 || ttsVoice,
           noCache: noCachePref,
@@ -1731,7 +1784,7 @@ function stripHtml(html: string): string {
       player.setVolume(ttsVolume);
 
       // 文本已是纯文本（EPUB 已由 getCurrentChapterText 返回 txtContent，非原始 HTML）
-      await player.load(text, false);
+      await player.load(text, false, currentChapter.id);
 
       // Start periodic TTS progress saving (also persists to localStorage)
       startTtsProgressSaver(bookId, currentChapter.id, currentChapter?.title || '', player);
@@ -2236,6 +2289,7 @@ function stripHtml(html: string): string {
         {/* EPUB Reader — 由 epub.js 托管（根治旧自研分页引擎的黑屏/翻节/字体重排乱） */}
         {book?.format === 'epub' && (
           <EpubViewer
+            bookId={book.id}
             fileUrl={`/api/books/${book.id}/file/`}
             readingMode={readingMode}
             fontSize={fontSize}
@@ -2246,6 +2300,7 @@ function stripHtml(html: string): string {
             pageControlRef={epubPageControlRef}
             chapterNavRef={epubChapterNavRef}
             onTap={openFloatMenu}
+            onSelectionTextChange={setSelectedText}
             onLocationChange={(cfi) => {
               epubCfiRef.current = cfi;
               if (currentBookIdRef.current) {
@@ -2696,20 +2751,21 @@ function stripHtml(html: string): string {
                     <div className="flex items-center justify-center">
                       <button
                         onClick={async () => {
-                          const sel = window.getSelection()?.toString();
-                          if (sel) {
-                            try {
-                              await navigator.clipboard.writeText(sel);
-                              setCopiedToast(true);
-                              setTimeout(() => setCopiedToast(false), 2000);
-                            } catch {
-                              // Clipboard API 可能不可用（非 https/非 localhost），静默失败
-                            }
+                          const text = selectedText || window.getSelection()?.toString().trim() || '';
+                          if (!text) return;
+                          try {
+                            await navigator.clipboard.writeText(text);
+                            setCopiedToast(true);
+                            closeMenu();
+                            setTimeout(() => setCopiedToast(false), 2000);
+                          } catch {
+                            // Clipboard API 在非安全上下文中不可用时保留菜单，便于用户使用系统复制。
                           }
                         }}
-                        className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active"
+                        disabled={!selectedText && !window.getSelection()?.toString().trim()}
+                        className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-full transition-all duration-200 tap-active disabled:opacity-40 disabled:cursor-not-allowed"
                         style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-                        title="复制选中文字"
+                        title={selectedText ? `复制已选中的 ${selectedText.length} 个字符` : '请先选择文字'}
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                         复制

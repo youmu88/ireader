@@ -15,7 +15,18 @@ export async function parseBook(
 ): Promise<{
   title: string;
   author: string | null;
-  chapters: Array<{ title: string; href?: string; startOffset?: number; endOffset?: number; order: number; level: number }>;
+  chapters: Array<{
+    title: string;
+    href?: string;
+    fragment?: string | null;
+    spineIndex?: number | null;
+    normalizedText?: string | null;
+    contentHash?: string | null;
+    startOffset?: number;
+    endOffset?: number;
+    order: number;
+    level: number;
+  }>;
   coverPath?: string;
 }> {
   if (format === 'epub') {
@@ -26,6 +37,10 @@ export async function parseBook(
       chapters: result.chapters.map((ch) => ({
         title: ch.title,
         href: ch.href,
+        fragment: ch.fragment,
+        spineIndex: ch.spineIndex,
+        normalizedText: ch.normalizedText,
+        contentHash: ch.contentHash,
         order: ch.order,
         level: ch.level,
       })),

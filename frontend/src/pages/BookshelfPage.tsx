@@ -8,6 +8,7 @@ import {
   cacheShelfBooksMeta,
   getOfflineShelfBooks,
 } from '../services/offlineCacheService';
+import { useAuth } from '../contexts/AuthContext';
 
 interface TTSJob {
   id: string;
@@ -55,7 +56,8 @@ interface Category {
   sort: number;
 }
 
-function BookshelfPage() {
+export default function BookshelfPage() {
+  const { isOfflineMode, exitOfflineMode } = useAuth();
   const [books, setBooks] = useState<Book[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -366,8 +368,8 @@ useEffect(() => {
     try {
       setLoading(true);
 
-      // 在线时正常请求 API
-      if (navigator.onLine) {
+      // 在线且未主动离线时正常请求 API
+      if (navigator.onLine && !isOfflineMode) {
         const [booksRes, catsRes] = await Promise.all([
           axios.get('/api/books'),
           axios.get('/api/categories'),
@@ -405,29 +407,27 @@ useEffect(() => {
         }
       }
     } catch (err: any) {
-      // 网络请求失败 → 尝试离线降级
-      if (!navigator.onLine) {
-        const offlineBooks = await getOfflineShelfBooks();
-        if (offlineBooks.length > 0) {
-          setBooks(offlineBooks.map(b => ({
-            id: b.bookId,
-            title: b.bookTitle,
-            author: b.author || null,
-            format: b.format,
-            coverPath: b.hasCover ? `/api/books/${b.bookId}/cover` : null,
-            status: 'ready' as const,
-            categoryId: null,
-            pinned: 0,
-            parseError: null,
-            lastReadAt: null,
-            createdAt: new Date(b.cachedAt).toISOString(),
-          })));
-          setCategories([]);
-          setError(null);
-          return;
-        }
+      // 网络请求失败或主动离线 → 始终尝试 IndexedDB 降级
+      const offlineBooks = await getOfflineShelfBooks();
+      if (offlineBooks.length > 0) {
+        setBooks(offlineBooks.map(b => ({
+          id: b.bookId,
+          title: b.bookTitle,
+          author: b.author || null,
+          format: b.format,
+          coverPath: b.hasCover ? `/api/books/${b.bookId}/cover` : null,
+          status: 'ready' as const,
+          categoryId: null,
+          pinned: 0,
+          parseError: null,
+          lastReadAt: null,
+          createdAt: new Date(b.cachedAt).toISOString(),
+        })));
+        setCategories([]);
+        setError(null);
+        return;
       }
-      setError(err.response?.data?.error || '加载数据失败');
+      setError(err.response?.data?.error || '当前无法连接服务器，且没有已缓存的书籍');
     } finally {
       setLoading(false);
     }
@@ -530,7 +530,7 @@ useEffect(() => {
               重试
             </button>
             <button
-              onClick={() => { localStorage.removeItem('ireader_offline_mode'); window.location.href = '/login'; }}
+              onClick={exitOfflineMode}
               className="px-4 py-1.5 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-sm font-medium"
             >
               退出离线模式
@@ -1371,5 +1371,3 @@ useEffect(() => {
     </>
   );
 }
-
-export default BookshelfPage;

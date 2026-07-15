@@ -58,8 +58,11 @@ export async function cacheFullBook(
       } else {
         // EPUB
         if (chapter.href) {
-          const extractedPath = path.join(path.dirname(book.filePath), 'extracted', chapter.href);
-          if (fs.existsSync(extractedPath)) {
+          const extractedDir = path.resolve(path.dirname(book.filePath), 'extracted');
+          const hrefPath = chapter.href.split('#')[0];
+          const extractedPath = path.resolve(extractedDir, hrefPath);
+          const isInsideExtractedDir = extractedPath.startsWith(`${extractedDir}${path.sep}`);
+          if (isInsideExtractedDir && fs.existsSync(extractedPath)) {
             content = fs.readFileSync(extractedPath, 'utf-8');
           }
         }
@@ -137,8 +140,11 @@ export async function cacheNChapters(
         }
       } else {
         if (chapter.href) {
-          const extractedPath = path.join(path.dirname(book.filePath), 'extracted', chapter.href);
-          if (fs.existsSync(extractedPath)) {
+          const extractedDir = path.resolve(path.dirname(book.filePath), 'extracted');
+          const hrefPath = chapter.href.split('#')[0];
+          const extractedPath = path.resolve(extractedDir, hrefPath);
+          const isInsideExtractedDir = extractedPath.startsWith(`${extractedDir}${path.sep}`);
+          if (isInsideExtractedDir && fs.existsSync(extractedPath)) {
             content = fs.readFileSync(extractedPath, 'utf-8');
           }
         }

@@ -61,6 +61,10 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       href TEXT,
+      fragment TEXT,
+      spine_index INTEGER,
+      normalized_text TEXT,
+      content_hash TEXT,
       start_offset INTEGER,
       end_offset INTEGER,
       "order" INTEGER NOT NULL,
@@ -106,11 +110,24 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS content_segments (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      chapter_id TEXT NOT NULL REFERENCES book_chapters(id) ON DELETE CASCADE,
+      segment_index INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      text_hash TEXT NOT NULL,
+      start_offset INTEGER NOT NULL,
+      end_offset INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS tts_generation_jobs (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
       chapter_id TEXT,
+      chapter_count INTEGER,
       voice TEXT NOT NULL,
       speed REAL NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed')),
@@ -119,6 +136,19 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       completed_chunks INTEGER NOT NULL DEFAULT 0,
       error TEXT,
       created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS tts_generation_segments (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL REFERENCES tts_generation_jobs(id) ON DELETE CASCADE,
+      segment_id TEXT NOT NULL REFERENCES content_segments(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      audio_resource_id TEXT,
+      error TEXT,
+      started_at TEXT,
+      finished_at TEXT,
       updated_at TEXT NOT NULL
     );
 
@@ -172,6 +202,8 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
         id TEXT PRIMARY KEY,
         book_id TEXT NOT NULL REFERENCES global_books(id) ON DELETE CASCADE,
         chapter_id TEXT,
+        segment_index INTEGER,
+        source TEXT NOT NULL DEFAULT 'edgetts',
         text_hash TEXT NOT NULL,
         voice TEXT NOT NULL,
         speed REAL NOT NULL,
@@ -201,6 +233,9 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       CREATE INDEX IF NOT EXISTS idx_tts_global_resources_lookup ON tts_global_resources(text_hash, voice, speed, book_id);
       CREATE INDEX IF NOT EXISTS idx_tts_refs_user ON tts_refs(user_id);
       CREATE INDEX IF NOT EXISTS idx_tts_refs_global ON tts_refs(global_resource_id);
+      CREATE INDEX IF NOT EXISTS idx_content_segments_chapter ON content_segments(chapter_id, segment_index);
+      CREATE INDEX IF NOT EXISTS idx_tts_generation_segments_job ON tts_generation_segments(job_id, status);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_content_segments_unique ON content_segments(chapter_id, segment_index);
     `);
   } catch (err) {
     console.error('[迁移] 全局引用索引创建失败:', (err as Error).message);
@@ -209,7 +244,6 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
   // ── 旧表迁移：检测并自动添加 user_id 列 ──
   // 注意：必须在 CREATE TABLE IF NOT EXISTS 之后运行，确保 users 表已存在
   migrateOldTables(sqlite);
-migrateOldTables(sqlite);
 
   // ── 单独检查 tts_settings 的 api_url/api_key 列（旧版 migrateOldTables 可能跳过此步骤） ──
   try {
@@ -246,6 +280,54 @@ migrateOldTables(sqlite);
     }
   } catch (err) {
     console.error('[迁移] tts_cache 列补充失败:', (err as Error).message);
+  }
+
+  // ── 迁移：TTS 缓存资源增加稳定的章节段序 ──
+  try {
+    const cacheCols = sqlite.prepare("PRAGMA table_info('tts_cache')").all() as { name: string }[];
+    if (!cacheCols.some(c => c.name === 'segment_index')) {
+      sqlite.exec(`ALTER TABLE tts_cache ADD COLUMN segment_index INTEGER;`);
+    }
+    if (!cacheCols.some(c => c.name === 'source')) {
+      sqlite.exec(`ALTER TABLE tts_cache ADD COLUMN source TEXT NOT NULL DEFAULT 'edgetts';`);
+    }
+    const globalCols = sqlite.prepare("PRAGMA table_info('tts_global_resources')").all() as { name: string }[];
+    if (!globalCols.some(c => c.name === 'segment_index')) {
+      sqlite.exec(`ALTER TABLE tts_global_resources ADD COLUMN segment_index INTEGER;`);
+    }
+    if (!globalCols.some(c => c.name === 'source')) {
+      sqlite.exec(`ALTER TABLE tts_global_resources ADD COLUMN source TEXT NOT NULL DEFAULT 'edgetts';`);
+    }
+  } catch (err) {
+    console.error('[迁移] TTS segment_index 列补充失败:', (err as Error).message);
+  }
+
+  // ── 迁移：book_chapters 统一内容模型字段 ──
+  try {
+    const chapterCols = sqlite.prepare("PRAGMA table_info('book_chapters')").all() as { name: string }[];
+    const chapterColumns = new Set(chapterCols.map(c => c.name));
+    for (const [name, type] of [
+      ['fragment', 'TEXT'],
+      ['spine_index', 'INTEGER'],
+      ['normalized_text', 'TEXT'],
+      ['content_hash', 'TEXT'],
+    ] as const) {
+      if (!chapterColumns.has(name)) {
+        sqlite.exec(`ALTER TABLE book_chapters ADD COLUMN ${name} ${type};`);
+      }
+    }
+  } catch (err) {
+    console.error('[迁移] book_chapters 统一字段补充失败:', (err as Error).message);
+  }
+
+  // ── 迁移：TTS 任务增加章节范围字段 ──
+  try {
+    const jobCols = sqlite.prepare("PRAGMA table_info('tts_generation_jobs')").all() as { name: string }[];
+    if (!jobCols.some(c => c.name === 'chapter_count')) {
+      sqlite.exec(`ALTER TABLE tts_generation_jobs ADD COLUMN chapter_count INTEGER;`);
+    }
+  } catch (err) {
+    console.error('[迁移] tts_generation_jobs chapter_count 列补充失败:', (err as Error).message);
   }
 
   // ── 迁移：books 表增加 file_hash 列 ──

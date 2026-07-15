@@ -78,8 +78,43 @@ describe('createGestureDetector', () => {
     expect(onLongPress).not.toHaveBeenCalled();
   });
 
+  it('EPUB iframe 中已有选区时不触发滑动翻页', () => {
+    const onSwipe = vi.fn();
+    const d = createGestureDetector({ onSwipe });
+    const iframe = document.createElement('iframe');
+    document.body.appendChild(iframe);
+    const iframeDocument = iframe.contentDocument!;
+    vi.spyOn(iframe.contentWindow!, 'getSelection').mockReturnValue({
+      toString: () => '可选择的文字',
+    } as Selection);
+
+    d.attachToEpubContents({ document: iframeDocument });
+    iframeDocument.dispatchEvent(new TouchEvent('touchstart', { touches: [makeTouch(300, 200)] }));
+    iframeDocument.dispatchEvent(new TouchEvent('touchend', { changedTouches: [makeTouch(200, 205)] }));
+
+    expect(onSwipe).not.toHaveBeenCalled();
+    iframe.remove();
+  });
+
+  it('清理后允许同一 EPUB document 重新挂载', () => {
+    const firstSwipe = vi.fn();
+    const secondSwipe = vi.fn();
+    const iframeDocument = document.implementation.createHTMLDocument('epub');
+    const first = createGestureDetector({ onSwipe: firstSwipe });
+    const detach = first.attachToEpubContents({ document: iframeDocument });
+    detach();
+
+    const second = createGestureDetector({ onSwipe: secondSwipe });
+    second.attachToEpubContents({ document: iframeDocument });
+    iframeDocument.dispatchEvent(new TouchEvent('touchstart', { touches: [makeTouch(300, 200)] }));
+    iframeDocument.dispatchEvent(new TouchEvent('touchend', { changedTouches: [makeTouch(200, 205)] }));
+
+    expect(firstSwipe).not.toHaveBeenCalled();
+    expect(secondSwipe).toHaveBeenCalledWith('left');
+  });
+
   it('GESTURE_CONFIG 阈值合理', () => {
-    expect(GESTURE_CONFIG.LONG_PRESS_MS).toBe(800);
+    expect(GESTURE_CONFIG.LONG_PRESS_MS).toBe(1000);
     expect(GESTURE_CONFIG.SWIPE_MIN_DISTANCE).toBe(50);
   });
 });

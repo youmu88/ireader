@@ -42,6 +42,10 @@ export const bookChapters = sqliteTable('book_chapters', {
   bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   href: text('href'),
+  fragment: text('fragment'),
+  spineIndex: integer('spine_index'),
+  normalizedText: text('normalized_text'),
+  contentHash: text('content_hash'),
   startOffset: integer('start_offset'),
   endOffset: integer('end_offset'),
   order: integer('order').notNull(),
@@ -71,6 +75,8 @@ export const ttsCache = sqliteTable('tts_cache', {
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   bookId: text('book_id').references(() => books.id, { onDelete: 'cascade' }),
   chapterId: text('chapter_id'),
+  segmentIndex: integer('segment_index'),
+  source: text('source').notNull().default('edgetts'),
   textHash: text('text_hash').notNull(),
   voice: text('voice').notNull(),
   speed: real('speed').notNull(),
@@ -90,12 +96,25 @@ export const bookContentCache = sqliteTable('book_content_cache', {
   updatedAt: text('updated_at').notNull(),
 });
 
+export const contentSegments = sqliteTable('content_segments', {
+  id: text('id').primaryKey(),
+  bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
+  chapterId: text('chapter_id').notNull().references(() => bookChapters.id, { onDelete: 'cascade' }),
+  segmentIndex: integer('segment_index').notNull(),
+  text: text('text').notNull(),
+  textHash: text('text_hash').notNull(),
+  startOffset: integer('start_offset').notNull(),
+  endOffset: integer('end_offset').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
 // ── TTS 后台生成任务表 ──
 export const ttsGenerationJobs = sqliteTable('tts_generation_jobs', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
   chapterId: text('chapter_id'),
+  chapterCount: integer('chapter_count'),
   voice: text('voice').notNull(),
   speed: real('speed').notNull(),
   status: text('status', { enum: ['pending', 'running', 'completed', 'failed'] }).notNull().default('pending'),
@@ -104,6 +123,19 @@ export const ttsGenerationJobs = sqliteTable('tts_generation_jobs', {
   completedChunks: integer('completed_chunks').notNull().default(0),
   error: text('error'),
   createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const ttsGenerationSegments = sqliteTable('tts_generation_segments', {
+  id: text('id').primaryKey(),
+  jobId: text('job_id').notNull().references(() => ttsGenerationJobs.id, { onDelete: 'cascade' }),
+  segmentId: text('segment_id').notNull().references(() => contentSegments.id, { onDelete: 'cascade' }),
+  status: text('status', { enum: ['pending', 'running', 'completed', 'failed'] }).notNull().default('pending'),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  audioResourceId: text('audio_resource_id'),
+  error: text('error'),
+  startedAt: text('started_at'),
+  finishedAt: text('finished_at'),
   updatedAt: text('updated_at').notNull(),
 });
 
@@ -163,6 +195,8 @@ export const ttsGlobalResources = sqliteTable('tts_global_resources', {
   id: text('id').primaryKey(),
   bookId: text('book_id').notNull().references(() => globalBooks.id, { onDelete: 'cascade' }),
   chapterId: text('chapter_id'),
+  segmentIndex: integer('segment_index'),
+  source: text('source').notNull().default('edgetts'),
   textHash: text('text_hash').notNull(),
   voice: text('voice').notNull(),
   speed: real('speed').notNull(),

@@ -3,10 +3,13 @@ import ePub, { type Book, type Rendition } from 'epubjs';
 import { getToken } from '../services/authService';
 import { useTheme } from '../services/themeService';
 import { useGesture } from '../hooks/useGesture';
+import { getCachedEpubArchive, getOfflinePackageMeta } from '../services/offlineCacheService';
 
 interface EpubViewerProps {
   /** 原始 epub 文件 URL（后端 GET /api/books/:id/file 返回） */
   fileUrl: string;
+  /** 书籍 ID，用于查找本地 EPUB 离线包 */
+  bookId?: string;
   readingMode: 'scroll' | 'paginated';
   fontSize: number;
   fontFamily: 'sans' | 'serif' | 'mono';
@@ -23,6 +26,8 @@ interface EpubViewerProps {
   /** 点击/触摸阅读区时回调（用于父层弹出浮动操作面板）。epub.js 的 iframe 会吞掉事件，故在此转发。
    * 传入触摸坐标（可选），供菜单位置跟随 */
   onTap?: (pos?: { x: number; y: number }) => void;
+  /** EPUB iframe 内的文字选区变化，供父层复制按钮使用。 */
+  onSelectionTextChange?: (text: string) => void;
 }
 
 const FONT_STACK: Record<'sans' | 'serif' | 'mono', string> = {
@@ -43,6 +48,7 @@ const THEME_NAME = 'ireader-theme';
  */
 export default function EpubViewer({
   fileUrl,
+  bookId,
   readingMode,
   fontSize,
   fontFamily,
@@ -53,12 +59,14 @@ export default function EpubViewer({
   pageControlRef,
   chapterNavRef,
   onTap,
+  onSelectionTextChange,
 }: EpubViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [resolvedFileUrl, setResolvedFileUrl] = useState<string | null>(null);
   // 滑动翻页视觉反馈：翻页方向闪烁箭头
   const [swipeIndicator, setSwipeIndicator] = useState<'left' | 'right' | null>(null);
   const initialCfiRef = useRef<string | null>(initialCfi ?? null);
@@ -66,6 +74,17 @@ export default function EpubViewer({
   onLocRef.current = onLocationChange;
   const onTapRef = useRef(onTap);
   onTapRef.current = onTap;
+  const onSelectionTextChangeRef = useRef(onSelectionTextChange);
+  onSelectionTextChangeRef.current = onSelectionTextChange;
+  const epubDocumentsRef = useRef<Document[]>([]);
+
+  const readEpubSelection = () => {
+    for (const doc of epubDocumentsRef.current) {
+      const text = doc.defaultView?.getSelection()?.toString().trim();
+      if (text) return text;
+    }
+    return '';
+  };
 
   // 统一手势入口（gesture hub）：接管 epub 阅读区的 swipe/longpress/tap。
   //   - swipe left/right → rendition 翻页（修根：恢复 epub 模式左右滑动翻页）
@@ -81,6 +100,7 @@ export default function EpubViewer({
       else renditionRef.current?.prev();
     },
     onLongPress: (pos) => {
+      onSelectionTextChangeRef.current?.(readEpubSelection());
       onTapRef.current?.(pos);
     },
   });
@@ -97,14 +117,39 @@ export default function EpubViewer({
   // ── 初始化 Book + Rendition（仅一次）──
   useEffect(() => {
     let cancelled = false;
+    let localUrl: string | null = null;
+    const resolveSource = async () => {
+      if (bookId) {
+        const meta = await getOfflinePackageMeta(bookId);
+        if (meta?.status === 'ready') {
+          const archive = await getCachedEpubArchive(bookId);
+          if (archive && !cancelled) {
+            localUrl = URL.createObjectURL(new Blob([archive.data], { type: 'application/epub+zip' }));
+            setResolvedFileUrl(localUrl);
+            return;
+          }
+        }
+      }
+      if (!cancelled) setResolvedFileUrl(fileUrl);
+    };
+    setResolvedFileUrl(null);
+    void resolveSource();
+    return () => {
+      cancelled = true;
+      if (localUrl) URL.revokeObjectURL(localUrl);
+    };
+  }, [bookId, fileUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
     const el = viewerRef.current;
-    if (!el) return;
+    if (!el || !resolvedFileUrl) return;
 
     setError(null);
     setLoading(true);
 
     const token = getToken();
-    const book = ePub(fileUrl, {
+    const book = ePub(resolvedFileUrl, {
       // 后端 /api/books/:id/file 有 requireAuth（Bearer Token 认证）
       // epub.js 内部用 XHR 加载，不会自动带 axios 拦截器的 token，
       // 故在此从根源注入请求头（标准用法，非绕过）
@@ -185,41 +230,39 @@ export default function EpubViewer({
       //   - longpress → 触发父层浮动菜单（onTap 回调）
       //   - tap → 不拦截书内 TOC 点击/文字选择（原生穿透）
       // getContents() 在 display 后才有内容，且翻页会变，故在 display 成功后动态 attach。
-      const GESTURE_INJECT_MARK = '__ireaderGestureAttached';
       let attachGestureRetries = 0;
       const MAX_ATTACH_RETRIES = 3;
       const ATTACH_RETRY_DELAY_MS = 200;
 
       const attachGesture = () => {
-        // ⚠️ epub.js 类型定义 Rendition.getContents() 返回 Contents（单个对象），
-        // 但运行时底层 Manager.getContents() 返回 Contents[]（数组）。
-        // 用 as any 绕开类型不一致，实际取数组第一个元素的 document。
         const raw = rendition!.getContents?.() as any;
-        const list: Array<{ document: Document }> = Array.isArray(raw) ? raw : [raw];
+        const list: Array<{ document: Document }> = (Array.isArray(raw) ? raw : [raw])
+          .filter((content: any) => content?.document);
 
-        if (!list.length || !list[0]?.document) {
-          console.warn('[EpubViewer] attachGesture: getContents() 返回空，重试=', attachGestureRetries + 1, '/', MAX_ATTACH_RETRIES);
+        if (!list.length) {
           if (attachGestureRetries < MAX_ATTACH_RETRIES) {
             attachGestureRetries++;
             setTimeout(attachGesture, ATTACH_RETRY_DELAY_MS);
-          } else {
-            console.error('[EpubViewer] attachGesture: getContents() 始终返回空，手势监听未挂载！');
           }
           return;
         }
-        // 重置重试计数（成功获取到 contents）
         attachGestureRetries = 0;
 
-        // 防重复：检查 document 是否已有注入标记
-        const doc = list[0].document;
-        if ((doc as any)[GESTURE_INJECT_MARK]) {
-          console.log('[EpubViewer] attachGesture: 手势已注入，跳过重复绑定');
-          return;
-        }
-
-        if (gestureDetachRef.current) { gestureDetachRef.current(); gestureDetachRef.current = null; }
-        gestureDetachRef.current = gesture.attachToEpubContents(list);
-        console.log('[EpubViewer] attachGesture: ✅ 手势监听已挂载到 iframe document, contents 数量=', list.length);
+        if (gestureDetachRef.current) gestureDetachRef.current();
+        epubDocumentsRef.current = list.map((content) => content.document);
+        const detachGesture = gesture.attachToEpubContents(list);
+        const selectionCleanups = epubDocumentsRef.current.map((doc) => {
+          const reportSelection = () => {
+            const text = doc.defaultView?.getSelection()?.toString().trim() ?? '';
+            onSelectionTextChangeRef.current?.(text);
+          };
+          doc.addEventListener('selectionchange', reportSelection);
+          return () => doc.removeEventListener('selectionchange', reportSelection);
+        });
+        gestureDetachRef.current = () => {
+          detachGesture();
+          selectionCleanups.forEach((cleanup) => cleanup());
+        };
       };
       // 首次 display 完成后挂载；relocated 时 contents 可能重建，重新挂载
       rendition.on('rendered', attachGesture);
@@ -301,6 +344,7 @@ export default function EpubViewer({
       if (retryRaf) cancelAnimationFrame(retryRaf);
       if (timeoutId) clearTimeout(timeoutId);
       if (gestureDetachRef.current) { gestureDetachRef.current(); gestureDetachRef.current = null; }
+      epubDocumentsRef.current = [];
       ro?.disconnect();
       try { rendition?.destroy(); } catch { /* ignore */ }
       try { book.destroy(); } catch { /* ignore */ }
@@ -311,7 +355,7 @@ export default function EpubViewer({
     };
     // 仅依赖 fileUrl：整个阅读过程用同一 rendition，模式/样式变化走下方独立 effect
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileUrl]);
+  }, [fileUrl, resolvedFileUrl]);
 
   // ── 模式切换：同一 rendition.flow()，不重建 DOM（根治黑屏）──
   useEffect(() => {

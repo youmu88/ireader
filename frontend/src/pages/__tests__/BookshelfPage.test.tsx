@@ -1,7 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import BookshelfPage from '../BookshelfPage';
+
+vi.mock('../../contexts/AuthContext', () => ({
+  useAuth: () => ({ isOfflineMode: false, exitOfflineMode: vi.fn() }),
+}));
 
 describe('BookshelfPage', () => {
   it('should render loading state initially', () => {

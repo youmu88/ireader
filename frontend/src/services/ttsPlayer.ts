@@ -16,7 +16,7 @@
 
 import { fetchTTSSettings } from './ttsService';
 import { getToken } from './authService';
-import { getCachedTTSAudio, cacheTTSAudio, getAllCachedTTSAudioForChapter } from './offlineCacheService';
+import { getCachedTTSAudio, cacheTTSAudio, getAllCachedTTSAudioForChapter, type TTSAudioIdentity } from './offlineCacheService';
 
 // ===== 类型定义 =====
 
@@ -273,6 +273,10 @@ export class TTSPlayer {
 
   /** 获取当前音色 */
   getVoice(): string { return this.voice; }
+  /** 获取当前语音源 */
+  getSource(): string { return this.source; }
+  /** 设置当前语音源 */
+  setSource(source: string): void { this.source = source; }
   /** 设置音色 */
   setVoice(v: string): void { this.voice = v; }
 
@@ -296,7 +300,7 @@ export class TTSPlayer {
     // ⭐ 如果 audio 元素已存在（预热时已初始化），只更新选项和设置
     if (this.audioElement) {
       this.audioElement.playbackRate = this.speed;
-      this.setupBackgroundPlayback();
+      this.updateMediaSessionMetadata();
       return;
     }
 
@@ -310,16 +314,19 @@ export class TTSPlayer {
     // 注意：未命中缓存时不再 await 网络取设置（避免冷启动阻塞点击朗读 1~2s），
     // 直接用默认值继续创建 <audio> 元素，设置随后由下方后台异步刷新补齐。
 
-    // ⭐ 后台异步刷新 TTS 设置并更新缓存（不阻塞初始化 / 不阻塞首次出声）
-    fetchTTSSettings().then(settings => {
-      if (!this.isDestroyed) {
-        this.source = settings.source || this.source;
-        this.voice = settings.voiceId || this.voice;
-        this.speed = settings.speed ?? this.speed;
-        saveCachedTTSSettings(settings);
-        if (this.audioElement) this.audioElement.playbackRate = this.speed;
-      }
-    }).catch(() => {});
+    // 后台刷新设置，但离线时完全不发请求。仅在调用方没有显式传值时才采用远端值，
+    // 避免点击播放后配置被异步改写，造成缓存身份和实际合成参数不一致。
+    if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+      fetchTTSSettings().then(settings => {
+        if (!this.isDestroyed) {
+          if (!options?.source) this.source = settings.source || this.source;
+          if (!options?.voice) this.voice = settings.voiceId || this.voice;
+          if (!options?.speed) this.speed = settings.speed ?? this.speed;
+          saveCachedTTSSettings(settings);
+          if (this.audioElement) this.audioElement.playbackRate = this.speed;
+        }
+      }).catch(() => {});
+    }
 
     // 创建隐藏 <audio> 元素
     const el = new Audio();
@@ -364,6 +371,10 @@ export class TTSPlayer {
 
   getVolume(): number {
     return this.volume;
+  }
+
+  private getAudioIdentity(text: string): TTSAudioIdentity {
+    return { voice: this.voice, speed: this.speed, source: this.source, text };
   }
 
   getState(): PlayerState {
@@ -555,9 +566,11 @@ export class TTSPlayer {
     }
     this.setState('loading');
 
-    // ⭐ 批量检查 IDB 中已缓存的 TTS 音频分片，直接标记为 ready（跳过网络请求）
+    // ⭐ 批量检查 IDB 中已缓存的 TTS 音频分片。
+    // 必须等待查询完成，确保本地缓存真正优先于网络合成。
     if (this.currentBookId && chapterId) {
-      this.batchLoadCachedAudio(this.currentBookId, chapterId).catch(() => {});
+      await this.batchLoadCachedAudio(this.currentBookId, chapterId);
+      if (this.isDestroyed) return;
     }
 
     // 预生成前 preGenCount 个片段（已缓存的 chunk 跳过网络请求）
@@ -666,11 +679,6 @@ export class TTSPlayer {
     if (this.concatTimeupdater && this.audioElement) {
       this.audioElement.removeEventListener('timeupdate', this.concatTimeupdater);
       this.concatTimeupdater = null;
-    }
-    // 清理拼接 WAV
-    if (this.concatBlobUrl) {
-      try { URL.revokeObjectURL(this.concatBlobUrl); } catch { /* ignore */ }
-      this.concatBlobUrl = null;
     }
     // 清除 Media Session 元数据
     if ('mediaSession' in navigator) {
@@ -875,8 +883,13 @@ export class TTSPlayer {
       // 等待加载完成
       await this.waitForChunk(chunk);
     } else if (chunk.status === 'error') {
-      // 跳过错误片段，尝试下一个
-      this.callbacks.onError?.(`段落 ${chunk.index + 1} 合成失败: ${chunk.error || '未知错误'}`);
+      const message = `段落 ${chunk.index + 1} 合成失败: ${chunk.error || '未知错误'}`;
+      this.callbacks.onError?.(message);
+      if (chunk.error?.includes('当前离线且该段语音未缓存')) {
+        this.setState('idle');
+        this.updateMediaSessionState('none');
+        return;
+      }
       this.playNext();
       return;
     }
@@ -1265,6 +1278,19 @@ export class TTSPlayer {
       chapterId,
     }));
 
+    if (this.currentBookId && chapterId) {
+      const identities = chunks.map(chunk => this.getAudioIdentity(chunk.text));
+      const cached = await getAllCachedTTSAudioForChapter(this.currentBookId, chapterId, identities);
+      for (const entry of cached) {
+        const chunk = chunks[entry.segmentIndex];
+        if (!chunk) continue;
+        const url = URL.createObjectURL(new Blob([entry.audioData], { type: 'audio/wav' }));
+        this.allBlobUrls.push(url);
+        chunk.audioBlobUrl = url;
+        chunk.status = 'ready';
+      }
+    }
+
     // 预取前 preGenCount 个分段（与标准 preGenRange 相同逻辑）
     const end = Math.min(this.preGenCount - 1, chunks.length - 1);
     const pending = chunks.slice(0, end + 1).filter(c => c.status === 'pending');
@@ -1282,6 +1308,9 @@ export class TTSPlayer {
           this.allBlobUrls.push(url);
           chunk.audioBlobUrl = url;
           chunk.status = 'ready';
+          if (this.currentBookId && chapterId) {
+            await cacheTTSAudio(this.currentBookId, chapterId, chunk.index, arrayBuffer, undefined, this.getAudioIdentity(chunk.text));
+          }
         } catch {
           chunk.status = 'error';
         }
@@ -1358,7 +1387,11 @@ export class TTSPlayer {
 
     const gen = this.generation;
     // 批量从 IDB 获取该章节所有缓存的音频
-    const cached = await getAllCachedTTSAudioForChapter(bookId, chapterId);
+    const cached = await getAllCachedTTSAudioForChapter(
+      bookId,
+      chapterId,
+      segments.map(text => this.getAudioIdentity(text)),
+    );
     if (cached.length === 0) return;
 
     // 将缓存的音频加载到 chunks 缓冲区（不依赖外部 load 调用）
@@ -1392,7 +1425,11 @@ export class TTSPlayer {
 
   /** 批量从 IDB 加载已缓存的分片音频（在 load() 的 preGenRange 前异步执行） */
   private async batchLoadCachedAudio(bookId: string, chapterId: string): Promise<void> {
-    const cached = await getAllCachedTTSAudioForChapter(bookId, chapterId);
+    const cached = await getAllCachedTTSAudioForChapter(
+      bookId,
+      chapterId,
+      this.chunks.map(chunk => this.getAudioIdentity(chunk.text)),
+    );
     if (cached.length === 0) return;
     for (const entry of cached) {
       const chunk = this.chunks[entry.segmentIndex];
@@ -1431,7 +1468,12 @@ export class TTSPlayer {
     try {
       // ⭐ 优先从 IndexedDB 缓存读取
       if (this.currentBookId && chunk.chapterId) {
-        const cachedAudio = await getCachedTTSAudio(this.currentBookId, chunk.chapterId, chunk.index);
+        const cachedAudio = await getCachedTTSAudio(
+          this.currentBookId,
+          chunk.chapterId,
+          chunk.index,
+          this.getAudioIdentity(chunk.text),
+        );
         if (cachedAudio) {
           if (gen !== this.generation || this.isDestroyed) return;
           const blob = new Blob([cachedAudio], { type: 'audio/wav' });
@@ -1443,6 +1485,9 @@ export class TTSPlayer {
         }
       }
 
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        throw new Error('当前离线且该段语音未缓存');
+      }
       const arrayBuffer = await this.fetchTTSAudio(chunk.text);
 
       // generation 守卫：丢弃旧文本的异步 fetch 结果
@@ -1452,7 +1497,14 @@ export class TTSPlayer {
 
       // ⭐ 写入 IndexedDB 缓存（非阻塞、静默失败）
       if (this.currentBookId && chunk.chapterId) {
-        cacheTTSAudio(this.currentBookId, chunk.chapterId, chunk.index, arrayBuffer).catch(() => {});
+        cacheTTSAudio(
+          this.currentBookId,
+          chunk.chapterId,
+          chunk.index,
+          arrayBuffer,
+          undefined,
+          this.getAudioIdentity(chunk.text),
+        ).catch(() => {});
       }
 
       // 将服务端返回的 WAV ArrayBuffer 直接创建为 Blob URL
@@ -1524,6 +1576,7 @@ export class TTSPlayer {
         response_format: 'wav',
         tts_source: this.source,
         no_cache: this.noCache,
+        book_id: this.currentBookId || undefined,
       }),
     });
 
