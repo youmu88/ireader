@@ -48,7 +48,20 @@
  *   3) 现 EPUB 仅由 EpubViewer（epub.js）统一渲染，display() 成功即解除自身 loading，无双重渲染。
  *   4) 净减 151 行，tsc --noEmit 与 vite build 均通过。
  */
-export const APP_VERSION = '2.13.0';
+/**
+ * 2.14.0 (2026-07-15): [FEAT+FIX] EPUB 离线归档 + TTS 逐段管线 + 部署依赖修复 + 移动端手势重构
+ *   1) [FEAT] TTS 预合成改为消费持久化 content_segments：任务创建时写入逐段记录(tts_generation_segments)，
+ *      执行时从 content_segments 读取固定文本不再现场重新切分；新增逐段任务状态(pending/running/completed/failed)
+ *      支持失败重试；任务中断后跳过已完成片段；进度基于真实持久化段数计算。
+ *   2) [FEAT] EPUB 离线包新增原始 EPUB 归档缓存(IndexedDB epubArchives)，阅读器优先从 IndexedDB
+ *      加载本地归档(转 Blob URL 供 epub.js)，离线不依赖网络；IndexedDB 升级至 v4；清理缓存同步删除归档；
+ *      切换书籍正确重建数据源并释放 Blob URL；保留无归档时在线回退。
+ *   3) [FIX] 部署脚本(deploy.sh)强制重新编译 better-sqlite3，安装后校验 ABI 版本，失败即终止部署。
+ *   4) [FIX] 移动端手势三功能重构：CSS touch-action 由 pan-x 改 pan-y(浏览器只接管纵向，横向交 JS)；
+ *      浮动菜单移除全屏遮罩阻断(改为单层背景+底部面板)；EPUB iframe 手势挂载增加 DOM 直查回退，
+ *      gesture prop 拆分为 onLongPress(开菜单)+onTap(关菜单)。
+ */
+export const APP_VERSION = '2.14.0';
 /**
  * 2.12.0 (2026-07-14): [FEAT] 文字选择复制功能 + deploy.sh 权限防御
  *   1) 复制选中文字：浮动操作面板中新增"复制"按钮，支持 Clipboard API 写入剪贴板 + Toast 反馈
