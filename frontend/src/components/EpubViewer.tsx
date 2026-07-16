@@ -18,8 +18,8 @@ interface EpubViewerProps {
   letterSpacing: number;
   /** 初始 CFI（恢复进度用），空则从头开始 */
   initialCfi?: string | null;
-  /** 页面/位置变化时回调当前 CFI，用于持久化进度 */
-  onLocationChange?: (cfi: string) => void;
+  /** 页面/位置变化时回调当前 CFI 及章节内阅读比例(0~1)，用于持久化进度和 TTS 起点推算 */
+  onLocationChange?: (cfi: string, chapterRatio?: number) => void;
   /** 暴露翻页控制给父组件（左右箭头/手势） */
   pageControlRef?: React.MutableRefObject<{ prev: () => void; next: () => void } | null>;
   /** 暴露章节跳转控制——EPUB 模式点击目录时使用。接收章节的 spine index（从0开始） */
@@ -215,10 +215,33 @@ export default function EpubViewer({
         rendition!.themes.select(THEME_NAME);
       };
 
-      // 位置变化 → 上报 CFI
+      // 位置变化 → 上报 CFI 和章节内阅读比例
       rendition.on('relocated', (loc: any) => {
         const cfi = loc?.start?.cfi || loc?.cfi;
-        if (cfi) onLocRef.current?.(cfi);
+        // 计算章节内阅读比例 (0~1)，供 TTS 起点推算使用
+        let chapterRatio: number | undefined;
+        try {
+          if (loc?.start?.percentage != null && book) {
+            // loc.start.percentage 是全书比例(0~1)
+            // 通过当前 spine item 的 index 和总 spine 数换算章节内比例
+            const href = loc?.start?.href;
+            const spine = book.spine as any;
+            const spineItems = spine?.items || spine?.spineItems;
+            if (href && Array.isArray(spineItems)) {
+              const spineItem = spineItems.find((s: any) => s.href === href);
+              if (spineItem && typeof spineItem.index === 'number') {
+                const totalSpine = spineItems.length || 1;
+                const chapterStartPct = spineItem.index / totalSpine;
+                const chapterEndPct = (spineItem.index + 1) / totalSpine;
+                const range = chapterEndPct - chapterStartPct;
+                if (range > 0) {
+                  chapterRatio = Math.min(1, Math.max(0, (loc.start.percentage - chapterStartPct) / range));
+                }
+              }
+            }
+          }
+        } catch { /* 静默，比例不可用时不影响 CFI 上报 */ }
+        if (cfi) onLocRef.current?.(cfi, chapterRatio);
       });
 
       // iframe 事件不会冒泡到父文档。每次 epub.js rendered 后读取当前文档集合，

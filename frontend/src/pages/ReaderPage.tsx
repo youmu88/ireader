@@ -132,6 +132,8 @@ function ReaderPage() {
   const epubChapterNavRef = useRef<((chapterIndex: number) => Promise<void>) | null>(null);
   /** EPUB 当前阅读位置 CFI（用于进度持久化与恢复） */
   const epubCfiRef = useRef<string | null>(null);
+  /** EPUB 章节内阅读比例 (0~1)，由 EpubViewer relocated 事件实时更新，供 TTS 起点推算 */
+  const epubChapterRatioRef = useRef<number>(0);
   const [ttsVoice, setTtsVoice] = useState(() => {
     try { return localStorage.getItem('ireader_tts_voice') || 'zh-CN-XiaoxiaoNeural'; } catch { return 'zh-CN-XiaoxiaoNeural'; }
   });
@@ -1802,20 +1804,37 @@ function stripHtml(html: string): string {
       const totalChunks = player.getTotalChunks();
       let startSegment = -1; // -1 表示未确定
 
-      // 1️⃣ 优先使用 savedTtsProgressRef（进入书籍时从 API 保存的进度）
+      // 1️⃣ 优先使用 savedTtsProgressRef（停止时保存的播放位置，或进入书籍时从 API 获取的进度）
+      //    但仅在用户停止后未翻页时生效——如果翻页了，阅读位置已变，应走第2步推算
       const savedTts = savedTtsProgressRef.current;
       if (savedTts && savedTts.chapterId === currentChapter.id && savedTts.segmentIndex > 0) {
-        startSegment = savedTts.segmentIndex;
+        // 计算当前阅读位置对应的推算 segment，与 savedTts 比较
+        let currentReadRatio = 0;
+        if (book?.format === 'epub') {
+          currentReadRatio = epubChapterRatioRef.current ?? 0;
+        } else if (readingMode === 'scroll') {
+          const container = txtScrollRef.current;
+          if (container && container.scrollHeight > container.clientHeight) {
+            currentReadRatio = container.scrollTop / (container.scrollHeight - container.clientHeight);
+          }
+        } else {
+          currentReadRatio = charOffsetRatioRef.current ?? 0;
+        }
+        const estimatedFromRead = Math.floor(currentReadRatio * totalChunks);
+        // 如果当前阅读位置推算值与 savedTts 差距 ≤ 2 段（约2句话），视为未翻页，直接恢复
+        // 如果差距 > 2 段，说明用户翻页了，放弃 savedTts，走第2步用阅读位置推算
+        if (Math.abs(estimatedFromRead - savedTts.segmentIndex) <= 2) {
+          startSegment = Math.min(savedTts.segmentIndex, Math.max(0, totalChunks - 1));
+        }
       }
 
-      // 2️⃣ 如果 savedTtsProgressRef 不可用或章节不匹配，尝试从当前阅读位置推算
+      // 2️⃣ 如果 savedTtsProgressRef 不可用、章节不匹配、或用户停止后翻页了，从当前阅读位置推算
       if (startSegment < 0 && totalChunks > 0) {
         let readRatio = 0;
 
         if (book?.format === 'epub') {
-          // EPUB 模式：由 epub.js 管理翻页，无 scroll 容器可用，
-          // 保留 savedTtsProgressRef 逻辑；如果没有则从开头播
-          readRatio = 0;
+          // EPUB 模式：使用 epubChapterRatioRef（由 EpubViewer relocated 事件实时更新）
+          readRatio = epubChapterRatioRef.current ?? 0;
         } else if (readingMode === 'scroll') {
           // TXT 滚动模式：用滚动比例推算
           const container = txtScrollRef.current;
@@ -1823,14 +1842,14 @@ function stripHtml(html: string): string {
             readRatio = container.scrollTop / (container.scrollHeight - container.clientHeight);
           }
         } else {
-          // TXT 分页模式：用已保存的字符比例
+          // TXT 分页模式：用 charOffsetRatioRef（翻页时实时更新）
           readRatio = charOffsetRatioRef.current ?? 0;
         }
 
         if (readRatio > 0) {
-          // 将阅读比例映射到 TTS segment 索引（取整，但跳过最后几个段落到章节末尾的保护）
+          // 将阅读比例映射到 TTS segment 索引
           const estimatedIndex = Math.floor(readRatio * totalChunks);
-          startSegment = Math.min(estimatedIndex, totalChunks - 2); // 留最后一段给自然结束
+          startSegment = Math.min(estimatedIndex, Math.max(0, totalChunks - 1));
         }
       }
 
@@ -1845,7 +1864,7 @@ function stripHtml(html: string): string {
       setTtsError('语音播放启动失败：TTS 后端服务不可用（默认 Kokoro :8880 未运行），请在设置中切换到 Edge-TTS 或启动 Kokoro 服务');
       setTimeout(() => setTtsError(null), 10000);
     }
-  }, [bookId, currentChapter, book, ttsSpeed, getCurrentChapterText, saveTtsProgress, startTtsProgressSaver, preloadNextChapters, chapters, navigateToChapter]);
+  }, [bookId, currentChapter, book, ttsSpeed, readingMode, getCurrentChapterText, saveTtsProgress, startTtsProgressSaver, preloadNextChapters, chapters, navigateToChapter]);
 
   /** 上一章切换（用于播放器控制） */
   const handlePrevChapter = useCallback(async () => {
@@ -1902,9 +1921,19 @@ function stripHtml(html: string): string {
 
 
   const handleStopTTS = useCallback(() => {
-    // ⭐ 停止时保留 savedTtsProgressRef（保留位置信息，下次点击「朗读」时
-    //    可以从当前阅读位置恢复，而非从开头开始），
-    //    但清除 localStorage 持久化记录避免恢复横幅误判。
+    // ⭐ 停止前保存当前播放位置，确保下次点击「朗读」时从当前位置恢复而非从开头开始
+    const player = ttsPlayerRef.current;
+    if (player && player.getState() !== 'idle' && currentChapter) {
+      const idx = player.getCurrentIndex();
+      if (idx >= 0) {
+        const total = player.getTotalChunks();
+        savedTtsProgressRef.current = {
+          chapterId: currentChapter.id,
+          segmentIndex: idx,
+          progress: total > 0 ? (idx + 1) / total : 0,
+        };
+      }
+    }
     // ⭐ 清除 localStorage 播放持久化记录（用户主动停止，不再需要恢复）
     try {
       localStorage.removeItem('ireader_last_playback');
@@ -1920,12 +1949,12 @@ function stripHtml(html: string): string {
     }
     setSleepTimerMinutes(null);
     sleepTimerEndRef.current = null;
-    ttsPlayerRef.current?.stop();
+    player?.stop();
     setTtsState('idle');
     setTtsProgress(0);
     setTtsSegmentText('');
     setActiveSegmentIndex(-1);
-  }, []);
+  }, [currentChapter]);
 
   /** 拖动 TTS 进度条 seek */
   const handleTTSSeek = useCallback(async (progress: number) => {
@@ -2340,8 +2369,11 @@ function stripHtml(html: string): string {
             onTap={closeMenu}
             interactionBlocked={showUi || showToc || showSearch || ttsState !== 'idle'}
             onSelectionTextChange={setSelectedText}
-            onLocationChange={(cfi) => {
+            onLocationChange={(cfi, chapterRatio) => {
               epubCfiRef.current = cfi;
+              if (typeof chapterRatio === 'number') {
+                epubChapterRatioRef.current = chapterRatio;
+              }
               if (currentBookIdRef.current) {
                 debounceSaveProgress({ cfi });
               }
