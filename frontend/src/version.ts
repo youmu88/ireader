@@ -73,7 +73,17 @@
  */
 
 
-export const APP_VERSION = '2.15.4';
+export const APP_VERSION = '2.15.5';
+/**
+ * 2.15.5 (2026-07-16): [BUGFIX] 修复滚动模式自动加载下一章时替换而非追加内容
+ *   1) 根因：IntersectionObserver 检测到章节末尾时调 goToNextChapter(true)，将 _append=true 传入
+ *      navigateToChapter(chapter, true)，但 navigateToChapter 对 TXT 模式仅调 loadChapterContent(chapter)
+ *      （未传第4个 _append 参数），导致 _append=undefined → 走替换分支（accumulatedIdsRef.clear + 整章替换），
+ *      用户感知为"内容跳变"而非"平滑续读"。
+ *   2) 修复：navigateToChapter TXT 分支改为 loadChapterContent(chapter, undefined, undefined, _append)，
+ *      让 _append=true 正确传递到追加逻辑（第1146-1151行），内容追加当前章节后面。
+ *   3) 验证：tsc --noEmit 全绿。
+ */
 /**
  * 2.15.1 (2026-07-15): [FIX] 滑动翻页根因修复 — passive: true → false
  *   根因：touch 事件监听器的 passive:true 与 touch-action:none 矛盾，

@@ -1246,8 +1246,9 @@ function stripHtml(html: string): string {
       // ⭐ EPUB 也需要加载纯文本内容（供 TTS 朗读使用），同时更新 currentChapter
       await loadChapterContent(chapter, undefined, true);
     } else {
-      // TXT 按章导航：统一 loadChapterContent，翻页模式由 paginated effect 自动重排
-      await loadChapterContent(chapter);
+      // TXT 按章导航：自动滚动加载时使用追加模式（`_append=true`），内容接在已有内容后面平滑续读；
+      // 目录/按钮手动切换时 `_append` 为 undefined/false → 替换模式（清空重新加载）。
+      await loadChapterContent(chapter, undefined, undefined, _append);
     }
 
     debounceSaveProgress({ chapterId: chapter.id, percentage: chapter.order / chapters.length });
