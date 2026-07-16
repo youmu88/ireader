@@ -96,7 +96,14 @@
  *   3) 验证：tsc --noEmit 全绿。
  */
 
-export const APP_VERSION = '2.16.1';
+export const APP_VERSION = '2.16.2';
+/**
+ * 2.16.2 (2026-07-16): [FIX] 重构建并重新部署 — deploy.sh 超时导致进程中断，手动启动恢复正常
+ *   1) deploy.sh 执行过程中因 120s 超时被系统终止，虽然构建+拷贝已完成但进程被杀了。
+ *   2) 手动 nohup bash start.sh 启动，服务健康检查通过（HTTP 200）。
+ *   3) 验证：curl http://localhost:10000 → 200，/api/health → {"success":true,"status":"ok"}。
+ */
+
 /**
  * 2.16.1 (2026-07-16): [FIX] 生产部署修复 — deploy.sh 构建后手动启动服务（上一轮部署后服务未运行）
  *   1) 根因：上一轮 deploy.sh 完成构建拷贝后，手动 nohup 启动但未正确加载 .env 文件，
