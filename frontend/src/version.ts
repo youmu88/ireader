@@ -73,7 +73,7 @@
  */
 
 
-export const APP_VERSION = '2.15.3';
+export const APP_VERSION = '2.15.4';
 /**
  * 2.15.1 (2026-07-15): [FIX] 滑动翻页根因修复 — passive: true → false
  *   根因：touch 事件监听器的 passive:true 与 touch-action:none 矛盾，
@@ -247,4 +247,15 @@ export const APP_VERSION = '2.15.3';
  *      - BookshelfPage：离线无缓存的 error 态新增「返回登录页」按钮，离线登录用户有唯一逃生出口。
  *   3) 验证：tsc --noEmit 全绿；新增 AuthContext 离线模式单测（离线态 loading 立即 false、不请求 API、
  *      isAuthenticated 为真）；全量 vitest 46 项通过。
+ */
+
+/**
+ * 2.15.4 (2026-07-16): [BUGFIX] ReaderPage 离线错误提示缺少「退出离线模式」和「返回登录页」按钮
+ *   1) 根因：ReaderPage 的 error 渲染块（第 2247~2264 行）仅渲染了「重试」按钮，没有提供
+ *      「退出离线模式」和「返回登录页」两个逃逸出口，导致用户进入离线模式后无法退出。
+ *      对比 BookshelfPage 的同类型错误渲染已包含这两个按钮（修复 2.15.2 时已考虑），
+ *      但 ReaderPage 遗漏了相同处理。
+ *   2) 修复：在 ReaderPage error 面板中新增「返回登录页」和「退出离线模式」两个按钮，
+ *      仅在 isOfflineMode 为 true 时显示；从 useAuth 解构 exitOfflineMode。
+ *   3) 验证：tsc --noEmit 全绿。
  */

@@ -57,7 +57,7 @@ function formatBytes(bytes: number): string {
 function ReaderPage() {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
-  const { isOfflineMode } = useAuth();
+  const { isOfflineMode, exitOfflineMode } = useAuth();
   const [book, setBook] = useState<Book | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
@@ -2251,12 +2251,30 @@ function stripHtml(html: string): string {
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <p className="text-red-500 mb-4">{error}</p>
-            <button
-              onClick={() => { setError(null); loadBook(); }}
-              className="px-4 py-2 rounded-lg font-medium" style={{background: 'var(--color-primary)', color: 'white'}}
-            >
-              重试
-            </button>
+            <div className="flex flex-col items-center gap-3">
+              <button
+                onClick={() => { setError(null); loadBook(); }}
+                className="px-4 py-2 rounded-lg font-medium" style={{background: 'var(--color-primary)', color: 'white'}}
+              >
+                重试
+              </button>
+              {isOfflineMode && (
+                <>
+                  <button
+                    onClick={() => navigate('/login', { replace: true })}
+                    className="px-4 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium"
+                  >
+                    返回登录页
+                  </button>
+                  <button
+                    onClick={exitOfflineMode}
+                    className="px-4 py-1.5 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-sm font-medium"
+                  >
+                    退出离线模式
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
