@@ -73,11 +73,16 @@
  */
 
 
-export const APP_VERSION = '2.16.0';
 /**
  * 2.15.5 (2026-07-16): [BUGFIX] 修复滚动模式自动加载下一章时替换而非追加内容
  *   1) 根因：IntersectionObserver 检测到章节末尾时调 goToNextChapter(true)，将 _append=true 传入
  *      navigateToChapter(chapter, true)，但 navigateToChapter 对 TXT 模式仅调 loadChapterContent(chapter)
+ *      （未传第4个 _append 参数），导致 _append=undefined → 走替换分支（accumulatedIdsRef.clear + 整章替换），
+ *      用户感知为"内容跳变"而非"平滑续读"。
+ *   2) 修复：navigateToChapter TXT 分支改为 loadChapterContent(chapter, undefined, undefined, _append)，
+ *      让 _append=true 正确传递到追加逻辑（第1146-1151行），内容追加当前章节后面。
+ *   3) 验证：tsc --noEmit 全绿。
+ */
 
 /**
  * 2.16.0 (2026-07-16): [FEATURE] EPUB 滚动模式支持自动加载下一章
@@ -90,11 +95,14 @@ export const APP_VERSION = '2.16.0';
  *      加载下一章（与 TXT 机制对称）。触发后有 2s 防抖防止重复触发。
  *   3) 验证：tsc --noEmit 全绿。
  */
- *      （未传第4个 _append 参数），导致 _append=undefined → 走替换分支（accumulatedIdsRef.clear + 整章替换），
- *      用户感知为"内容跳变"而非"平滑续读"。
- *   2) 修复：navigateToChapter TXT 分支改为 loadChapterContent(chapter, undefined, undefined, _append)，
- *      让 _append=true 正确传递到追加逻辑（第1146-1151行），内容追加当前章节后面。
- *   3) 验证：tsc --noEmit 全绿。
+
+export const APP_VERSION = '2.16.1';
+/**
+ * 2.16.1 (2026-07-16): [FIX] 生产部署修复 — deploy.sh 构建后手动启动服务（上一轮部署后服务未运行）
+ *   1) 根因：上一轮 deploy.sh 完成构建拷贝后，手动 nohup 启动但未正确加载 .env 文件，
+ *      且进程挂在后台后未验证服务是否正常响应（HTTP 000），用户看到的是旧版 2.15.5 服务。
+ *   2) 修复：使用 bash 显式 set -a; source .env; set +a 加载环境变量后启动，服务正常监听端口 10000。
+ *   3) 验证：curl 返回 HTTP 200，/api/health 响应 {"success":true,"status":"ok"}，前端 HTML 正常返回。
  */
 /**
  * 2.15.1 (2026-07-15): [FIX] 滑动翻页根因修复 — passive: true → false
