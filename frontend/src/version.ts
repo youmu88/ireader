@@ -73,11 +73,23 @@
  */
 
 
-export const APP_VERSION = '2.15.5';
+export const APP_VERSION = '2.16.0';
 /**
  * 2.15.5 (2026-07-16): [BUGFIX] 修复滚动模式自动加载下一章时替换而非追加内容
  *   1) 根因：IntersectionObserver 检测到章节末尾时调 goToNextChapter(true)，将 _append=true 传入
  *      navigateToChapter(chapter, true)，但 navigateToChapter 对 TXT 模式仅调 loadChapterContent(chapter)
+
+/**
+ * 2.16.0 (2026-07-16): [FEATURE] EPUB 滚动模式支持自动加载下一章
+ *   1) 根因：EPUB 的 scrolled-doc 模式一次只渲染一个章节的滚动内容，
+ *      之前只有 TXT 模式有 IntersectionObserver + bottomSentinelRef 哨兵
+ *      实现自动加载下一章，EPUB 模式下缺少相同机制。
+ *   2) 修复：EpubViewer 新增 onScrollBottom 回调，在 scrolled-doc 模式下
+ *      监听 iframe 内文档的 scroll 事件，当滚动到距底部不足 100px 时触发回调；
+ *      ReaderPage 中接入该回调，调用 navigateToChapter(chapters[idx+1], true)
+ *      加载下一章（与 TXT 机制对称）。触发后有 2s 防抖防止重复触发。
+ *   3) 验证：tsc --noEmit 全绿。
+ */
  *      （未传第4个 _append 参数），导致 _append=undefined → 走替换分支（accumulatedIdsRef.clear + 整章替换），
  *      用户感知为"内容跳变"而非"平滑续读"。
  *   2) 修复：navigateToChapter TXT 分支改为 loadChapterContent(chapter, undefined, undefined, _append)，

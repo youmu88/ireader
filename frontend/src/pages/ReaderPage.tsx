@@ -2397,6 +2397,16 @@ function stripHtml(html: string): string {
                 debounceSaveProgress({ cfi });
               }
             }}
+            onScrollBottom={() => {
+              // ⭐ EPUB scrolled-doc 模式滚动到底部 → 自动加载下一章
+              if (loadingNextChapterRef.current) return;
+              const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
+              if (idx < 0 || idx >= chapters.length - 1) return;
+              loadingNextChapterRef.current = true;
+              navigateToChapter(chapters[idx + 1], true).finally(() => {
+                loadingNextChapterRef.current = false;
+              });
+            }}
           />
         )}
 

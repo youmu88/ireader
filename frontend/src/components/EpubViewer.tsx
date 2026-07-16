@@ -30,6 +30,8 @@ interface EpubViewerProps {
   interactionBlocked?: boolean;
   /** EPUB iframe 内的文字选区变化，供父层复制按钮使用。 */
   onSelectionTextChange?: (text: string) => void;
+  /** ⭐ scrolled-doc 模式滚动到底部时触发，由父组件负责加载下一章 */
+  onScrollBottom?: () => void;
 }
 
 const FONT_STACK: Record<'sans' | 'serif' | 'mono', string> = {
@@ -63,6 +65,7 @@ export default function EpubViewer({
   onTap,
   interactionBlocked = false,
   onSelectionTextChange,
+  onScrollBottom,
 }: EpubViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<Book | null>(null);
@@ -83,6 +86,8 @@ export default function EpubViewer({
   readingModeRef.current = readingMode;
   const onSelectionTextChangeRef = useRef(onSelectionTextChange);
   onSelectionTextChangeRef.current = onSelectionTextChange;
+  const onScrollBottomRef = useRef(onScrollBottom);
+  onScrollBottomRef.current = onScrollBottom;
   const epubDocumentsRef = useRef<Document[]>([]);
   const navigatorRef = useRef<SerialReaderNavigator | null>(null);
 
@@ -246,6 +251,7 @@ export default function EpubViewer({
 
       // iframe 事件不会冒泡到父文档。每次 epub.js rendered 后读取当前文档集合，
       // InputSurfaceSet 会精确增删输入面，不使用 DOM 标记、轮询或重试次数猜测生命周期。
+      const scrollCleanupRef: { current: (() => void) | null } = { current: null };
       const syncInputSurfaces = () => {
         const raw = rendition!.getContents?.() as any;
         const contents = (Array.isArray(raw) ? raw : [raw]).filter((content: any) => content?.document);
@@ -266,6 +272,39 @@ export default function EpubViewer({
           return () => doc.removeEventListener('selectionchange', reportSelection);
         });
         selectionDetachRef.current = () => selectionCleanups.forEach((cleanup) => cleanup());
+
+        // ⭐ scrolled-doc 模式：监听 iframe 文档滚动到底部，触发自动加载下一章
+        scrollCleanupRef.current?.();
+        if (readingModeRef.current === 'scroll') {
+          const doc = documents[0];
+          const win = doc?.defaultView;
+          if (doc && win) {
+            // 防抖标记：防止连续滚动到边界多次触发
+            let bottomFired = false;
+            let resetTimer: any = null;
+            const onScroll = () => {
+              const { scrollTop, scrollHeight, clientHeight } = doc.documentElement || doc.body;
+              if (!scrollHeight || !clientHeight) return;
+              // 距离底部 < 100px 视为"已到底"
+              if (scrollTop + clientHeight >= scrollHeight - 100) {
+                if (!bottomFired) {
+                  bottomFired = true;
+                  onScrollBottomRef.current?.();
+                  // 触发后 2s 内不再重复触发（等待下一章加载）
+                  resetTimer = setTimeout(() => { bottomFired = false; }, 2000);
+                }
+              } else {
+                bottomFired = false;
+                if (resetTimer) { clearTimeout(resetTimer); resetTimer = null; }
+              }
+            };
+            win.addEventListener('scroll', onScroll, { passive: true });
+            scrollCleanupRef.current = () => {
+              win.removeEventListener('scroll', onScroll);
+              if (resetTimer) { clearTimeout(resetTimer); resetTimer = null; }
+            };
+          }
+        }
       };
       rendition.on('rendered', syncInputSurfaces);
 
