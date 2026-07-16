@@ -1,7 +1,6 @@
 /**
  * TTS 路由集成测试
- * 测试 TTS API 端点的正确响应
- * 注意：Kokoro TTS 服务可能在 8880 端口运行，测试会动态适配
+ * 测试 TTS API 端点的正确响应（OpenAI 兼容模式）
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
@@ -50,34 +49,39 @@ describe('TTS Routes', () => {
   });
 
   describe('GET /api/tts/sources', () => {
-    it('should return TTS sources list', async () => {
+    it('should return OpenAI-compatible source', async () => {
       const res = await request(app).get('/api/tts/sources');
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
-      expect(res.body.data.length).toBeGreaterThanOrEqual(2);
-      expect(res.body.data[0]).toHaveProperty('id');
-      expect(res.body.data[0]).toHaveProperty('name');
-      expect(res.body.data[0]).toHaveProperty('description');
-    });
-
-    it('should include kokoro as default source', async () => {
-      const res = await request(app).get('/api/tts/sources');
-      const kokoro = res.body.data.find((s: any) => s.id === 'kokoro');
-      expect(kokoro).toBeDefined();
-      expect(kokoro.name).toContain('Kokoro');
+      expect(res.body.data.length).toBe(1);
+      expect(res.body.data[0].id).toBe('openai');
     });
   });
 
   describe('GET /api/tts/voices', () => {
     it('should return voices list or error gracefully', async () => {
-      const res = await request(app).get('/api/tts/voices?source=edgetts');
+      const res = await request(app).get('/api/tts/voices?apiUrl=http://127.0.0.1:8883');
       if (ttsAvailable) {
         expect(res.status).toBe(200);
         expect(res.body.success).toBe(true);
         expect(res.body.data).toHaveProperty('voices');
         expect(Array.isArray(res.body.data.voices)).toBe(true);
-        expect(res.body.data.voices.length).toBeGreaterThan(0);
+      } else {
+        expect(res.status).toBe(502);
+        expect(res.body.success).toBe(false);
+      }
+    });
+  });
+
+  describe('GET /api/tts/models', () => {
+    it('should return models list or error gracefully', async () => {
+      const res = await request(app).get('/api/tts/models?apiUrl=http://127.0.0.1:8883');
+      if (ttsAvailable) {
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.data).toHaveProperty('models');
+        expect(Array.isArray(res.body.data.models)).toBe(true);
       } else {
         expect(res.status).toBe(502);
         expect(res.body.success).toBe(false);
@@ -87,7 +91,7 @@ describe('TTS Routes', () => {
 
   describe('GET /api/tts/health', () => {
     it('should return health status or error gracefully', async () => {
-      const res = await request(app).get('/api/tts/health?source=edgetts');
+      const res = await request(app).get('/api/tts/health?apiUrl=http://127.0.0.1:8883');
       if (ttsAvailable) {
         expect(res.status).toBe(200);
         expect(res.body.success).toBe(true);
@@ -104,7 +108,7 @@ describe('TTS Routes', () => {
       const res = await request(app)
         .post('/api/tts')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ input: '你好世界', voice: 'zh-CN-XiaoxiaoNeural' });
+        .send({ input: '你好世界', voice: 'alloy' });
       if (ttsAvailable) {
         expect(res.status).toBe(200);
         expect(res.headers['content-type']).toMatch(/^audio\//);
@@ -121,7 +125,7 @@ describe('TTS Routes', () => {
       try {
         const res = await request(app)
           .post('/api/tts/test')
-          .send({ tts_source: 'edgetts' });
+          .send({ apiUrl: 'http://127.0.0.1:8883' });
         if (ttsAvailable) {
           expect(res.status).toBe(200);
           expect(res.body.success).toBe(true);
@@ -130,9 +134,8 @@ describe('TTS Routes', () => {
           expect(res.body.success).toBe(false);
         }
       } catch (err: any) {
-        // 当 TTS 服务不可用时，某些环境可能抛出 ECONNRESET
         if (!ttsAvailable && (err.code === 'ECONNRESET' || err.message?.includes('socket hang up'))) {
-          return; // TTS 服务未运行，连接被重置属于正常行为
+          return;
         }
         throw err;
       }
@@ -149,38 +152,40 @@ describe('TTS Routes', () => {
       expect(res.body.data).toHaveProperty('source');
       expect(res.body.data).toHaveProperty('voiceId');
       expect(res.body.data).toHaveProperty('speed');
+      expect(res.body.data).toHaveProperty('model');
     });
 
     it('should have default values', async () => {
       const res = await request(app)
         .get('/api/tts/settings')
         .set('Authorization', `Bearer ${authToken}`);
-      expect(res.body.data.source).toBe('edgetts');
-      expect(res.body.data.voiceId).toBe('zh-CN-XiaoxiaoNeural');
+      expect(res.body.data.source).toBe('openai');
+      expect(res.body.data.voiceId).toBe('alloy');
       expect(res.body.data.speed).toBe(1.0);
       expect(res.body.data.enabled).toBe(true);
     });
   });
 
   describe('PUT /api/tts/settings', () => {
-    it('should update TTS settings', async () => {
+    it('should update TTS settings including model', async () => {
       const res = await request(app)
         .put('/api/tts/settings')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ source: 'megatts3', voiceId: 'voice1', speed: 1.5 });
+        .send({ source: 'openai', model: 'tts-1-hd', voiceId: 'echo', speed: 1.5, apiUrl: 'http://127.0.0.1:8883' });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.source).toBe('megatts3');
-      expect(res.body.data.voiceId).toBe('voice1');
+      expect(res.body.data.model).toBe('tts-1-hd');
+      expect(res.body.data.voiceId).toBe('echo');
       expect(res.body.data.speed).toBe(1.5);
+      expect(res.body.data.apiUrl).toBe('http://127.0.0.1:8883');
     });
 
     it('should persist updated settings', async () => {
       const res = await request(app)
         .get('/api/tts/settings')
         .set('Authorization', `Bearer ${authToken}`);
-      expect(res.body.data.source).toBe('megatts3');
-      expect(res.body.data.voiceId).toBe('voice1');
+      expect(res.body.data.model).toBe('tts-1-hd');
+      expect(res.body.data.voiceId).toBe('echo');
     });
 
     it('should allow partial updates', async () => {
@@ -193,7 +198,7 @@ describe('TTS Routes', () => {
         .get('/api/tts/settings')
         .set('Authorization', `Bearer ${authToken}`);
       expect(res.body.data.speed).toBe(0.8);
-      expect(res.body.data.source).toBe('megatts3'); // should keep previous value
+      expect(res.body.data.model).toBe('tts-1-hd'); // should keep previous value
     });
   });
 });

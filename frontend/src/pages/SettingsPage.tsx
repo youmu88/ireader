@@ -3,6 +3,7 @@ import { useTheme } from '../services/themeService';
 import {
   fetchSources,
   fetchVoices,
+  fetchModels,
   fetchTTSSettings,
   saveTTSSettings,
   testConnection,
@@ -10,19 +11,13 @@ import {
   synthesizeSpeech,
   type TTSource,
   type VoiceInfo,
+  type ModelInfo,
   type TTSSettings,
   type HealthResult,
 } from '../services/ttsService';
 
 import { APP_VERSION } from '../version';
 import axios from 'axios';
-
-// 预设 TTS 服务的默认 URL
-const PRESET_DEFAULT_URLS: Record<string, string> = {
-  kokoro: 'http://127.0.0.1:8880',
-  megatts3: 'http://127.0.0.1:8882',
-  edgetts: 'http://127.0.0.1:8883',
-};
 
 export default function SettingsPage() {
   // @ts-ignore
@@ -35,11 +30,12 @@ export default function SettingsPage() {
   const [sources, setSources] = useState<TTSource[]>([]);
   // @ts-ignore
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
-  const [selectedSource, setSelectedSource] = useState('kokoro');
-  const [selectedVoice, setSelectedVoice] = useState('zh-CN-XiaoxiaoNeural');
+  const [selectedVoice, setSelectedVoice] = useState('alloy');
   const [speed, setSpeed] = useState(1.0);
   const [apiUrl, setApiUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [model, setModel] = useState('');
+  const [models, setModels] = useState<ModelInfo[]>([]);
   // @ts-ignore
   const [showApiKey, setShowApiKey] = useState(false);
   // @ts-ignore
@@ -48,6 +44,7 @@ export default function SettingsPage() {
   const [testing, setTesting] = useState(false);
   // @ts-ignore
   const [fetchingVoices, setFetchingVoices] = useState(false);
+  const [fetchingModels, setFetchingModels] = useState(false);
   // @ts-ignore
   const [clearing, setClearing] = useState(false);
   // @ts-ignore
@@ -73,7 +70,6 @@ export default function SettingsPage() {
         previewText,
         selectedVoice,
         speed,
-        selectedSource,
       );
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
@@ -111,21 +107,6 @@ export default function SettingsPage() {
   // ── 自动预合成开关 ──
   const [autoPreSynthesize, setAutoPreSynthesize] = useState(false);
 
-  // 判断当前是否为自定义模式
-  const isCustomSource = selectedSource === 'custom';
-
-  // 获取当前有效的 API URL
-  // - 用户手动输入了 URL 则用用户输入的值（无论是否 custom 模式）
-  // - 否则 fallback 到预设源的默认 URL
-  function getEffectiveApiUrl(): string | undefined {
-    return apiUrl || PRESET_DEFAULT_URLS[selectedSource] || undefined;
-  }
-
-  // 获取当前有效的 API Key
-  function getEffectiveApiKey(): string | undefined {
-    return apiKey || undefined;
-  }
-
   // Load initial data
   useEffect(() => {
     async function load() {
@@ -136,16 +117,16 @@ export default function SettingsPage() {
         ]);
         setSources(srcList);
         setTtsSettings(settings);
-        setSelectedSource(settings.source || 'kokoro');
-        setSelectedVoice(settings.voiceId || 'zh-CN-XiaoxiaoNeural');
+        setSelectedVoice(settings.voiceId || 'alloy');
         setSpeed(settings.speed ?? 1.0);
         setApiUrl(settings.apiUrl || '');
         setApiKey(settings.apiKey || '');
+        setModel(settings.model || '');
         setAutoPreSynthesize(settings.autoPreSynthesize ?? false);
         // 先渲染页面，再后台拉取音色列表（避免阻塞 UI）
         setLoading(false);
         // ⭐ 后台异步拉取音色：不阻塞设置页面渲染
-        fetchVoicesInBackground(settings.source || 'kokoro', settings.apiUrl || undefined, settings.apiKey || undefined);
+        fetchVoicesInBackground(settings.apiUrl || undefined, settings.apiKey || undefined);
       } catch (err) {
         console.warn('Failed to load TTS settings:', err);
         setLoading(false);
@@ -155,32 +136,21 @@ export default function SettingsPage() {
   }, []);
 
   // ⭐ 后台异步拉取音色列表
-  async function fetchVoicesInBackground(source: string, apiUrl?: string, apiKey?: string) {
+  async function fetchVoicesInBackground(apiUrl?: string, apiKey?: string) {
     try {
-      const effectiveUrl = apiUrl || PRESET_DEFAULT_URLS[source] || undefined;
-      const voiceList = await fetchVoices(source, effectiveUrl, apiKey);
+      const voiceList = await fetchVoices(apiUrl, apiKey);
       setVoices(voiceList);
     } catch {
       setVoices([]);
     }
   }
 
-  // 当 source 切换时，更新 apiUrl 显示（预设源自动填充默认地址）
-  useEffect(() => {
-    if (!isCustomSource) {
-      const defaultUrl = PRESET_DEFAULT_URLS[selectedSource];
-      if (defaultUrl && !apiUrl) {
-        setApiUrl(defaultUrl);
-      }
-    }
-  }, [selectedSource]);
-
   // 手动获取音色（使用当前 API URL/Key）
   // @ts-ignore
   async function handleFetchVoices() {
     setFetchingVoices(true);
     try {
-      const voiceList = await fetchVoices(selectedSource, getEffectiveApiUrl(), getEffectiveApiKey());
+      const voiceList = await fetchVoices(apiUrl || undefined, apiKey || undefined);
       setVoices(voiceList);
       if (voiceList.length > 0 && !voiceList.find(v => v.id === selectedVoice)) {
         setSelectedVoice(voiceList[0].id);
@@ -198,12 +168,26 @@ export default function SettingsPage() {
     setTesting(true);
     setConnectionStatus(null);
     try {
-      const result = await testConnection(selectedSource, getEffectiveApiUrl(), getEffectiveApiKey());
+      const result = await testConnection(apiUrl || undefined, apiKey || undefined);
       setConnectionStatus(result);
     } catch (err) {
       setConnectionStatus({ success: false, error: 'Connection test failed' });
     } finally {
       setTesting(false);
+    }
+  }
+
+  // Fetch models
+  // @ts-ignore
+  async function handleFetchModels() {
+    setFetchingModels(true);
+    try {
+      const modelList = await fetchModels(apiUrl || undefined, apiKey || undefined);
+      setModels(modelList);
+    } catch {
+      setModels([]);
+    } finally {
+      setFetchingModels(false);
     }
   }
 
@@ -230,11 +214,12 @@ export default function SettingsPage() {
     setSaveMessage('');
     try {
       const updated = await saveTTSSettings({
-        source: selectedSource,
+        source: 'openai',
         voiceId: selectedVoice,
         speed,
-        apiUrl: isCustomSource ? (apiUrl || null) : null,
+        apiUrl: apiUrl || null,
         apiKey: apiKey || null,
+        model: model || null,
         autoPreSynthesize,
       });
       setTtsSettings(updated);
@@ -242,7 +227,7 @@ export default function SettingsPage() {
 
       // 同步完整语音身份到 localStorage，供离线播放器和本地缓存匹配使用。
       try {
-        localStorage.setItem('ireader_tts_source', selectedSource);
+        localStorage.setItem('ireader_tts_source', 'openai');
         localStorage.setItem('ireader_tts_voice', selectedVoice);
         localStorage.setItem('ireader_tts_speed', String(speed));
       } catch { /* ignore */ }
@@ -279,12 +264,6 @@ export default function SettingsPage() {
 
   // ── TTS 二级菜单（iOS 风格 drill-down） ──
   if (showTTSDetail) {
-    const sourceOptions = [
-      { id: 'kokoro', label: 'Kokoro' },
-      { id: 'megatts3', label: 'MegaTTS3' },
-      { id: 'edgetts', label: 'EdgeTTS' },
-      { id: 'custom', label: '自定义' },
-    ];
     return (
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10 animate-fade-in">
         {/* ── 导航栏 ── */}
@@ -302,47 +281,24 @@ export default function SettingsPage() {
           </h1>
         </div>
 
-        {/* ── 服务源 ── */}
+        {/* ── TTS 服务配置 ── */}
         <div className="mb-6">
           <h2 className="text-xs font-semibold tracking-widest uppercase px-1 mb-2"
             style={{ color: 'var(--color-text-muted)' }}>
-            服务源
+            TTS 服务配置
           </h2>
           <div className="rounded-2xl overflow-hidden shadow-ios-sm"
             style={{ background: 'var(--color-bg-card)' }}>
-            {/* TTS 引擎选择 */}
-            <div className="px-4 py-3.5"
-              style={{ borderBottom: '0.5px solid var(--color-border)' }}>
-              <span className="text-xs font-medium mb-2 block" style={{ color: 'var(--color-text-muted)' }}>
-                TTS 引擎
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {sourceOptions.map(s => (
-                  <button key={s.id} onClick={() => {
-                    setSelectedSource(s.id);
-                    if (s.id !== 'custom') setApiUrl(PRESET_DEFAULT_URLS[s.id] || '');
-                  }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all tap-icon"
-                    style={{
-                      background: selectedSource === s.id ? 'var(--color-primary)' : 'var(--color-bg-alt)',
-                      color: selectedSource === s.id ? '#fff' : 'var(--color-text-secondary)',
-                    }}>
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* API 地址 */}
             <div className="px-4 py-3.5"
               style={{ borderBottom: '0.5px solid var(--color-border)' }}>
               <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--color-text-muted)' }}>
-                服务地址 {!isCustomSource && <span className="text-[10px] opacity-60">（预设）</span>}
+                服务地址 <span className="text-[10px] opacity-60">（必填）</span>
               </label>
               <div className="flex items-center gap-2">
                 <input type="text" value={apiUrl}
                   onChange={e => setApiUrl(e.target.value)}
-                  placeholder="http://127.0.0.1:8880"
+                  placeholder="https://api.openai.com/v1"
                   className="flex-1 px-3 py-2 rounded-xl text-sm bg-transparent border"
                   style={{
                     color: 'var(--color-text)',
@@ -361,10 +317,36 @@ export default function SettingsPage() {
                     color: connectionStatus.success ? '#34c759' : '#ff3b30',
                   }}>
                   {connectionStatus.success
-                    ? `✓ 连接成功${connectionStatus.service ? ' · ' + connectionStatus.service : ''}`
+                    ? `✓ 连接成功${connectionStatus.models ? ' · 可用模型 ' + connectionStatus.models.length + ' 个' : ''}`
                     : `✗ ${connectionStatus.error || '连接失败'}`}
                 </div>
               )}
+            </div>
+
+            {/* 模型 */}
+            <div className="px-4 py-3.5"
+              style={{ borderBottom: '0.5px solid var(--color-border)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>模型</span>
+                <button onClick={handleFetchModels} disabled={fetchingModels}
+                  className="px-2.5 py-1 rounded-lg text-xs font-medium tap-icon"
+                  style={{ background: 'var(--color-bg-alt)', color: 'var(--color-primary)' }}>
+                  {fetchingModels ? '加载中…' : '刷新'}
+                </button>
+              </div>
+              <input type="text" list="tts-model-list" value={model}
+                onChange={e => setModel(e.target.value)}
+                placeholder="tts-1"
+                className="w-full px-3 py-2 rounded-xl text-sm bg-transparent border"
+                style={{
+                  color: 'var(--color-text)',
+                  borderColor: 'var(--color-border)',
+                }} />
+              <datalist id="tts-model-list">
+                {models.map(m => (
+                  <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                ))}
+              </datalist>
             </div>
 
             {/* API Key */}
@@ -671,7 +653,7 @@ export default function SettingsPage() {
               <div className="text-left">
                 <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>TTS 服务</span>
                 <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-                  {selectedSource} · {selectedVoice}
+                  {model || '未设置模型'} · {selectedVoice}
                 </p>
               </div>
             </div>

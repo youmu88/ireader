@@ -7,7 +7,7 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { sql } from 'drizzle-orm';
-import { getSources, getVoices, checkHealth, synthesize } from '../services/ttsProxyService.js';
+import { getSources, getVoices, getModels, checkHealth, synthesize } from '../services/ttsProxyService.js';
 import { ttsSettings, ttsCache, ttsGenerationJobs, books, ttsGlobalResources, ttsRefs, userBookRefs } from '../db/schema.js';
 import { findCache, isCacheValid, saveToCache, clearAllCache, evictStaleCache, findCachedSegmentsByBook } from '../services/ttsCacheService.js';
 import { findTtsGlobalResource, createTtsGlobalResource, createTtsRef, removeTtsRef } from '../services/globalResourceService.js';
@@ -25,10 +25,21 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
 
   // ── 音色列表（无需登录；支持自定义 apiUrl/apiKey 查询参数） ──
   router.get('/voices', async (req: Request, res: Response) => {
-    const source = (req.query.source as string) || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
     const apiUrl = req.query.apiUrl as string | undefined;
     const apiKey = req.query.apiKey as string | undefined;
-    const result = await getVoices(source, apiUrl, apiKey);
+    const result = await getVoices(apiUrl, apiKey);
+    if (!result.success) {
+      res.status(502).json(result);
+      return;
+    }
+    res.json(result);
+  });
+
+  // ── 模型列表（无需登录；支持自定义 apiUrl/apiKey 查询参数） ──
+  router.get('/models', async (req: Request, res: Response) => {
+    const apiUrl = req.query.apiUrl as string | undefined;
+    const apiKey = req.query.apiKey as string | undefined;
+    const result = await getModels(apiUrl, apiKey);
     if (!result.success) {
       res.status(502).json(result);
       return;
@@ -38,10 +49,9 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
 
   // ── 健康检查 / 连接测试（无需登录；支持自定义 apiUrl/apiKey 查询参数） ──
   router.get('/health', async (req: Request, res: Response) => {
-    const source = (req.query.source as string) || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
     const apiUrl = req.query.apiUrl as string | undefined;
     const apiKey = req.query.apiKey as string | undefined;
-    const result = await checkHealth(source, apiUrl, apiKey);
+    const result = await checkHealth(apiUrl, apiKey);
     if (!result.success) {
       res.status(502).json(result);
       return;
@@ -52,18 +62,19 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
   // ── 语音合成代理（带全局缓存；同时按同书+同文本+同音色共享） ──
   router.post('/', requireAuth, async (req: Request, res: Response) => {
     const userId = req.user!.userId;
-    const { input, voice, speed, response_format, tts_source, no_cache, book_id } = req.body;
+    const { input, voice, speed, response_format, no_cache, book_id } = req.body;
 
-    // 加载用户的 TTS 设置（获取自定义 API URL/Key）
+    // 加载用户的 TTS 设置（获取 API URL/Key/Model）
     const userSettings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
     const apiUrl = userSettings?.apiUrl || undefined;
     const apiKey = userSettings?.apiKey || undefined;
-    const source = tts_source || userSettings?.source || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
+    const model = userSettings?.model || undefined;
+    const source = 'openai';  // 统一标识，用于缓存键
 
     // ⭐ 全局资源查找：全局资源表的 book_id 是 globalBookId，需要映射
     if (!no_cache && dataDir && book_id) {
       try {
-        const textHash = crypto.createHash('md5').update(`${source}|${voice || 'zh-CN-XiaoxiaoNeural'}|${speed || 1.0}|${input}`).digest('hex');
+        const textHash = crypto.createHash('md5').update(`${source}|${voice || 'alloy'}|${speed || 1.0}|${input}`).digest('hex');
 
         // localBookId → globalBookId 映射
         const userRef = db.select().from(userBookRefs).where(
@@ -72,7 +83,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         const globalBookId = userRef?.globalBookId || book_id;
 
         // 先查全局资源（同书+同文本+同音色共享）
-        const globalRes = findTtsGlobalResource(db, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalBookId, source);
+        const globalRes = findTtsGlobalResource(db, textHash, voice || 'alloy', speed || 1.0, globalBookId, source);
         if (globalRes && fs.existsSync(globalRes.audioPath)) {
           // 创建/更新用户的 tts_ref
           const existingRef = db.select().from(ttsRefs).where(
@@ -97,7 +108,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     // ⭐ 回退到本地缓存（按用户隔离）
     if (!no_cache && dataDir) {
       try {
-        const cached = findCache(db, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, userId, source);
+        const cached = findCache(db, input, voice || 'alloy', speed || 1.0, userId, source);
         if (cached && isCacheValid(cached)) {
           const audioBuffer = fs.readFileSync(cached.audioPath);
           const ext = path.extname(cached.audioPath).toLowerCase();
@@ -111,7 +122,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       } catch { /* 缓存读取失败，回退到实时合成 */ }
     }
 
-    const result = await synthesize({ input, voice, speed, response_format, tts_source: source, apiUrl, apiKey });
+    const result = await synthesize({ input, voice, speed, model, response_format, apiUrl: apiUrl!, apiKey });
     if (!result.success) {
       res.status(result.status || 502).json({ success: false, error: result.error });
       return;
@@ -120,7 +131,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     // ⭐ 合成成功 → 保存到全局资源 + 本地缓存
     if (!no_cache && dataDir && result.audio) {
       try {
-        const textHash = crypto.createHash('md5').update(`${source}|${voice || 'zh-CN-XiaoxiaoNeural'}|${speed || 1.0}|${input}`).digest('hex');
+        const textHash = crypto.createHash('md5').update(`${source}|${voice || 'alloy'}|${speed || 1.0}|${input}`).digest('hex');
 
         // 检查全局是否已有（防并发重复写入）
         // 先做 localBookId → globalBookId 映射
@@ -131,7 +142,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           return ref?.globalBookId || book_id;
         })();
 
-        let globalRes = findTtsGlobalResource(db, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalBookId2, source);
+        let globalRes = findTtsGlobalResource(db, textHash, voice || 'alloy', speed || 1.0, globalBookId2, source);
         if (!globalRes && book_id) {
           // 存到全局目录
           const audioFormat = response_format || 'wav';
@@ -141,7 +152,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           const globalAudioPath = path.join(globalAudioDir, `${textHash}${audioExt}`);
           fs.writeFileSync(globalAudioPath, result.audio);
 
-          globalRes = createTtsGlobalResource(db, globalBookId2, null, textHash, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, globalAudioPath, result.audio.length, null, source);
+          globalRes = createTtsGlobalResource(db, globalBookId2, null, textHash, voice || 'alloy', speed || 1.0, globalAudioPath, result.audio.length, null, source);
         }
 
         if (globalRes) {
@@ -149,7 +160,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         }
 
         // 同时保持本地缓存（向后兼容）
-        saveToCache(db, dataDir, input, voice || 'zh-CN-XiaoxiaoNeural', speed || 1.0, result.audio, response_format || 'wav', userId, book_id, null, null, source);
+        saveToCache(db, dataDir, input, voice || 'alloy', speed || 1.0, result.audio, response_format || 'wav', userId, book_id, null, null, source);
       } catch { /* 缓存写入失败不影响主流程 */ }
     }
 
@@ -161,10 +172,9 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
 
   // ── 连接测试（POST 版本，无需登录；支持自定义 apiUrl/apiKey） ──
   router.post('/test', async (req: Request, res: Response) => {
-    const source = req.body.tts_source || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
     const apiUrl = req.body.apiUrl as string | undefined;
     const apiKey = req.body.apiKey as string | undefined;
-    const result = await checkHealth(source, apiUrl, apiKey);
+    const result = await checkHealth(apiUrl, apiKey);
     if (!result.success) {
       res.status(502).json(result);
       return;
@@ -182,8 +192,9 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         const defaults = {
           userId,
           enabled: true,
-          source: process.env.TTS_DEFAULT_SOURCE || 'edgetts',
-          voiceId: 'zh-CN-XiaoxiaoNeural',
+          source: 'openai',
+          model: null as string | null,
+          voiceId: 'alloy',
           speed: 1.0,
           apiUrl: null as string | null,
           apiKey: null as string | null,
@@ -207,13 +218,14 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
   router.put('/settings', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = req.user!.userId;
-      const { enabled, source, voiceId, speed, apiUrl, apiKey, preGenerateConcurrency, firstChunkMaxSize, normalChunkMaxSize, autoPreSynthesize } = req.body;
+      const { enabled, source, model, voiceId, speed, apiUrl, apiKey, preGenerateConcurrency, firstChunkMaxSize, normalChunkMaxSize, autoPreSynthesize } = req.body;
       const now = new Date().toISOString();
       const existing = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
 
       const updateData: any = { updatedAt: now };
       if (enabled !== undefined) updateData.enabled = enabled;
       if (source !== undefined) updateData.source = source;
+      if (model !== undefined) updateData.model = model || null;
       if (voiceId !== undefined) updateData.voiceId = voiceId;
       if (speed !== undefined) updateData.speed = speed;
       if (apiUrl !== undefined) updateData.apiUrl = apiUrl || null;
@@ -229,8 +241,9 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         db.insert(ttsSettings).values({
           userId,
           enabled: enabled ?? true,
-          source: source ?? (process.env.TTS_DEFAULT_SOURCE || 'edgetts'),
-          voiceId: voiceId ?? 'zh-CN-XiaoxiaoNeural',
+          source: source ?? 'openai',
+          model: model || null,
+          voiceId: voiceId ?? 'alloy',
           speed: speed ?? 1.0,
           apiUrl: apiUrl || null,
           apiKey: apiKey || null,
@@ -255,7 +268,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
             regenerateAllForNewVoice(db, userId, voiceId, speed ?? existing.speed ?? 1.0, dataDir);
           } else {
             // 刚开启自动预合成：为所有书创建任务
-            const voice = existing?.voiceId || 'zh-CN-XiaoxiaoNeural';
+            const voice = existing?.voiceId || 'alloy';
             const spd = existing?.speed ?? 1.0;
             const userBooks = db.select().from(books).where(sql`user_id = ${userId}`).all();
             for (const b of userBooks) {
@@ -294,9 +307,9 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     try {
       const userId = req.user!.userId;
       const { bookId } = req.params;
-      const voice = (req.query.voice as string) || 'zh-CN-XiaoxiaoNeural';
+      const voice = (req.query.voice as string) || 'alloy';
       const speed = parseFloat(req.query.speed as string) || 1.0;
-      const source = (req.query.source as string) || 'edgetts';
+      const source = (req.query.source as string) || 'openai';
 
       // 1. 查全局资源：需要将 localBookId → globalBookId
       const userRef = db.select()
@@ -336,7 +349,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
 
       // 2. 补充本地缓存（未在全局资源表中的）
       const localEntries = findCachedSegmentsByBook(db, bookId, voice, speed, userId)
-        .filter(entry => (entry.source || 'edgetts') === source);
+        .filter(entry => (entry.source || 'openai') === source);
       for (const local of localEntries) {
         // 去重：如果已包含相同 text_hash+voice+speed 的全局资源，跳过
         const alreadyExists = segments.some(s => s.textHash === local.textHash && s.voice === local.voice && s.speed === local.speed);

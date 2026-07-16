@@ -31,7 +31,7 @@ export interface CacheEntry {
 /**
  * 根据文本、音色、语速生成唯一的缓存键（MD5）
  */
-export function generateCacheKey(text: string, voice: string, speed: number, source = 'edgetts'): string {
+export function generateCacheKey(text: string, voice: string, speed: number, source = 'openai'): string {
   return crypto.createHash('md5').update(`${source}|${voice}|${speed}|${text}`).digest('hex');
 }
 
@@ -66,7 +66,7 @@ export function findCache(
   voice: string,
   speed: number,
   userId?: string,
-  source = 'edgetts',
+  source = 'openai',
 ): CacheEntry | null {
   const textHash = generateCacheKey(text, voice, speed, source);
   let query: any = db.select()
@@ -118,7 +118,7 @@ export function saveToCache(
   bookId?: string | null,
   chapterId?: string | null,
   segmentIndex?: number | null,
-  source = 'edgetts',
+  source = 'openai',
 ): CacheEntry {
   const textHash = generateCacheKey(text, voice, speed, source);
   const cacheDir = getCacheDir(dataDir);

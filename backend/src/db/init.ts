@@ -165,8 +165,9 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
     CREATE TABLE IF NOT EXISTS tts_settings (
       user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       enabled INTEGER NOT NULL DEFAULT 1,
-      source TEXT NOT NULL DEFAULT 'edgetts',
-      voice_id TEXT NOT NULL DEFAULT 'zh-CN-XiaoxiaoNeural',
+      source TEXT NOT NULL DEFAULT 'openai',
+      model TEXT,
+      voice_id TEXT NOT NULL DEFAULT 'alloy',
       speed REAL NOT NULL DEFAULT 1.0,
       api_url TEXT,
       api_key TEXT,
@@ -263,6 +264,21 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       console.log('[迁移] tts_settings 缺少 auto_pre_synthesize 列，正在补充...');
       sqlite.exec(`ALTER TABLE tts_settings ADD COLUMN auto_pre_synthesize INTEGER NOT NULL DEFAULT 0;`);
       console.log('[迁移] tts_settings auto_pre_synthesize 列补充完成 ✅');
+    }
+
+    const hasModel = ttsCols.some(c => c.name === 'model');
+    if (!hasModel) {
+      console.log('[迁移] tts_settings 缺少 model 列，正在补充...');
+      sqlite.exec(`ALTER TABLE tts_settings ADD COLUMN model TEXT;`);
+      console.log('[迁移] tts_settings model 列补充完成 ✅');
+    }
+
+    // 迁移旧默认值到新标准
+    const settingsRow = sqlite.prepare("SELECT source, voice_id FROM tts_settings WHERE source = 'edgetts' OR source = 'kokoro' OR source = 'megatts3' LIMIT 1").get() as any;
+    if (settingsRow) {
+      console.log('[迁移] tts_settings 迁移旧 source 到 openai 兼容模式...');
+      sqlite.exec(`UPDATE tts_settings SET source = 'openai' WHERE source IN ('edgetts', 'kokoro', 'megatts3', 'custom');`);
+      console.log('[迁移] tts_settings source 迁移完成 ✅');
     }
   } catch (err) {
     console.error('[迁移] tts_settings 列补充失败:', (err as Error).message);
@@ -475,8 +491,9 @@ function migrateOldTables(sqlite: Database.Database) {
         CREATE TABLE IF NOT EXISTS tts_settings_new (
           user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
           enabled INTEGER NOT NULL DEFAULT 1,
-          source TEXT NOT NULL DEFAULT 'kokoro',
-          voice_id TEXT NOT NULL DEFAULT 'zf_xiaobei',
+          source TEXT NOT NULL DEFAULT 'openai',
+          model TEXT,
+          voice_id TEXT NOT NULL DEFAULT 'alloy',
           speed REAL NOT NULL DEFAULT 1.0,
           api_url TEXT,
           api_key TEXT,
@@ -490,7 +507,7 @@ function migrateOldTables(sqlite: Database.Database) {
         DROP TABLE IF EXISTS tts_settings;
         ALTER TABLE tts_settings_new RENAME TO tts_settings;
         INSERT OR IGNORE INTO tts_settings (user_id, enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
-        VALUES ('${defaultUserId}', 1, 'edgetts', 'zh-CN-XiaoxiaoNeural', 1.0, 3, 32, 128, datetime('now'));
+        VALUES ('${defaultUserId}', 1, 'openai', 'alloy', 1.0, 3, 32, 128, datetime('now'));
       `);
     }
 

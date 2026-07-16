@@ -533,9 +533,9 @@ do_deploy() {
 PORT=${PORT}
 DATA_DIR=${DATA_DIR}
 
-# TTS Configuration
-TTS_DEFAULT_SOURCE=edgetts
-EDGETTS_URL=http://127.0.0.1:8883
+# TTS Configuration (OpenAI-Compatible)
+TTS_API_URL=http://127.0.0.1:8883
+TTS_DEFAULT_MODEL=tts-1
 TTS_REQUEST_TIMEOUT_MS=30000
 ENVEOF
 

@@ -311,7 +311,8 @@ export function createPartialGenerationJob(
 async function processPersistedSegments(db: any, dataDir: string, job: GenerationJob): Promise<void> {
   const userSettings = db.select().from(ttsSettings).where(sql`user_id = ${job.userId}`).get() as any;
   if (userSettings && !userSettings.enabled) throw new Error('TTS 语音功能已关闭');
-  const source = userSettings?.source || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
+  const source = userSettings?.source || 'openai';
+  const model = userSettings?.model || undefined;
   const rows = db.select().from(ttsGenerationSegments)
     .where(sql`job_id = ${job.id} AND status != 'completed'`)
     .all() as any[];
@@ -329,7 +330,7 @@ async function processPersistedSegments(db: any, dataDir: string, job: Generatio
     const startedAt = new Date().toISOString();
     db.update(ttsGenerationSegments).set({ status: 'running', attemptCount: (row.attemptCount || 0) + 1, startedAt, updatedAt: startedAt }).where(sql`id = ${row.id}`).run();
     try {
-      const result = await synthesizeWithTimeout({ input: segment.text, voice: job.voice, speed: job.speed, response_format: 'wav', tts_source: source, apiUrl: userSettings?.apiUrl || undefined, apiKey: userSettings?.apiKey || undefined });
+      const result = await synthesizeWithTimeout({ input: segment.text, voice: job.voice, speed: job.speed, model, response_format: 'wav', apiUrl: userSettings?.apiUrl || undefined, apiKey: userSettings?.apiKey || undefined });
       if (!result.success || !result.audio) throw new Error(result.error || 'TTS 合成失败');
       saveToCache(db, dataDir, segment.text, job.voice, job.speed, result.audio, 'wav', job.userId, job.bookId, segment.chapterId, segment.segmentIndex, source);
       const finishedAt = new Date().toISOString();
@@ -471,7 +472,8 @@ async function processJob(
 
       const apiUrl = userSettings?.apiUrl || undefined;
       const apiKey = userSettings?.apiKey || undefined;
-      const source = userSettings?.source || process.env.TTS_DEFAULT_SOURCE || 'edgetts';
+      const source = userSettings?.source || 'openai';
+      const model = userSettings?.model || undefined;
 
       // 逐段合成并缓存，保留章节 ID 与章节内段序，供客户端下载离线音频时精确映射。
       for (let segmentIndex = 0; segmentIndex < chunks.length; segmentIndex++) {
@@ -482,8 +484,8 @@ async function processJob(
             input: chunk,
             voice: job.voice,
             speed: job.speed,
+            model,
             response_format: 'wav',
-            tts_source: source,
             apiUrl,
             apiKey,
           });

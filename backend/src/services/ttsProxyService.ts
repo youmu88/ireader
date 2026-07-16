@@ -1,40 +1,43 @@
 /**
- * TTS Proxy Service
- * 将请求转发到 Kokoro/MegaTTS3 后端（预设）或自定义 TTS API，归一化响应格式
- * 自定义 TTS API 需兼容 OpenAI TTS 格式：
- *   GET  /v1/audio/voices  → 音色列表
- *   POST /v1/audio/speech  → 语音合成
- *   GET  /health           → 健康检查
+ * OpenAI-Compatible TTS Proxy Service
+ *
+ * 连接任意兼容 OpenAI TTS API 的服务，统一接口：
+ *   POST /v1/audio/speech  → 语音合成（标准 OpenAI 格式）
+ *   GET  /v1/audio/voices  → 音色列表（扩展端点，多数兼容服务支持）
+ *   GET  /v1/models        → 模型列表（标准 OpenAI 端点）
+ *   GET  /health           → 健康检查（回退）
+ *
+ * 用户需在设置中配置 apiUrl（必填）和 apiKey（可选），
+ * 系统自动探测可用模型和音色。
  */
 import { config } from 'dotenv';
 
 config();
 
-const DEFAULT_TTS_URL = process.env.TTS_URL || 'http://127.0.0.1:8880';
-const DEFAULT_MEGATTS3_URL = process.env.MEGATTS3_URL || 'http://127.0.0.1:8882';
-const DEFAULT_EDGETTS_URL = process.env.EDGETTS_URL || 'http://127.0.0.1:8883';
-const DEFAULT_TTS_SOURCE = process.env.TTS_DEFAULT_SOURCE || 'edgetts';
+const DEFAULT_API_URL = process.env.TTS_API_URL || 'http://127.0.0.1:8883';
+const DEFAULT_API_KEY = process.env.TTS_API_KEY || undefined;
+const DEFAULT_MODEL = process.env.TTS_DEFAULT_MODEL || 'tts-1';
 const TTS_REQUEST_TIMEOUT_MS = parseInt(process.env.TTS_REQUEST_TIMEOUT_MS || '30000', 10);
-
-const PRESET_URLS: Record<string, string> = {
-  kokoro: DEFAULT_TTS_URL,
-  megatts3: DEFAULT_MEGATTS3_URL,
-  edgetts: DEFAULT_EDGETTS_URL,
-};
 
 export interface TTSOptions {
   input: string;
   voice?: string;
   speed?: number;
+  model?: string;
   response_format?: string;
-  tts_source?: string;
-  apiUrl?: string;  // 自定义 API URL
-  apiKey?: string;  // 可选 API Key
+  apiUrl: string;  // 必填：TTS 服务基础 URL
+  apiKey?: string;  // 可选：Bearer 认证
 }
 
 export interface VoiceInfo {
   id: string;
   name: string;
+}
+
+export interface ModelInfo {
+  id: string;
+  name?: string;
+  owned_by?: string;
 }
 
 export interface TTSource {
@@ -47,13 +50,19 @@ export interface HealthResult {
   success: boolean;
   status?: string;
   service?: string;
-  memory_mb?: number;
+  models?: ModelInfo[];
   error?: string;
 }
 
 export interface VoicesResult {
   success: boolean;
   data?: { voices: VoiceInfo[] };
+  error?: string;
+}
+
+export interface ModelsResult {
+  success: boolean;
+  data?: { models: ModelInfo[] };
   error?: string;
 }
 
@@ -66,33 +75,37 @@ export interface SynthesizeResult {
 }
 
 /**
- * 获取可用的 TTS 源/预设列表
+ * 获取 TTS 源描述（统一为 OpenAI 兼容）
  */
 export function getSources(): TTSource[] {
   return [
-    { id: 'kokoro', name: 'Kokoro（默认）', description: '轻量级 TTS，支持多种音色' },
-    { id: 'megatts3', name: 'MegaTTS3', description: '字节跳动高保真语音克隆 TTS' },
-    { id: 'edgetts', name: 'Edge-TTS', description: '微软 Edge 在线 TTS（中英文，无需 GPU）' },
-    { id: 'custom', name: '自定义 TTS API', description: '兼容 OpenAI TTS 格式的自定义服务' },
+    { id: 'openai', name: 'OpenAI 兼容 TTS', description: '标准 OpenAI TTS API 接口，支持任意兼容服务' },
   ];
 }
 
 /**
- * 根据 source 和可选的 apiUrl 获取 TTS 后端基础 URL
- * - 如果传入了 apiUrl，直接使用（自定义模式）
- * - 否则从预设 URL 中查找
- * - 兜底返回默认 TTS_URL
+ * 规范化基础 URL（移除尾部斜杠）
  */
-function getBaseUrl(source: string, apiUrl?: string): string {
-  if (apiUrl) return apiUrl.replace(/\/+$/, '');
-  return PRESET_URLS[source] || DEFAULT_TTS_URL;
+function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, '');
 }
 
 /**
- * 构建请求头（如果 apiKey 存在则附加 Bearer 认证）
+ * 获取默认配置（用于无用户设置时的回退）
  */
-function buildHeaders(apiKey?: string): Record<string, string> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+export function getDefaultConfig() {
+  return {
+    apiUrl: DEFAULT_API_URL,
+    apiKey: DEFAULT_API_KEY,
+    model: DEFAULT_MODEL,
+  };
+}
+
+/**
+ * 构建请求头
+ */
+function buildHeaders(apiKey?: string, contentType = 'application/json'): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': contentType };
   if (apiKey) {
     headers['Authorization'] = `Bearer ${apiKey}`;
   }
@@ -101,16 +114,37 @@ function buildHeaders(apiKey?: string): Record<string, string> {
 
 /**
  * 检查 TTS 服务健康状态
+ * 优先尝试 GET /v1/models（标准 OpenAI 端点），回退到 GET /health
  */
 export async function checkHealth(
-  source: string = DEFAULT_TTS_SOURCE,
   apiUrl?: string,
   apiKey?: string,
 ): Promise<HealthResult> {
-  const baseUrl = getBaseUrl(source, apiUrl);
+  const baseUrl = normalizeBaseUrl(apiUrl || DEFAULT_API_URL);
+  const key = apiKey || DEFAULT_API_KEY;
+
+  // 1. 尝试标准 OpenAI 端点 /v1/models
+  try {
+    const response = await fetch(`${baseUrl}/v1/models`, {
+      headers: buildHeaders(key),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const models = normalizeModels(data);
+      return {
+        success: true,
+        status: 'ok',
+        service: 'openai-compatible',
+        models,
+      };
+    }
+  } catch { /* 回退到 /health */ }
+
+  // 2. 回退到 /health
   try {
     const response = await fetch(`${baseUrl}/health`, {
-      headers: buildHeaders(apiKey),
+      headers: buildHeaders(key),
       signal: AbortSignal.timeout(5_000),
     });
     const data = await response.json();
@@ -121,46 +155,105 @@ export async function checkHealth(
 }
 
 /**
- * Kokoro 音色名称映射
+ * 归一化模型列表：从 /v1/models 响应中提取模型信息
  */
-const KOKORO_NAME_MAP: Record<string, string> = {
-  'zf_xiaobei': '小北', 'zf_xiaoni': '小妮', 'zf_xiaoxiao': '潇潇',
-  'zf_xiaoyi': '小仪', 'zm_yunjian': '云剑', 'zm_yunxi': '云希',
-  'zm_yunxia': '云夏', 'zm_yunyang': '云扬',
-  'af_heart': 'Heart', 'af_bella': 'Bella', 'af_nicole': 'Nicole',
-  'af_sarah': 'Sarah', 'af_sky': 'Sky', 'am_adam': 'Adam',
-  'am_michael': 'Michael', 'bm_george': 'George', 'bf_emma': 'Emma',
-};
-
-/**
- * 归一化音色列表：不同后端返回统一 { id, name } 格式
- */
-function normalizeVoices(data: any): VoiceInfo[] {
-  if (Array.isArray(data.voices)) {
-    return data.voices;
+function normalizeModels(data: any): ModelInfo[] {
+  if (Array.isArray(data?.data)) {
+    return data.data.map((m: any) => ({
+      id: m.id,
+      name: m.id,
+      owned_by: m.owned_by,
+    }));
   }
-  if (data.chinese || data.english) {
-    const allIds = [...(data.chinese || []), ...(data.english || [])];
-    return allIds.map((id: string) => ({ id, name: KOKORO_NAME_MAP[id] || id }));
+  if (Array.isArray(data?.models)) {
+    return data.models.map((m: any) => ({
+      id: typeof m === 'string' ? m : m.id,
+      name: typeof m === 'string' ? m : (m.name || m.id),
+      owned_by: typeof m === 'string' ? undefined : m.owned_by,
+    }));
   }
   return [];
 }
 
 /**
- * 获取指定 TTS 源的音色列表
- * 支持自定义 API URL（apiUrl）和 API Key（apiKey）
+ * 获取可用模型列表
+ * GET /v1/models → 标准 OpenAI 端点
+ */
+export async function getModels(
+  apiUrl?: string,
+  apiKey?: string,
+): Promise<ModelsResult> {
+  const baseUrl = normalizeBaseUrl(apiUrl || DEFAULT_API_URL);
+  const key = apiKey || DEFAULT_API_KEY;
+
+  try {
+    const response = await fetch(`${baseUrl}/v1/models`, {
+      headers: buildHeaders(key),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) {
+      return { success: false, error: `Models request failed: ${response.status}` };
+    }
+    const data = await response.json();
+    const models = normalizeModels(data);
+    return { success: true, data: { models } };
+  } catch {
+    return { success: false, error: 'TTS service unavailable' };
+  }
+}
+
+/**
+ * 归一化音色列表：不同后端返回统一 { id, name } 格式
+ * 兼容多种格式：
+ *   - { voices: [{ id, name }] }         → 标准
+ *   - { voices: ["voice1", "voice2"] }    → 字符串数组
+ *   - { chinese: [...], english: [...] }  → Kokoro 格式
+ *   - { data: [{ id, name }] }            → OpenAI models 风格
+ */
+function normalizeVoices(data: any): VoiceInfo[] {
+  // 标准格式: { voices: [{ id, name }] }
+  if (Array.isArray(data?.voices)) {
+    return data.voices.map((v: any) => {
+      if (typeof v === 'string') return { id: v, name: v };
+      return { id: v.id || v.voice_id || v.name, name: v.name || v.id || v.voice_id };
+    });
+  }
+
+  // Kokoro 格式: { chinese: [...], english: [...] }
+  if (data?.chinese || data?.english) {
+    const allIds = [...(data.chinese || []), ...(data.english || [])];
+    return allIds.map((id: string) => ({ id, name: id }));
+  }
+
+  // OpenAI models 风格: { data: [{ id, ... }] }
+  if (Array.isArray(data?.data)) {
+    return data.data
+      .filter((m: any) => typeof m === 'object' && m.id)
+      .map((m: any) => ({ id: m.id, name: m.name || m.id }));
+  }
+
+  return [];
+}
+
+/**
+ * 获取音色列表
+ * GET /v1/audio/voices → 扩展端点（多数兼容服务支持）
  */
 export async function getVoices(
-  source: string = DEFAULT_TTS_SOURCE,
   apiUrl?: string,
   apiKey?: string,
 ): Promise<VoicesResult> {
-  const baseUrl = getBaseUrl(source, apiUrl);
+  const baseUrl = normalizeBaseUrl(apiUrl || DEFAULT_API_URL);
+  const key = apiKey || DEFAULT_API_KEY;
+
   try {
     const response = await fetch(`${baseUrl}/v1/audio/voices`, {
-      headers: buildHeaders(apiKey),
+      headers: buildHeaders(key),
       signal: AbortSignal.timeout(5_000),
     });
+    if (!response.ok) {
+      return { success: false, error: `Voices request failed: ${response.status}` };
+    }
     const data = await response.json();
     const voices = normalizeVoices(data);
     return { success: true, data: { voices } };
@@ -170,15 +263,16 @@ export async function getVoices(
 }
 
 /**
- * 合成语音：将文本发送到 TTS 后端，返回音频二进制
+ * 合成语音：标准 OpenAI TTS API
+ * POST /v1/audio/speech → { model, input, voice, response_format, speed }
  */
 export async function synthesize(options: TTSOptions): Promise<SynthesizeResult> {
   const {
     input,
     voice = 'alloy',
     speed = 1.0,
+    model = DEFAULT_MODEL,
     response_format = 'wav',
-    tts_source = DEFAULT_TTS_SOURCE,
     apiUrl,
     apiKey,
   } = options;
@@ -187,13 +281,18 @@ export async function synthesize(options: TTSOptions): Promise<SynthesizeResult>
     return { success: false, error: 'input is required', status: 400 };
   }
 
-  const baseUrl = getBaseUrl(tts_source, apiUrl);
+  if (!apiUrl) {
+    return { success: false, error: 'apiUrl is required', status: 400 };
+  }
+
+  const baseUrl = normalizeBaseUrl(apiUrl);
+  const key = apiKey || DEFAULT_API_KEY;
 
   try {
     const response = await fetch(`${baseUrl}/v1/audio/speech`, {
       method: 'POST',
-      headers: buildHeaders(apiKey),
-      body: JSON.stringify({ input, voice, speed, response_format }),
+      headers: buildHeaders(key),
+      body: JSON.stringify({ model, input, voice, response_format, speed }),
       signal: AbortSignal.timeout(TTS_REQUEST_TIMEOUT_MS),
     });
 

@@ -1,6 +1,6 @@
 /**
  * 前端 TTS 服务
- * 封装后端 TTS API 调用，包括设置管理、音色查询、连接测试、语音合成
+ * 封装后端 TTS API 调用，包括设置管理、音色查询、模型查询、连接测试、语音合成
  */
 
 import { getToken } from './authService';
@@ -24,6 +24,12 @@ export interface VoiceInfo {
   name: string;
 }
 
+export interface ModelInfo {
+  id: string;
+  name?: string;
+  owned_by?: string;
+}
+
 export interface TTSSettings {
   id: number;
   enabled: boolean;
@@ -32,6 +38,7 @@ export interface TTSSettings {
   speed: number;
   apiUrl: string | null;
   apiKey: string | null;
+  model: string | null;
   preGenerateConcurrency: number;
   firstChunkMaxSize: number;
   normalChunkMaxSize: number;
@@ -44,6 +51,7 @@ export interface HealthResult {
   status?: string;
   service?: string;
   memory_mb?: number;
+  models?: ModelInfo[];
   error?: string;
 }
 
@@ -60,13 +68,12 @@ export async function fetchSources(): Promise<TTSource[]> {
 }
 
 /**
- * 获取指定 TTS 源的音色列表
- * 支持自定义 API URL/Key（用于在保存设置前预览自定义源的音色）
+ * 获取音色列表
  */
-export async function fetchVoices(source: string, apiUrl?: string, apiKey?: string): Promise<VoiceInfo[]> {
-  let url = `${API_BASE}/voices?source=${encodeURIComponent(source)}`;
-  if (apiUrl) url += `&apiUrl=${encodeURIComponent(apiUrl)}`;
-  if (apiKey) url += `&apiKey=${encodeURIComponent(apiKey)}`;
+export async function fetchVoices(apiUrl?: string, apiKey?: string): Promise<VoiceInfo[]> {
+  let url = `${API_BASE}/voices?`;
+  if (apiUrl) url += `apiUrl=${encodeURIComponent(apiUrl)}&`;
+  if (apiKey) url += `apiKey=${encodeURIComponent(apiKey)}&`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to fetch voices');
   const json = await res.json();
@@ -75,13 +82,26 @@ export async function fetchVoices(source: string, apiUrl?: string, apiKey?: stri
 }
 
 /**
- * 测试 TTS 服务连接
- * 支持自定义 API URL/Key（用于在保存设置前测试自定义源的连通性）
+ * 获取可用模型列表
  */
-export async function testConnection(source: string, apiUrl?: string, apiKey?: string): Promise<HealthResult> {
-  let url = `${API_BASE}/health?source=${encodeURIComponent(source)}`;
-  if (apiUrl) url += `&apiUrl=${encodeURIComponent(apiUrl)}`;
-  if (apiKey) url += `&apiKey=${encodeURIComponent(apiKey)}`;
+export async function fetchModels(apiUrl?: string, apiKey?: string): Promise<ModelInfo[]> {
+  let url = `${API_BASE}/models?`;
+  if (apiUrl) url += `apiUrl=${encodeURIComponent(apiUrl)}&`;
+  if (apiKey) url += `apiKey=${encodeURIComponent(apiKey)}&`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to fetch models');
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || 'Failed to fetch models');
+  return json.data?.models || [];
+}
+
+/**
+ * 测试 TTS 服务连接
+ */
+export async function testConnection(apiUrl?: string, apiKey?: string): Promise<HealthResult> {
+  let url = `${API_BASE}/health?`;
+  if (apiUrl) url += `apiUrl=${encodeURIComponent(apiUrl)}&`;
+  if (apiKey) url += `apiKey=${encodeURIComponent(apiKey)}&`;
   const res = await fetch(url);
   if (res.status === 502) {
     return { success: false, error: 'TTS service unavailable' };
@@ -116,10 +136,6 @@ export async function saveTTSSettings(settings: Partial<TTSSettings>): Promise<T
 }
 
 /**
- * 清除 TTS 音频缓存
- */
-
-/**
  * 合成一段 TTS 语音（用于试听）
  * 调用 POST /api/tts，返回音频 Blob
  */
@@ -127,16 +143,14 @@ export async function synthesizeSpeech(
   input: string,
   voice?: string,
   speed?: number,
-  ttsSource?: string,
 ): Promise<Blob> {
   const res = await fetch(`${API_BASE}/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({
       input,
-      voice: voice || 'zh-CN-XiaoxiaoNeural',
+      voice: voice || 'alloy',
       speed: speed ?? 1.0,
-      tts_source: ttsSource || undefined,
     }),
   });
   if (!res.ok) {
