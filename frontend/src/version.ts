@@ -96,7 +96,18 @@
  *   3) 验证：tsc --noEmit 全绿。
  */
 
-export const APP_VERSION = '2.16.2';
+export const APP_VERSION = '2.16.3';
+/**
+ * 2.16.3 (2026-07-16): [BUGFIX] 移除有缺陷的 EPUB 滚动监听自动加载，替换为常驻上下章按钮
+ *   1) 根因：epub.js scrolled-doc 模式的 iframe 内 scroll 事件监听不可靠（容器/内容尺寸变化等
+ *      边界情况导致触发不准确），"滚动到底部自动加载下章"功能经常不生效。
+ *   2) 修复：移除 EpubViewer.onScrollBottom 滚动监听代码（清理 scrollCleanupRef + 防抖逻辑）；
+ *      移除 ReaderPage 中的 onScrollBottom 回调与 loadingNextChapterRef 门控；
+ *      改为在 EPUB 阅读器两侧添加常驻的"上一章/下一章"浮动按钮（半透明 hover 显示），
+ *      用户点击跳转，行为可靠、反馈明确。epubjs 无现成 UI 按钮组件，使用 chapterNavRef 跳转。
+ *   3) 清理：EpubViewer props 中 onScrollBottom → onPrevChapter/onNextChapter 委托。
+ *   4) 验证：tsc --noEmit 全绿。
+ */
 /**
  * 2.16.2 (2026-07-16): [FIX] 重构建并重新部署 — deploy.sh 超时导致进程中断，手动启动恢复正常
  *   1) deploy.sh 执行过程中因 120s 超时被系统终止，虽然构建+拷贝已完成但进程被杀了。

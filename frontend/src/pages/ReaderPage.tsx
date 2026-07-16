@@ -2397,17 +2397,45 @@ function stripHtml(html: string): string {
                 debounceSaveProgress({ cfi });
               }
             }}
-            onScrollBottom={() => {
-              // ⭐ EPUB scrolled-doc 模式滚动到底部 → 自动加载下一章
-              if (loadingNextChapterRef.current) return;
-              const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
-              if (idx < 0 || idx >= chapters.length - 1) return;
-              loadingNextChapterRef.current = true;
-              navigateToChapter(chapters[idx + 1], true).finally(() => {
-                loadingNextChapterRef.current = false;
-              });
+            onPrevChapter={() => {
+              handlePrevChapterRef.current();
+            }}
+            onNextChapter={() => {
+              handleNextChapterRef.current();
             }}
           />
+        )}
+
+        {/* ⭐ EPUB 常驻上下章按钮 — 点击跳转章节，替代有缺陷的滚动监听自动加载 */}
+        {book?.format === 'epub' && (
+          <>
+            {/* 上一章 — 左侧居中 */}
+            <button
+              onClick={() => {
+                const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
+                if (idx > 0) navigateToChapter(chapters[idx - 1]);
+              }}
+              disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter?.id) <= 0}
+              className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 opacity-40 hover:opacity-100 disabled:opacity-10 disabled:pointer-events-none"
+              style={{background: 'var(--color-bg-alt)', color: 'var(--color-text)'}}
+              title="上一章"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            {/* 下一章 — 右侧居中 */}
+            <button
+              onClick={() => {
+                const idx = chapters.findIndex((c) => c.id === currentChapter?.id);
+                if (idx >= 0 && idx < chapters.length - 1) navigateToChapter(chapters[idx + 1]);
+              }}
+              disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter?.id) >= chapters.length - 1}
+              className="absolute right-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 opacity-40 hover:opacity-100 disabled:opacity-10 disabled:pointer-events-none"
+              style={{background: 'var(--color-bg-alt)', color: 'var(--color-text)'}}
+              title="下一章"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </>
         )}
 
         {/* TXT Reader */}
