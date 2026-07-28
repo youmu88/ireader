@@ -29,6 +29,7 @@ import { useTtsIntegration } from '../reader/hooks/useTtsIntegration';
 import { useOfflineFallback } from '../reader/hooks/useOfflineFallback';
 import { useProgressRestore } from '../reader/hooks/useProgressRestore';
 import { useProgressPersistence } from '../reader/position/useProgressPersistence';
+import { useReadingPosition } from '../reader/position/useReadingPosition';
 import { useReaderInteraction } from '../interaction/useReaderInteraction';
 import { useAuth } from '../contexts/AuthContext';
 import { getToken } from '../services/authService';
@@ -63,7 +64,8 @@ function ReaderPage() {
   const progressRestore = useProgressRestore();
   const [book, setBook] = useState<Book | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
-  const { save: saveProgress, saveImmediate, flush: flushProgress, syncVersion } = useProgressPersistence(null, { bookId, totalChapters: chapters.length });
+  const { position: readingPosition, setPosition, updatePosition } = useReadingPosition(null);
+  const { saveImmediate, flush: flushProgress, syncVersion } = useProgressPersistence(readingPosition, { bookId, totalChapters: chapters.length });
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
   const [txtContent, setTxtContent] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -1149,7 +1151,7 @@ function stripHtml(html: string): string {
       await loadChapterContent(chapter, undefined, undefined, _append);
     }
 
-    saveProgress({ bookId: bookId!, chapterId: chapter.id, chapterIndex: chapter.order, ratio: 0, timestamp: Date.now() });
+    setPosition({ bookId: bookId!, chapterId: chapter.id, chapterIndex: chapter.order, ratio: 0 });
   };
 
   // 保持 ref 指向最新函数，供翻页动画等异步回调使用
@@ -1260,7 +1262,7 @@ function stripHtml(html: string): string {
     }
     const nextCh = chaptersRef.current[ci + 1];
     // 保存上一章完成进度（ratio=1 表示章节读完，hook 内部计算全书百分比）
-    saveProgress({ bookId: bookId!, chapterId: currentChapterRef.current.id, chapterIndex: ci, ratio: 1, timestamp: Date.now() });
+    setPosition({ bookId: bookId!, chapterId: currentChapterRef.current.id, chapterIndex: ci, ratio: 1 });
     try {
       let content = await getCachedChapterContent(triggerBookId!, nextCh.id);
       if (!content) {
@@ -1691,13 +1693,9 @@ function stripHtml(html: string): string {
                 epubChapterRatioRef.current = chapterRatio;
               }
               if (currentBookIdRef.current) {
-                saveProgress({
-                  bookId: currentBookIdRef.current,
-                  chapterId: currentChapterRef.current?.id || '',
-                  chapterIndex: currentChapterRef.current?.order ?? 0,
+                updatePosition({
                   ratio: epubChapterRatioRef.current ?? 0,
                   cfi,
-                  timestamp: Date.now(),
                 });
               }
             }}
