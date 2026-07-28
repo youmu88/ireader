@@ -19,6 +19,13 @@ export type {
 export { useReadingPosition } from './position/useReadingPosition';
 export type { UseReadingPositionResult } from './position/useReadingPosition';
 
+export { useProgressPersistence, loadLocalPosition } from './position/useProgressPersistence';
+export type {
+  ProgressPayload,
+  UseProgressPersistenceOptions,
+  UseProgressPersistenceResult,
+} from './position/useProgressPersistence';
+
 // 导航器（已有）
 export { SerialReaderNavigator } from './ReaderNavigator';
 export type { ReaderNavigator } from './ReaderNavigator';
