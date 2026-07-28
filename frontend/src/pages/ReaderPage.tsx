@@ -24,6 +24,7 @@ import type { BookCacheDetailedStats } from '../services/offlineCacheService';
 import EpubViewer from '../components/EpubViewer';
 import TxtReaderView, { type TxtReaderViewHandle } from '../components/TxtReaderView';
 import { ReaderTopBar } from '../components/ReaderTopBar';
+import { useReaderSettings } from '../reader/hooks/useReaderSettings';
 import { useReaderInteraction } from '../interaction/useReaderInteraction';
 import { useAuth } from '../contexts/AuthContext';
 import { getToken } from '../services/authService';
@@ -68,22 +69,9 @@ function ReaderPage() {
   const [, setChapterLoading] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // ── 阅读偏好持久化（localStorage） ──
-  const READER_PREFS_KEY = 'ireader_reader_prefs';
-  const loadReaderPrefs = () => {
-    try {
-      const raw = localStorage.getItem(READER_PREFS_KEY);
-      if (raw) return JSON.parse(raw);
-    } catch { /* ignore */ }
-    return null;
-  };
-  const saveReaderPrefs = (prefs: Record<string, any>) => {
-    try {
-      const current = loadReaderPrefs() || {};
-      localStorage.setItem(READER_PREFS_KEY, JSON.stringify({ ...current, ...prefs }));
-    } catch { /* ignore */ }
-  };
-  const initialPrefs = loadReaderPrefs() || {};
+  // ── 阅读偏好（useReaderSettings hook 管理 + 自动持久化） ──
+  const settings = useReaderSettings();
+  const { fontSize, setFontSize, fontFamily, setFontFamily, lineHeight, setLineHeight, letterSpacing, readingMode, setReadingMode } = settings;
 
   // ── TTS 播放持久化（localStorage，页面刷新后恢复） ──
   interface PlaybackState {
@@ -104,10 +92,6 @@ function ReaderPage() {
   };
 
 
-  const [fontSize, setFontSize] = useState(initialPrefs.fontSize ?? 18);
-  const [fontFamily, setFontFamily] = useState<'sans' | 'serif' | 'mono'>(initialPrefs.fontFamily ?? 'sans');
-  const [lineHeight, setLineHeight] = useState(initialPrefs.lineHeight ?? 1.8);
-  const [letterSpacing] = useState(initialPrefs.letterSpacing ?? 0.01);
   const [ttsState, setTtsState] = useState<PlayerState>('idle');
   const [ttsProgress, setTtsProgress] = useState(0);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
@@ -120,7 +104,6 @@ function ReaderPage() {
   });
   const ttsVolume = 1.0;
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(-1);
-  const [readingMode, setReadingMode] = useState<'scroll' | 'paginated'>(initialPrefs.readingMode ?? 'scroll');
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   // ── TXT 翻页：由 TxtReaderView 组件内部管理 ──
@@ -755,11 +738,6 @@ useEffect(() => {
   }, [bookId]);
 
   // ── 持久化阅读偏好 ──
-  useEffect(() => { saveReaderPrefs({ fontSize }); }, [fontSize]);
-  useEffect(() => { saveReaderPrefs({ fontFamily }); }, [fontFamily]);
-  useEffect(() => { saveReaderPrefs({ lineHeight }); }, [lineHeight]);
-  useEffect(() => { saveReaderPrefs({ readingMode }); }, [readingMode]);
-  useEffect(() => { saveReaderPrefs({ letterSpacing }); }, [letterSpacing]);
 
 
   // ⭐ autoPlayTts=1：从书架底部栏续播时自动启动 TTS
