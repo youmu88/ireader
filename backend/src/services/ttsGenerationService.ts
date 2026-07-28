@@ -15,11 +15,6 @@ import { parseTxt, getChapterContent } from '../parser/index.js';
 import path from 'path';
 import fs from 'fs';
 
-/** 转义正则特殊字符 */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 /** 去除 HTML 标签，保留文本内容 */
 function stripHtmlTags(html: string): string {
   return html
@@ -313,6 +308,9 @@ async function processPersistedSegments(db: any, dataDir: string, job: Generatio
   if (userSettings && !userSettings.enabled) throw new Error('TTS 语音功能已关闭');
   const source = userSettings?.source || 'openai';
   const model = userSettings?.model || undefined;
+  const apiUrl = userSettings?.apiUrl || undefined;
+  const apiKey = userSettings?.apiKey || undefined;
+
   const rows = db.select().from(ttsGenerationSegments)
     .where(sql`job_id = ${job.id} AND status != 'completed'`)
     .all() as any[];
@@ -320,6 +318,7 @@ async function processPersistedSegments(db: any, dataDir: string, job: Generatio
     .where(sql`job_id = ${job.id}`).get()?.count || job.totalChunks;
   let completed = db.select({ count: sql<number>`count(*)` }).from(ttsGenerationSegments)
     .where(sql`job_id = ${job.id} AND status = 'completed'`).get()?.count || 0;
+
   for (const row of rows) {
     const segment = db.select().from(contentSegments).where(sql`id = ${row.segmentId}`).get() as any;
     if (!segment?.text?.trim()) {
@@ -330,11 +329,36 @@ async function processPersistedSegments(db: any, dataDir: string, job: Generatio
     const startedAt = new Date().toISOString();
     db.update(ttsGenerationSegments).set({ status: 'running', attemptCount: (row.attemptCount || 0) + 1, startedAt, updatedAt: startedAt }).where(sql`id = ${row.id}`).run();
     try {
-      const result = await synthesizeWithTimeout({ input: segment.text, voice: job.voice, speed: job.speed, model, response_format: 'wav', apiUrl: userSettings?.apiUrl || undefined, apiKey: userSettings?.apiKey || undefined });
+      const result = await synthesizeWithTimeout({ input: segment.text, voice: job.voice, speed: job.speed, model, response_format: 'wav', apiUrl, apiKey });
       if (!result.success || !result.audio) throw new Error(result.error || 'TTS 合成失败');
       saveToCache(db, dataDir, segment.text, job.voice, job.speed, result.audio, 'wav', job.userId, job.bookId, segment.chapterId, segment.segmentIndex, source);
+
+      // 写入全局资源（跨用户共享）
+      try {
+        const { findTtsGlobalResource, createTtsGlobalResource } = await import('./globalResourceService.js');
+        const textHash = crypto.createHash('md5').update(`${source}|${job.voice}|${job.speed}|${segment.text}`).digest('hex');
+        const { userBookRefs } = await import('../db/schema.js');
+        const userRef = db.select().from(userBookRefs).where(sql`local_book_id = ${job.bookId} AND deleted_at IS NULL`).get() as any;
+        const globalBookId = userRef?.globalBookId || job.bookId;
+        let resource = findTtsGlobalResource(db, textHash, job.voice, job.speed, globalBookId, source);
+        if (!resource) {
+          const globalAudioDir = path.join(dataDir, 'tts-global');
+          if (!fs.existsSync(globalAudioDir)) fs.mkdirSync(globalAudioDir, { recursive: true });
+          const globalAudioPath = path.join(globalAudioDir, `${textHash}.wav`);
+          if (!fs.existsSync(globalAudioPath)) fs.writeFileSync(globalAudioPath, result.audio);
+          resource = createTtsGlobalResource(db, globalBookId, segment.chapterId, textHash, job.voice, job.speed, globalAudioPath, result.audio.length, segment.segmentIndex, source);
+        }
+        const { ttsRefs } = await import('../db/schema.js');
+        const refExists = db.select().from(ttsRefs).where(sql`user_id = ${job.userId} AND global_resource_id = ${resource.id}`).get();
+        if (!refExists) {
+          db.insert(ttsRefs).values({ id: uuidv4(), userId: job.userId, globalResourceId: resource.id, localCacheId: null, refCount: 1, createdAt: new Date().toISOString(), deletedAt: null }).run();
+        }
+      } catch (err) {
+        console.warn(`[TTS] 写入全局资源失败(非致命):`, (err as Error).message);
+      }
+
       const finishedAt = new Date().toISOString();
-      db.update(ttsGenerationSegments).set({ status: 'completed', finishedAt, error: null, updatedAt: finishedAt }).where(sql`id = ${row.id}`).run();
+      db.update(ttsGenerationSegments).set({ status: 'completed', audioResourceId: row.audioResourceId || null, finishedAt, error: null, updatedAt: finishedAt }).where(sql`id = ${row.id}`).run();
       completed++;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -345,6 +369,13 @@ async function processPersistedSegments(db: any, dataDir: string, job: Generatio
     const active = db.select({ status: ttsGenerationJobs.status }).from(ttsGenerationJobs).where(sql`id = ${job.id}`).get();
     if (!active || active.status !== 'running') return;
   }
+
+  // 记录音色使用（激活 LRU 缓存管理）
+  try {
+    const { recordVoiceUsage } = await import('./voiceCacheService.js');
+    recordVoiceUsage(db, job.bookId, job.userId, job.voice, job.speed);
+  } catch { /* 不影响主流程 */ }
+
   const failed = db.select({ count: sql<number>`count(*)` }).from(ttsGenerationSegments).where(sql`job_id = ${job.id} AND status = 'failed'`).get()?.count || 0;
   db.update(ttsGenerationJobs).set({ status: failed > 0 ? 'failed' : 'completed', progress: failed > 0 ? Math.round((completed / total) * 100) : 100, totalChunks: total, completedChunks: completed, error: failed > 0 ? `${failed} 个语音片段合成失败，可重试` : null, updatedAt: new Date().toISOString() }).where(sql`id = ${job.id}`).run();
 }
@@ -355,251 +386,20 @@ async function processJob(
   job: GenerationJob,
 ): Promise<void> {
   try {
-    // 标记为运行中
     db.update(ttsGenerationJobs)
       .set({ status: 'running', updatedAt: new Date().toISOString() })
       .where(sql`id = ${job.id}`)
       .run();
 
-    const chapterQuery = db.select().from(bookChapters)
-      .where(sql`book_id = ${job.bookId}`)
-      .orderBy(bookChapters.order);
-    const chapters = (job.chapterCount == null
-      ? chapterQuery.all()
-      : chapterQuery.limit(job.chapterCount).all()) as any[];
-
-    const book = db.select().from(books)
-      .where(sql`id = ${job.bookId}`)
+    const hasSegments = db.select().from(ttsGenerationSegments)
+      .where(sql`job_id = ${job.id}`)
+      .limit(1)
       .get();
-
-    if (!book) {
-      throw new Error('图书不存在');
+    if (!hasSegments) {
+      throw new Error(`任务 ${job.id} 无关联的 content_segments 记录，请重新创建任务`);
     }
 
-    if (db.select().from(ttsGenerationSegments).where(sql`job_id = ${job.id}`).limit(1).get()) {
-      await processPersistedSegments(db, dataDir, job);
-      return;
-    }
-
-    let completedChunks = 0;
-    let chapterChunks = 0; // 实际总片数（用于更新 totalChunks）
-
-    for (const chapter of chapters) {
-      // 获取章节文本
-      let chapterText = '';
-      if (book.format === 'txt') {
-        if (chapter.startOffset != null) {
-          const parseResult = parseTxt(book.filePath);
-          chapterText = getChapterContent(parseResult.content, chapter.startOffset, chapter.endOffset || parseResult.content.length);
-        }
-      } else {
-        if (chapter.href) {
-          // 处理含锚点 (#) 的 href，常见于合集型 EPUB（所有章节指向同一文件的不同锚点）
-          const hrefPath = chapter.href.split('#')[0]; // 去掉锚点部分，只保留文件路径
-          let basePath = chapter.href;
-          if (hrefPath) {
-            basePath = hrefPath;
-          }
-          const extractedPath = path.join(path.dirname(book.filePath), 'extracted', basePath);
-          if (fs.existsSync(extractedPath)) {
-            const fullContent = fs.readFileSync(extractedPath, 'utf-8');
-
-            // 如果 href 包含锚点 (#)，尝试提取锚点对应区段的文本
-            const anchorId = chapter.href.includes('#') ? chapter.href.split('#')[1] : null;
-            if (anchorId) {
-              // 尝试匹配 <section id="toc_X"> 或 <div id="toc_X"> 或任意 id="toc_X" 标签
-              // 提取从该锚点开始到下一个相同层级标签或文件末尾之间的内容
-              const anchorRegex = new RegExp(
-                `<[^>]+?id=(["'])${escapeRegex(anchorId)}\\1[^>]*>([\\s\\S]*?)(?=<[^>]+?id=(["'])[^>"']+\\3[^>]*>|$)`,
-                'i'
-              );
-              const anchorMatch = fullContent.match(anchorRegex);
-              if (anchorMatch) {
-                chapterText = stripHtmlTags(anchorMatch[2]);
-              } else {
-                // 降级：尝试仅查找 id 并提取其后内容到下一个块级标签
-                const fallbackMatch = fullContent.match(
-                  new RegExp(`id=(["'])${escapeRegex(anchorId)}\\1[^>]*>([\\s\\S]*?)(?:<[^>]+?id=(["'])|$)`, 'i')
-                );
-                if (fallbackMatch) {
-                  chapterText = stripHtmlTags(fallbackMatch[2]);
-                }
-              }
-            }
-
-            // 如果没有锚点 或 锚点解析失败，使用完整文件内容
-            if (!chapterText) {
-              chapterText = stripHtmlTags(fullContent);
-            }
-          }
-        }
-      }
-
-      if (!chapterText) {
-        // 使用与 totalChunks 估算相同的逻辑计算空章节应计分片数
-        const estSize = chapter.endOffset ? (chapter.endOffset - (chapter.startOffset || 0)) : 2000;
-        const estimatedChunks = Math.max(1, Math.ceil(estSize / 200));
-        chapterChunks += estimatedChunks;
-        completedChunks += estimatedChunks;
-        continue;
-      }
-
-      // 按句子分段
-      const segments = chapterText.match(/[^。！？.!?\n]+[。！？.!?]?/g) || [chapterText];
-      const chunkSize = 200;
-      const chunks: string[] = [];
-      let current = '';
-      for (const seg of segments) {
-        if ((current + seg).length > chunkSize && current.length > 0) {
-          chunks.push(current.trim());
-          current = seg;
-        } else {
-          current += seg;
-        }
-      }
-      if (current.trim()) chunks.push(current.trim());
-
-      // 记录当前章节实际分片数（用于更新 totalChunks）
-      chapterChunks += chunks.length;
-
-      // 加载用户自定义 TTS API 配置
-      const userSettings = db.select().from(ttsSettings).where(sql`user_id = ${job.userId}`).get();
-
-      // 如果用户关闭了 TTS 功能，则跳过此任务
-      if (userSettings && !userSettings.enabled) {
-        throw new Error('TTS 语音功能已关闭');
-      }
-
-      const apiUrl = userSettings?.apiUrl || undefined;
-      const apiKey = userSettings?.apiKey || undefined;
-      const source = userSettings?.source || 'openai';
-      const model = userSettings?.model || undefined;
-
-      // 逐段合成并缓存，保留章节 ID 与章节内段序，供客户端下载离线音频时精确映射。
-      for (let segmentIndex = 0; segmentIndex < chunks.length; segmentIndex++) {
-        const chunk = chunks[segmentIndex];
-        if (!chunk.trim()) continue;
-        try {
-          const result = await synthesizeWithTimeout({
-            input: chunk,
-            voice: job.voice,
-            speed: job.speed,
-            model,
-            response_format: 'wav',
-            apiUrl,
-            apiKey,
-          });
-
-          if (result.success && result.audio) {
-            // 保存到 TTS 缓存（按用户隔离）
-            saveToCache(db, dataDir, chunk, job.voice, job.speed, result.audio, 'wav', job.userId, job.bookId, chapter.id, segmentIndex, source);
-
-            // ⭐ 同时写入全局资源（便于跨用户共享）
-            try {
-              const { findTtsGlobalResource, createTtsGlobalResource } = await import('./globalResourceService.js');
-              const textHash = (crypto as any).createHash('md5').update(`${source}|${job.voice}|${job.speed}|${chunk}`).digest('hex');
-
-              // localBookId → globalBookId 映射
-              const { userBookRefs } = await import('../db/schema.js');
-              const userRef = db.select().from(userBookRefs).where(
-                sql`local_book_id = ${job.bookId} AND deleted_at IS NULL`
-              ).get() as any;
-              const globalBookId = userRef?.globalBookId || job.bookId;
-
-              let resource = findTtsGlobalResource(db, textHash, job.voice, job.speed, globalBookId, source);
-              if (!resource) {
-                // 复制音频到全局目录
-                const globalAudioDir = path.join(dataDir, 'tts-global');
-                if (!fs.existsSync(globalAudioDir)) fs.mkdirSync(globalAudioDir, { recursive: true });
-                const globalAudioPath = path.join(globalAudioDir, `${textHash}.wav`);
-                if (!fs.existsSync(globalAudioPath)) {
-                  fs.writeFileSync(globalAudioPath, result.audio);
-                }
-                resource = createTtsGlobalResource(
-                  db,
-                  globalBookId,
-                  chapter.id,
-                  textHash,
-                  job.voice,
-                  job.speed,
-                  globalAudioPath,
-                  result.audio.length,
-                  segmentIndex,
-                  source,
-                );
-              }
-              // 为用户创建 TTS 引用，必须使用数据库中真实的全局资源 ID。
-              const { ttsRefs } = await import('../db/schema.js');
-              const refExists = db.select().from(ttsRefs).where(
-                sql`user_id = ${job.userId} AND global_resource_id = ${resource.id}`
-              ).get();
-              if (!refExists) {
-                const { v4: uuidv4 } = await import('uuid');
-                db.insert(ttsRefs).values({
-                  id: uuidv4(),
-                  userId: job.userId,
-                  globalResourceId: resource.id,
-                  localCacheId: null,
-                  refCount: 1,
-                  createdAt: new Date().toISOString(),
-                  deletedAt: null,
-                }).run();
-              }
-            } catch (err) {
-              // 全局资源写入失败不应中断主流程
-              console.warn(`[TTS] 写入全局资源失败(非致命):`, (err as Error).message);
-            }
-          } else if (result && !result.success) {
-            console.warn(`[TTS] 段落合成失败: ${result.error || '未知错误'} (book: ${job.bookId.slice(0,8)})`);
-          }
-        } catch (err: any) {
-          // 单段失败不中断整个任务，但记录错误
-          console.warn(`[TTS] 段落合成异常: ${err.message || err} (book: ${job.bookId.slice(0,8)})`);
-        }
-
-        completedChunks++;
-        // 用实际总片数 chapterChunks 计算进度，避免 totalChunks（创建时估算值）偏差导致进度虚假
-        const actualTotal = Math.max(job.totalChunks, chapterChunks);
-        const progress = Math.min(100, Math.round((completedChunks / actualTotal) * 100));
-
-        db.update(ttsGenerationJobs)
-          .set({
-            progress,
-            completedChunks,
-            totalChunks: actualTotal, // 实时更新 totalChunks 为实际值
-            updatedAt: new Date().toISOString(),
-          })
-          .where(sql`id = ${job.id}`)
-          .run();
-
-        // 检查任务是否被用户取消（取消后 status 变为 'failed'）
-        const activeCheck = db.select({ status: ttsGenerationJobs.status }).from(ttsGenerationJobs)
-          .where(sql`id = ${job.id}`)
-          .get();
-        if (!activeCheck || activeCheck.status !== 'running') {
-          console.log(`[TTS] 任务 ${job.id} 已被用户取消，停止处理`);
-          return;
-        }
-      }
-    }
-
-    // 标记为完成
-    db.update(ttsGenerationJobs)
-      .set({
-        status: 'completed',
-        progress: 100,
-        totalChunks: Math.max(job.totalChunks, chapterChunks),
-        completedChunks,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(sql`id = ${job.id}`)
-      .run();
-
-    // 记录音色使用（激活 LRU 缓存管理）
-    try {
-      const { recordVoiceUsage } = await import('./voiceCacheService.js');
-      recordVoiceUsage(db, job.bookId, job.userId, job.voice, job.speed);
-    } catch { /* 不影响主流程 */ }
+    await processPersistedSegments(db, dataDir, job);
   } catch (err: any) {
     db.update(ttsGenerationJobs)
       .set({
