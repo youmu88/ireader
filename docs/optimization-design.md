@@ -526,6 +526,67 @@ OfflineBookPackage {
 - 真实大 EPUB：100MB 以上、图片和字体较多、章节 1000+。
 - 低性能设备和 reduced motion。
 
+## 10.5 实施进度跟踪（更新于 2026-07-28）
+
+| Phase | 状态 | 说明 |
+|-------|------|------|
+| Phase 0：止血与安全 | ⚠️ 部分完成 | P0-1 ✅ 鉴权+路径校验已修复；P0-2 ❌ 分段模型未统一；P0-3 ❌ 部分预合成范围未限制；P0-4 ⚠️ 未采用事务函数；P0-5 ⚠️ 离线包不完整 |
+| Phase 1：统一内容模型 | ⚠️ 部分完成 | epub.ts 已有 normalizedText/contentHash，但无统一 ChapterManifest 供全模块消费 |
+| Phase 2：重构 TTS 任务 | ❌ 未开始 | 无 SegmentManifest、逐段任务表、断点续跑 |
+| Phase 3：离线包 | ⚠️ 部分完成 | OfflineBookPackageMeta 基础结构存在，无 downloadSession/续传/完整资源包 |
+| Phase 4：阅读器拆分与视觉收敛 | ✅ 主体完成 | hooks 8个 + 组件 4个已提取，TTS 播放器重构完成，ReaderPage 3700→1987行；❌ design tokens/无障碍/MiniPlayer 未做 |
+| Phase 5：质量与性能 | ⚠️ 部分完成 | 150 单元测试 + tsc + CI/CD 流水线；❌ 大书性能基准/结构化日志/错误码未做 |
+
+### P0 缺陷明细
+
+| ID | 状态 | 验证依据 |
+|----|------|---------|
+| P0-1 EPUB 资源鉴权 | ✅ 已修复 | `GET /:id/file/*` 已加 requireAuth + path.resolve + startsWith(sep) 防穿越 |
+| P0-2 预合成分段模型 | ❌ 未修复 | ttsGenerationService 无 content_segments/tts_generation_segments 表 |
+| P0-3 部分预合成范围 | ❌ 未修复 | 无 scope_type/scope_start_order/scope_end_order 字段 |
+| P0-4 全局 TTS 空引用 | ⚠️ 待确认 | 使用 resource.id 但无 getOrCreate 事务封装 |
+| P0-5 离线 EPUB 完整性 | ⚠️ 部分 | 有 OfflineBookPackageMeta 但无 EPUB 资源/字体/图片完整离线包 |
+
+### P2 体验项明细
+
+| ID | 状态 | 说明 |
+|----|------|------|
+| P2-1 阅读页面职责过重 | ⚠️ 大幅改善 | 3700→1987行，8 hooks + 4 组件已提取，但仍含大量内联逻辑 |
+| P2-2 WAV 拼接分支 | ✅ 已删除 | concat 模式已移除，保留逐段播放主路径 |
+| P2-3 语速语义不清 | ❌ 未修复 | speed 同时用于合成和 playbackRate，未分离 |
+| P2-4 跨章预取校验 | ⚠️ 部分 | SequentialPlayer 有基础校验，无完整 session key 匹配 |
+| P2-5 进度同步冲突 | ❌ 未修复 | 无 progressVersion/deviceId/冲突策略 |
+
+### Phase 4 已完成子项
+
+- ✅ ReaderEngine 接口 + ReadingPosition 类型 + useReadingPosition
+- ✅ TxtEngine（DOM 测量分页 + 滚动模式 + 章节边界事件）
+- ✅ TxtReaderView 组件
+- ✅ EpubEngine（epub.js 封装为 ReaderEngine 接口）
+- ✅ SequentialPlayer + DefaultTtsController
+- ✅ 删除 concat 拼接模式 + TTS 启发式进度同步
+- ✅ useReaderEngine / useReaderSettings / useReaderNavigation / useGestures
+- ✅ ReaderTopBar 组件 + useReaderSettings 集成
+- ✅ ReaderControlPanel 组件（底部 TTS 播放栏 + 设置面板 + 缓存管理）
+- ✅ useTtsIntegration hook（TTS 启动/停止/seek/睡眠定时器）
+- ✅ useBookLoader / useProgressRestore / useOfflineFallback hooks
+- ✅ TocDrawer 独立组件 + 虚拟滚动（>200 章）
+- ✅ 死代码清理（ttsVolume/savedProgressRef/savedTtsProgressRef）
+
+### Phase 4 未完成子项
+
+- ❌ Design tokens 体系（color/spacing/radius/typography/elevation/motion）
+- ❌ 统一组件库（Button/IconButton/SegmentedControl/Modal/BottomSheet/Toast/ProgressBar/MiniPlayer）
+- ❌ 无障碍修复（aria-label/焦点管理/触控区域/reduced-motion，当前仅 9 处 aria 引用）
+- ❌ SelectionMenu 统一（EPUB iframe + TXT DOM 统一 SelectionContext）
+- ❌ ReaderPage 进一步瘦身（目标 <800 行，当前 1987 行）
+
+### 🔜 推荐下一步迭代
+
+**Phase 0 剩余 P0 项（P0-2 + P0-3）**：预合成分段模型统一 + 部分预合成范围限制。
+
+理由：设计文档明确优先级为「安全边界和数据正确性 → 内容模型统一 → TTS 逐段任务」。P0-1 已修复，P0-2/P0-3 是当前最高优先级的未完成数据正确性问题，直接影响 TTS 预合成的进度准确性和任务可靠性。
+
 ## 11. 实施计划
 
 ### Phase 0：止血与安全，1 到 2 天
