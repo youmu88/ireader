@@ -48,7 +48,7 @@ export interface ReaderControlPanelProps {
   // 缓存
   cachingInProgress: boolean;
   cacheProgressText: string;
-  cacheStatus: { chapterCount: number; totalChapters: number; hasAudio: boolean; audioChapterCount?: number } | null;
+  cacheStatus: { chapterCount: number; totalChapters: number; audioChapterCount?: number; chapterBytes?: number; audioBytes?: number; totalBytes?: number } | null;
   onCacheChapter: () => void;
   onCacheFullBook: () => void;
   onClearTextCache: () => void;
@@ -289,7 +289,7 @@ export function ReaderControlPanel(props: ReaderControlPanelProps) {
               {cacheStatus && cacheStatus.chapterCount > 0 && (
                 <div className="flex items-center justify-center gap-3 text-xs pt-1 flex-wrap" style={{ color: 'var(--color-text-muted)' }}>
                   <span>📖 {cacheStatus.chapterCount}/{cacheStatus.totalChapters} 章</span>
-                  {cacheStatus.hasAudio && <span>🔊 语音已缓存</span>}
+                  {(cacheStatus.audioChapterCount ?? 0) > 0 && <span>🔊 语音已缓存</span>}
                 </div>
               )}
             </div>
