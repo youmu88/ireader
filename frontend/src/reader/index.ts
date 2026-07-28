@@ -12,6 +12,10 @@ export type { ReaderEngine } from './engine/types';
 export { TxtEngine } from './engine/TxtEngine';
 export type { TxtEngineOptions, TxtReadingMode } from './engine/TxtEngine';
 
+// EPUB 引擎
+export { EpubEngine } from './engine/EpubEngine';
+export type { EpubEngineOptions } from './engine/EpubEngine';
+
 // 进度模型
 export type {
   ReadingPosition,
