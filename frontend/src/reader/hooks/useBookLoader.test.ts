@@ -7,7 +7,7 @@ vi.mock('axios', () => ({
   default: { get: vi.fn() },
 }));
 
-describe('useBookLoader', () => {
+describe('useBookLoader (Phase 6.3)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

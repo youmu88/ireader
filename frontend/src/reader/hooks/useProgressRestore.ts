@@ -1,5 +1,5 @@
 /**
- * useProgressRestore —— 阅读进度恢复 hook（Phase 6.3d）
+ * useProgressRestore —— 阅读进度恢复 hook（Phase 6.3d, final）
  *
  * 职责：
  *   - 从后端 API 获取保存的阅读进度

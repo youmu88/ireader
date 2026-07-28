@@ -12,7 +12,7 @@ const chapters: Chapter[] = [
   { id: 'c3', title: '第三章', order: 2 },
 ];
 
-describe('useProgressRestore', () => {
+describe('useProgressRestore (Phase 6.3d)', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it('无进度时返回第一章', async () => {

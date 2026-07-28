@@ -1,5 +1,5 @@
 /**
- * useBookLoader —— 书籍/章节数据加载 hook（Phase 6.3）
+ * useBookLoader —— 书籍/章节数据加载 hook（Phase 6.3, integrated 6.3d）
  *
  * 职责：
  *   - 加载书籍元数据（GET /api/books/:id）

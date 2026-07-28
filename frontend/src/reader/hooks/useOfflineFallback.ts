@@ -1,5 +1,5 @@
 /**
- * useOfflineFallback —— 离线降级 hook（Phase 6.3d）
+ * useOfflineFallback —— 离线降级 hook（Phase 6.3d, final）
  *
  * 职责：
  *   - 判断当前是否离线
