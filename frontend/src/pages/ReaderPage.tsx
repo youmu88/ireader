@@ -7,8 +7,6 @@ import {
   getCachedTTSAudio,
   cacheTTSAudio,
   getBookCacheDetailedStats,
-  getCachedChapters,
-  getOfflineBookInfo,
   clearBookChapterCache,
   clearBookTTSAudioCache,
   downloadBatchCachedAudio,
@@ -25,8 +23,10 @@ import EpubViewer from '../components/EpubViewer';
 import TxtReaderView, { type TxtReaderViewHandle } from '../components/TxtReaderView';
 import { ReaderTopBar } from '../components/ReaderTopBar';
 import { ReaderControlPanel } from '../components/ReaderControlPanel';
+import { TocDrawer } from '../components/TocDrawer';
 import { useReaderSettings } from '../reader/hooks/useReaderSettings';
 import { useTtsIntegration } from '../reader/hooks/useTtsIntegration';
+import { useOfflineFallback } from '../reader/hooks/useOfflineFallback';
 import { useReaderInteraction } from '../interaction/useReaderInteraction';
 import { useAuth } from '../contexts/AuthContext';
 import { getToken } from '../services/authService';
@@ -58,6 +58,7 @@ function ReaderPage() {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
   const { isOfflineMode, exitOfflineMode } = useAuth();
+  const offlineFallback = useOfflineFallback();
   const [book, setBook] = useState<Book | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
@@ -184,14 +185,9 @@ function ReaderPage() {
     },
   });
 
-/** 打开目录时自动滚动到当前章节位置 */
+/** 打开目录时自动滚动到当前章节位置（TocDrawer 内部已处理，Phase 6.4） */
 useEffect(() => {
-  if (showToc && activeTocItemRef.current) {
-    // 用 rAF 确保 DOM 已渲染后再滚动
-    requestAnimationFrame(() => {
-      activeTocItemRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    });
-  }
+  // TocDrawer 组件内部通过 activeItemRef 自动 scrollIntoView
 }, [showToc]);
 
   // ── 睡眠计时器 ──
@@ -461,8 +457,7 @@ useEffect(() => {
   /** 跳转到搜索结果位置（先切换章节，再滚动到匹配位置） */
   // handleSearchJump 定义见 navigateToChapter 之后（约 1090 行附近）
   const sleepTimerIntervalRef = useRef<any>(null);
-  /** 当前章节 TOC 条目 DOM 引用 — 打开目录时自动滚动到可视区域 */
-  const activeTocItemRef = useRef<HTMLDivElement | null>(null);
+  /** 当前章节 TOC 条目 DOM 引用 — 已迁移至 TocDrawer 组件内部管理（Phase 6.4） */
   
   /** Preloaded next-chapter contents for smooth scroll transitions */
   /** Track chapter IDs accumulated during auto-scroll for continuous reading */
@@ -853,8 +848,8 @@ useEffect(() => {
     try {
       setLoading(true);
 
-      // ── 离线判断：navigator.onLine 或首次 API 请求失败时降级 ──
-      const isOffline = isOfflineMode || (typeof navigator !== 'undefined' && navigator.onLine === false);
+      // ── 离线判断（useOfflineFallback hook, Phase 6.3e） ──
+      const isOffline = offlineFallback.isOffline(isOfflineMode);
 
       let bookData: any = null;
       let chaptersData: any[] = [];
@@ -872,23 +867,11 @@ useEffect(() => {
         }
       }
 
-      // ⭐ 离线或 API 失败时：从 IndexedDB 缓存读取
+      // ⭐ 离线或 API 失败时：从 IndexedDB 缓存读取（useOfflineFallback hook）
       if (!bookData || !chaptersData.length) {
-        const [offlineBook, offlineChapters] = await Promise.all([
-          getOfflineBookInfo(bookId!),
-          getCachedChapters(bookId!),
-        ]);
-        if (offlineBook) {
-          bookData = offlineBook;
-        }
-        if (offlineChapters.length > 0) {
-          chaptersData = offlineChapters.map(c => ({
-            id: c.chapterId,
-            title: c.title,
-            order: c.order,
-          }));
-        }
-        // 离线且无缓存时，仍显示错误（由后续 null 判断处理）
+        const offlineData = await offlineFallback.loadOffline(bookId!);
+        if (offlineData.book) bookData = offlineData.book;
+        if (offlineData.chapters.length > 0) chaptersData = offlineData.chapters;
       }
 
       // ⭐ 书籍切换守卫：异步 fetch 期间用户可能已切换到另一本书
@@ -1696,63 +1679,16 @@ function stripHtml(html: string): string {
             ref={interaction.attachElement}
             className="flex-1 flex overflow-hidden relative"
           >
-        {/* TOC Sidebar */}
+        {/* TOC Sidebar（Phase 6.4：提取为 TocDrawer 独立组件） */}
         {showToc && (
-          <div onClick={(e) => e.stopPropagation()} className="w-64 sm:w-72 overflow-y-auto absolute sm:relative z-30 inset-y-0 left-0 shadow-lg sm:shadow-none" style={{background: 'var(--color-bg-card)', borderRight: '0.5px solid var(--color-border)'}}>
-            <div className="p-3 font-semibold text-sm flex items-center justify-between" style={{borderBottom: '0.5px solid var(--color-border)'}}>
-              <span>章节目录</span>
-              {book?.format === 'epub' && (
-                <button
-                  onClick={handleReparse}
-                  disabled={isReparsing}
-                  className="text-xs px-2 py-1 rounded-md font-normal transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed tap-active"
-                  style={{
-                    background: 'var(--color-bg-alt)',
-                    color: 'var(--color-text-secondary)',
-                  }}
-                  title="重新解析书籍章节（旧书目录刷新）"
-                >
-                  {isReparsing ? (
-                    <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />刷新中</span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新章节</span>
-                  )}
-                </button>
-              )}
-            </div>
-            {chapters.map((ch) => {
-              const isActive = currentChapter?.id === ch.id;
-              return (
-                <div key={ch.id} ref={isActive ? activeTocItemRef : null} className="relative">
-                  {isActive && (
-                    <div className="absolute left-0 top-0 bottom-0 w-1 rounded-r-sm" style={{background: 'var(--color-primary)'}} />
-                  )}
-                  <button
-                    onClick={() => navigateToChapter(ch)}
-                    className={`w-full text-left px-3 py-2.5 text-sm transition-all duration-150 truncate ${
-                      isActive
-                        ? 'font-bold text-base'
-                        : 'hover:bg-gray-100 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300'
-                    }`}
-                    style={isActive ? {
-                      background: 'var(--color-primary-subtle)',
-                      color: 'var(--color-primary)',
-                      paddingLeft: '1rem',
-                    } : {}}
-                  >
-                    <span className={isActive ? 'flex items-center gap-2' : ''}>
-                      {isActive && (
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none" className="shrink-0">
-                          <polygon points="5 3 19 12 5 21 5 3"/>
-                        </svg>
-                      )}
-                      <span>{ch.title}</span>
-                    </span>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+          <TocDrawer
+            chapters={chapters}
+            currentChapterId={currentChapter?.id}
+            onNavigate={(ch) => navigateToChapter(ch)}
+            bookFormat={book?.format}
+            onReparse={handleReparse}
+            isReparsing={isReparsing}
+          />
         )}
 
 
