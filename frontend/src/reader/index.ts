@@ -23,6 +23,9 @@ export type {
   ReadingPositionUpdate,
 } from './position/types';
 
+// TTS 控制器接口
+export type { TtsController, TtsState } from './tts/types';
+
 // Hooks
 export { useReadingPosition } from './position/useReadingPosition';
 export type { UseReadingPositionResult } from './position/useReadingPosition';
