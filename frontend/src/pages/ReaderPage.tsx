@@ -27,6 +27,7 @@ import { TocDrawer } from '../components/TocDrawer';
 import { useReaderSettings } from '../reader/hooks/useReaderSettings';
 import { useTtsIntegration } from '../reader/hooks/useTtsIntegration';
 import { useOfflineFallback } from '../reader/hooks/useOfflineFallback';
+import { useProgressRestore } from '../reader/hooks/useProgressRestore';
 import { useReaderInteraction } from '../interaction/useReaderInteraction';
 import { useAuth } from '../contexts/AuthContext';
 import { getToken } from '../services/authService';
@@ -59,6 +60,7 @@ function ReaderPage() {
   const navigate = useNavigate();
   const { isOfflineMode, exitOfflineMode } = useAuth();
   const offlineFallback = useOfflineFallback();
+  const progressRestore = useProgressRestore();
   const [book, setBook] = useState<Book | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
@@ -100,7 +102,6 @@ function ReaderPage() {
       return raw ? parseFloat(raw) : 1.0;
     } catch { return 1.0; }
   });
-  const ttsVolume = 1.0;
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(-1);
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -144,7 +145,6 @@ function ReaderPage() {
   const advanceToNextChapterTTSRef = useRef<((player: any) => Promise<void>) | null>(null);
   const txtScrollRef = useRef<HTMLDivElement>(null);
   const txtReaderViewRef = useRef<TxtReaderViewHandle>(null);
-  const savedTtsProgressRef = useRef<{chapterId: string; segmentIndex: number; progress: number} | null>(null);
 
   /** 当前书籍 ID 的 ref（用于异步操作的书籍切换守卫） */
   const currentBookIdRef = useRef<string | undefined>(bookId);
@@ -464,8 +464,7 @@ useEffect(() => {
   const accumulatedIdsRef = useRef<Set<string>>(new Set());
   /** Preloaded next-chapter contents for smooth scroll transitions */
   const preloadedChaptersRef = useRef<Map<string, {content: string}>>(new Map());
-  /** Saved reading progress from API */
-  const savedProgressRef = useRef<any>(null);
+
   /** Display chapter title — stays on original chapter during append mode */
   const [displayChapter, setDisplayChapter] = useState<Chapter | null>(null);
   // ── 客户端离线缓存 ──
@@ -886,42 +885,10 @@ useEffect(() => {
       setBook(bookData);
       setChapters(chaptersData);
 
-      // ── 恢复阅读进度：尝试跳转到上次阅读的章节 ──
-      let targetChapter = chaptersData[0];
+      // ── 恢复阅读进度（useProgressRestore hook, Phase 6.3d 集成） ──
       const isEpub = bookData.format === 'epub';
-      let savedProgress: any = null;
-      try {
-        if (!isOffline) {
-          const progRes = await axios.get(`/api/books/${bookId}/progress`);
-          savedProgress = progRes.data.data;
-        }
-        if (savedProgress?.chapterId) {
-          const saved = chaptersData.find((c: Chapter) => c.id === savedProgress.chapterId);
-          if (saved) {
-            targetChapter = saved;
-            savedProgressRef.current = savedProgress; // 用于进度恢复
-          } else if (savedProgress.percentage != null) {
-            // ⭐ 兜底：chapterId 不匹配时（如书被重新解析后 ID 变了），
-            //    按 percentage 估算章节顺序号，用 order 字段匹配
-            const estimatedOrder = Math.round(savedProgress.percentage * chaptersData.length);
-            const fallback = chaptersData.find((c: Chapter) => c.order === estimatedOrder);
-            if (fallback) {
-              targetChapter = fallback;
-              savedProgressRef.current = savedProgress;
-            }
-          }
-        }
-        // ⭐ 保存 TTS 进度到 ref（textOffset = segmentIndex），供 handleStartTTS 恢复播放位置
-        if (savedProgress?.chapterId && savedProgress?.textOffset != null && savedProgress.textOffset >= 0) {
-          // 若 chapterId 未精确匹配（用了兜底），则修正为实际匹配的章节 ID
-          const exactMatch = chaptersData.some((c: Chapter) => c.id === savedProgress.chapterId);
-          savedTtsProgressRef.current = {
-            chapterId: exactMatch ? savedProgress.chapterId : (targetChapter?.id || savedProgress.chapterId),
-            segmentIndex: savedProgress.textOffset,
-            progress: savedProgress.percentage || 0,
-          };
-        }
-      } catch { /* 无保存的进度 */ }
+      const progressResult = await progressRestore.restore(bookId!, chaptersData, isOffline);
+      const targetChapter = progressResult?.targetChapter || chaptersData[0];
 
       // ⭐ 再次校验书籍是否仍为同一本
       if (currentBookIdRef.current !== triggerBookId) return;
@@ -929,17 +896,16 @@ useEffect(() => {
       if (targetChapter) {
         if (isEpub) {
           // EPUB 模式：用 CFI 恢复进度，交由 EpubViewer 内部 display(cfi)
-          if (savedProgress?.cfi) epubCfiRef.current = savedProgress.cfi;
+          if (progressResult?.cfi) epubCfiRef.current = progressResult.cfi;
         } else {
           // TXT：统一用字符位置比例恢复（scroll / paginated 共用）
-          if (savedProgress?.percentage != null) {
-            charOffsetRatioRef.current = Math.min(1, Math.max(0, savedProgress.percentage));
-          } else if (savedProgress?.pageIndex != null) {
-            charOffsetRatioRef.current = Math.min(1, Math.max(0, savedProgress.pageIndex / 10000));
+          if (progressResult && progressResult.restoreRatio > 0) {
+            charOffsetRatioRef.current = progressResult.restoreRatio;
           }
           // scroll 模式兼容：沿用原有 pendingScrollRestorePct 恢复路径
-          if (savedProgress?.pageIndex != null && bookData.format !== 'epub') {
-            const restorePct = savedProgress.pageIndex / 10000;
+          const rawPageIdx = progressResult?.rawProgress?.pageIndex;
+          if (rawPageIdx != null) {
+            const restorePct = rawPageIdx / 10000;
             if (restorePct > 0) setPendingScrollRestorePct(restorePct);
           }
         }
