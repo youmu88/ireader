@@ -123,35 +123,18 @@ export function saveToCache(
   const textHash = generateCacheKey(text, voice, speed, source);
   const cacheDir = getCacheDir(dataDir);
   const audioPath = getCacheFilePath(cacheDir, textHash, format);
+  const effectiveUserId = userId || 'default-user';
 
-  // 写入磁盘
+  // 写入磁盘（幂等：同 hash 同内容，覆盖安全）
   fs.writeFileSync(audioPath, audioBuffer);
 
   const now = new Date().toISOString();
 
-  // 检查是否已有记录（按用户隔离，同时过滤 voice + speed 防止跨音色/语速的意外覆盖）
-  let query: any = db.select()
-    .from(ttsCache)
-    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed} AND source = ${source}`);
-  if (userId) {
-    query = query.where(sql`user_id = ${userId}`);
-  }
-  const existing = query.get();
-
-  if (existing) {
-    // 更新已有记录
-    db.update(ttsCache)
-      .set({ audioPath, createdAt: now, source, bookId: bookId ?? existing.bookId, chapterId: chapterId ?? existing.chapterId, segmentIndex: segmentIndex ?? existing.segmentIndex })
-      .where(sql`id = ${existing.id}`)
-      .run();
-    return { ...existing, audioPath, createdAt: now, source, bookId: bookId ?? existing.bookId, chapterId: chapterId ?? existing.chapterId, segmentIndex: segmentIndex ?? existing.segmentIndex };
-  }
-
-  // Insert new record
+  // P1-6：INSERT OR IGNORE 占位竞争 — 唯一索引 (text_hash, voice, speed, source, user_id) 保证并发安全
   const id = uuidv4();
   db.insert(ttsCache).values({
     id,
-    userId: userId || 'default-user',
+    userId: effectiveUserId,
     bookId: bookId || null,
     chapterId: chapterId || null,
     segmentIndex: segmentIndex ?? null,
@@ -161,12 +144,26 @@ export function saveToCache(
     speed,
     audioPath,
     createdAt: now,
-  }).run();
+  }).onConflictDoNothing().run();
+
+  // 查询最终记录（可能是本次插入的，也可能是并发竞争者先插入的）
+  const final = db.select()
+    .from(ttsCache)
+    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed} AND source = ${source} AND user_id = ${effectiveUserId}`)
+    .get() as CacheEntry;
+
+  if (final && final.id !== id) {
+    // 竞争者先插入，补充 bookId/chapterId/segmentIndex 元数据
+    db.update(ttsCache)
+      .set({ audioPath, bookId: bookId ?? final.bookId, chapterId: chapterId ?? final.chapterId, segmentIndex: segmentIndex ?? final.segmentIndex })
+      .where(sql`id = ${final.id}`)
+      .run();
+  }
 
   // LRU eviction: keep max 1000 entries
   evictStaleCache(db, dataDir, 1000);
 
-  return { id, bookId: bookId || null, chapterId: chapterId || null, segmentIndex: segmentIndex ?? null, source, textHash, voice, speed, audioPath, createdAt: now };
+  return final || { id, bookId: bookId || null, chapterId: chapterId || null, segmentIndex: segmentIndex ?? null, source, textHash, voice, speed, audioPath, createdAt: now };
 }
 
 // ===== 批量查询 =====

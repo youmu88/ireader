@@ -42,6 +42,8 @@ export interface GenerationJob {
   chapterIds: string | null;
   voice: string;
   speed: number;
+  source: string | null;
+  engineConfigHash: string | null;
   status: 'pending' | 'running' | 'completed' | 'failed';
   progress: number;
   totalChunks: number;
@@ -49,6 +51,21 @@ export interface GenerationJob {
   error: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** 计算引擎配置 hash（不含 apiKey，避免泄露） */
+function computeEngineConfigHash(source: string, model?: string, apiUrl?: string): string {
+  return crypto.createHash('md5').update(`${source}|${model || ''}|${apiUrl || ''}`).digest('hex');
+}
+
+/** 从用户 TTS 设置中读取 source 和引擎配置 */
+function resolveEngineConfig(db: any, userId: string): { source: string; model?: string; apiUrl?: string; apiKey?: string; engineConfigHash: string } {
+  const settings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get() as any;
+  const source = settings?.source || 'openai';
+  const model = settings?.model || undefined;
+  const apiUrl = settings?.apiUrl || undefined;
+  const apiKey = settings?.apiKey || undefined;
+  return { source, model, apiUrl, apiKey, engineConfigHash: computeEngineConfigHash(source, model, apiUrl) };
 }
 
 // ===== 并发控制 =====
@@ -232,6 +249,7 @@ export function createFullBookGenerationJob(
 ): GenerationJob {
   const now = new Date().toISOString();
   const jobId = uuidv4();
+  const engine = resolveEngineConfig(db, userId);
 
   const rawChapters = db.select().from(bookChapters)
     .where(sql`book_id = ${bookId}`)
@@ -243,9 +261,9 @@ export function createFullBookGenerationJob(
   const segments = ensureBookSegments(db, bookId, chapters);
   const totalChunks = segments.length;
 
-  // 去重检查：如果已存在相同书+音色+速度的未完成任务，不再重复创建
+  // 去重检查：相同书+音色+速度+source 的未完成任务不重复创建
   const existingJob = db.select().from(ttsGenerationJobs)
-    .where(sql`book_id = ${bookId} AND voice = ${voice} AND speed = ${speed} AND status != 'completed' AND status != 'failed'`)
+    .where(sql`book_id = ${bookId} AND voice = ${voice} AND speed = ${speed} AND (source = ${engine.source} OR source IS NULL) AND status != 'completed' AND status != 'failed'`)
     .get();
   if (existingJob) {
     return existingJob as unknown as GenerationJob;
@@ -260,6 +278,8 @@ export function createFullBookGenerationJob(
     chapterIds: JSON.stringify(chapterIds),
     voice,
     speed,
+    source: engine.source,
+    engineConfigHash: engine.engineConfigHash,
     status: 'pending',
     progress: 0,
     totalChunks,
@@ -295,6 +315,7 @@ export function createPartialGenerationJob(
 ): GenerationJob {
   const now = new Date().toISOString();
   const jobId = uuidv4();
+  const engine = resolveEngineConfig(db, userId);
 
   const rawChapters = db.select().from(bookChapters)
     .where(sql`book_id = ${bookId}`)
@@ -316,6 +337,8 @@ export function createPartialGenerationJob(
     chapterIds: JSON.stringify(chapterIds),
     voice,
     speed,
+    source: engine.source,
+    engineConfigHash: engine.engineConfigHash,
     status: 'pending',
     progress: 0,
     totalChunks,
@@ -339,7 +362,8 @@ export function createPartialGenerationJob(
 async function processPersistedSegments(db: any, dataDir: string, job: GenerationJob): Promise<void> {
   const userSettings = db.select().from(ttsSettings).where(sql`user_id = ${job.userId}`).get() as any;
   if (userSettings && !userSettings.enabled) throw new Error('TTS 语音功能已关闭');
-  const source = userSettings?.source || 'openai';
+  // P1-5：优先使用任务创建时持久化的 source，兼容旧任务 fallback 到 settings
+  const source = job.source || userSettings?.source || 'openai';
   const model = userSettings?.model || undefined;
   const apiUrl = userSettings?.apiUrl || undefined;
   const apiKey = userSettings?.apiKey || undefined;

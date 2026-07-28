@@ -357,6 +357,26 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
     console.error('[迁移] tts_generation_jobs chapter_ids 列补充失败:', (err as Error).message);
   }
 
+  // ── 迁移：TTS 任务增加 source + engine_config_hash 字段（P1-5）──
+  try {
+    const jobCols3 = sqlite.prepare("PRAGMA table_info('tts_generation_jobs')").all() as { name: string }[];
+    if (!jobCols3.some(c => c.name === 'source')) {
+      sqlite.exec(`ALTER TABLE tts_generation_jobs ADD COLUMN source TEXT;`);
+    }
+    if (!jobCols3.some(c => c.name === 'engine_config_hash')) {
+      sqlite.exec(`ALTER TABLE tts_generation_jobs ADD COLUMN engine_config_hash TEXT;`);
+    }
+  } catch (err) {
+    console.error('[迁移] tts_generation_jobs source/engine_config_hash 列补充失败:', (err as Error).message);
+  }
+
+  // ── 迁移：tts_cache 唯一索引（P1-6 并发写入保护）──
+  try {
+    sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tts_cache_unique ON tts_cache(text_hash, voice, speed, source, user_id);`);
+  } catch (err) {
+    console.error('[迁移] tts_cache 唯一索引创建失败:', (err as Error).message);
+  }
+
   // ── 迁移：books 表增加 file_hash 列 ──
   try {
     const bookCols = sqlite.prepare("PRAGMA table_info('books')").all() as { name: string }[];

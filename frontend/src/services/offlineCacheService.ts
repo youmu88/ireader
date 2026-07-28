@@ -13,7 +13,7 @@
 import { openDB, type IDBPDatabase } from 'idb';
 
 const DB_NAME = 'ireader_cache';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 export type OfflinePackageStatus = 'downloading' | 'ready' | 'failed' | 'stale';
 
@@ -142,6 +142,14 @@ function getDB(): Promise<IDBPDatabase> {
         }
         if (!db.objectStoreNames.contains('epubArchives')) {
           db.createObjectStore('epubArchives', { keyPath: 'bookId' });
+        }
+        if (!db.objectStoreNames.contains('downloadSessions')) {
+          const store = db.createObjectStore('downloadSessions', { keyPath: 'sessionId' });
+          store.createIndex('bookId', 'bookId', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('downloadSessions')) {
+          const store = db.createObjectStore('downloadSessions', { keyPath: 'sessionId' });
+          store.createIndex('bookId', 'bookId', { unique: false });
         }
       },
     });
@@ -630,16 +638,38 @@ export interface BookCacheStatus {
   /** 缓存完成百分比（0-1） */
   chapterCacheProgress: number;
   audioCacheProgress: number;
+  /** P1-7：当前 profile 下的音频覆盖率（0-1），未传 profile 时等于 audioCacheProgress */
+  currentProfileCoverage: number;
+}
+
+/** P1-7：TTS profile 过滤参数 */
+export interface TTSProfileFilter {
+  voice: string;
+  speed: number;
+  source: string;
 }
 
 /**
  * 获取一本书的缓存状态
+ * P1-7：传入 profile 时按当前 voice/speed/source 统计音频覆盖率
  */
-export async function getBookCacheStatus(bookId: string): Promise<BookCacheStatus | null> {
+export async function getBookCacheStatus(bookId: string, profile?: TTSProfileFilter): Promise<BookCacheStatus | null> {
   try {
     const db = await getDB();
     const meta = await db.get('cacheMeta', bookId) as CacheMeta | undefined;
     if (!meta) return null;
+
+    let currentProfileCoverage = meta.totalAudioSegments > 0 ? meta.cachedAudioSegments / meta.totalAudioSegments : 0;
+
+    // 按当前 profile 精确统计
+    if (profile) {
+      const tx = db.transaction('ttsAudio', 'readonly');
+      const audioStore = tx.objectStore('ttsAudio');
+      const allAudio = await audioStore.index('bookId').getAll(bookId) as TTSAudioCache[];
+      const profileKey = `${profile.voice}:${profile.speed}:${profile.source}`;
+      const matched = allAudio.filter(a => a.key.includes(profileKey));
+      currentProfileCoverage = meta.totalAudioSegments > 0 ? matched.length / meta.totalAudioSegments : 0;
+    }
 
     return {
       bookId: meta.bookId,
@@ -652,6 +682,7 @@ export async function getBookCacheStatus(bookId: string): Promise<BookCacheStatu
       isFullyCached: meta.cachedChapters >= meta.totalChapters,
       chapterCacheProgress: meta.totalChapters > 0 ? meta.cachedChapters / meta.totalChapters : 0,
       audioCacheProgress: meta.totalAudioSegments > 0 ? meta.cachedAudioSegments / meta.totalAudioSegments : 0,
+      currentProfileCoverage,
     };
   } catch {
     return null;
@@ -689,6 +720,7 @@ export async function getAllCachedBookStatuses(): Promise<BookCacheStatus[]> {
       isFullyCached: meta.cachedChapters >= meta.totalChapters,
       chapterCacheProgress: meta.totalChapters > 0 ? meta.cachedChapters / meta.totalChapters : 0,
       audioCacheProgress: meta.totalAudioSegments > 0 ? meta.cachedAudioSegments / meta.totalAudioSegments : 0,
+      currentProfileCoverage: meta.totalAudioSegments > 0 ? meta.cachedAudioSegments / meta.totalAudioSegments : 0,
     }));
   } catch {
     return [];
@@ -1113,4 +1145,150 @@ export async function downloadBatchCachedAudio(
   } catch {
     return 0;
   }
+}
+
+// ==========================
+// P1-8：离线下载事务（downloadSession）
+// ==========================
+
+export type DownloadSessionStatus = 'downloading' | 'ready' | 'failed';
+
+export interface DownloadSession {
+  sessionId: string;
+  bookId: string;
+  profileHash: string;
+  totalItems: number;
+  completedItems: number;
+  completedKeys: string[];
+  status: DownloadSessionStatus;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 生成 profile hash（voice+speed+source） */
+export function computeProfileHash(voice: string, speed: number, source: string): string {
+  return `${voice}:${speed}:${source}`;
+}
+
+/** 创建或恢复下载 session */
+export async function createOrResumeDownloadSession(
+  bookId: string,
+  profileHash: string,
+  totalItems: number,
+): Promise<DownloadSession> {
+  const db = await getDB();
+  const tx = db.transaction('downloadSessions', 'readwrite');
+  const store = tx.objectStore('downloadSessions');
+  const index = store.index('bookId');
+
+  // 查找同 bookId + profileHash 的未完成 session
+  let cursor = await index.openCursor(bookId);
+  let existing: DownloadSession | null = null;
+  while (cursor) {
+    const s = cursor.value as DownloadSession;
+    if (s.profileHash === profileHash && s.status === 'downloading') {
+      existing = s;
+      break;
+    }
+    cursor = await cursor.continue();
+  }
+
+  if (existing) {
+    existing.totalItems = totalItems;
+    existing.updatedAt = Date.now();
+    await store.put(existing);
+    await tx.done;
+    return existing;
+  }
+
+  const session: DownloadSession = {
+    sessionId: `${bookId}:${profileHash}:${Date.now()}`,
+    bookId,
+    profileHash,
+    totalItems,
+    completedItems: 0,
+    completedKeys: [],
+    status: 'downloading',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  await store.put(session);
+  await tx.done;
+  return session;
+}
+
+/** 更新 session 进度（每批写入后调用） */
+export async function updateDownloadSessionProgress(
+  sessionId: string,
+  newlyCompletedKeys: string[],
+): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction('downloadSessions', 'readwrite');
+  const store = tx.objectStore('downloadSessions');
+  const session = await store.get(sessionId) as DownloadSession | undefined;
+  if (!session) { await tx.done; return; }
+
+  session.completedKeys.push(...newlyCompletedKeys);
+  session.completedItems = session.completedKeys.length;
+  session.updatedAt = Date.now();
+
+  if (session.completedItems >= session.totalItems) {
+    session.status = 'ready';
+  }
+  await store.put(session);
+  await tx.done;
+}
+
+/** 标记 session 失败（保留已完成项供续传） */
+export async function failDownloadSession(sessionId: string, error: string): Promise<void> {
+  const db = await getDB();
+  const session = await db.get('downloadSessions', sessionId) as DownloadSession | undefined;
+  if (!session) return;
+  session.status = 'failed';
+  session.error = error;
+  session.updatedAt = Date.now();
+  await db.put('downloadSessions', session);
+}
+
+/** 查询书籍的下载 session 状态 */
+export async function getDownloadSession(bookId: string, profileHash: string): Promise<DownloadSession | null> {
+  try {
+    const db = await getDB();
+    const tx = db.transaction('downloadSessions', 'readonly');
+    const index = tx.objectStore('downloadSessions').index('bookId');
+    let cursor = await index.openCursor(bookId);
+    while (cursor) {
+      const s = cursor.value as DownloadSession;
+      if (s.profileHash === profileHash && (s.status === 'downloading' || s.status === 'ready')) {
+        return s;
+      }
+      cursor = await cursor.continue();
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** 清理已完成/失败的旧 session（保留最近 1 个 ready） */
+export async function cleanupDownloadSessions(bookId: string): Promise<void> {
+  try {
+    const db = await getDB();
+    const tx = db.transaction('downloadSessions', 'readwrite');
+    const store = tx.objectStore('downloadSessions');
+    const index = store.index('bookId');
+    const sessions: DownloadSession[] = [];
+    let cursor = await index.openCursor(bookId);
+    while (cursor) {
+      sessions.push(cursor.value as DownloadSession);
+      cursor = await cursor.continue();
+    }
+    const ready = sessions.filter(s => s.status === 'ready').sort((a, b) => b.updatedAt - a.updatedAt);
+    const toDelete = sessions.filter(s => s.status === 'failed' || (s.status === 'ready' && s !== ready[0]));
+    for (const s of toDelete) {
+      await store.delete(s.sessionId);
+    }
+    await tx.done;
+  } catch { /* 清理失败不阻塞 */ }
 }

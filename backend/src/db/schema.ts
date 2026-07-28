@@ -118,6 +118,8 @@ export const ttsGenerationJobs = sqliteTable('tts_generation_jobs', {
   chapterIds: text('chapter_ids'),
   voice: text('voice').notNull(),
   speed: real('speed').notNull(),
+  source: text('source'),
+  engineConfigHash: text('engine_config_hash'),
   status: text('status', { enum: ['pending', 'running', 'completed', 'failed'] }).notNull().default('pending'),
   progress: integer('progress').notNull().default(0),
   totalChunks: integer('total_chunks').notNull().default(0),
