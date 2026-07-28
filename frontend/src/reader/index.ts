@@ -26,9 +26,10 @@ export type {
 // TTS 控制器
 export type { TtsController, TtsState } from './tts/types';
 export { SequentialPlayer } from './tts/SequentialPlayer';
-export type { SequentialPlayerOptions, SequentialPlayerCallbacks } from './tts/SequentialPlayer';
 export { DefaultTtsController } from './tts/DefaultTtsController';
 export type { DefaultTtsControllerOptions } from './tts/DefaultTtsController';
+export { useTts } from './tts/useTts';
+export type { UseTtsOptions, UseTtsResult } from './tts/useTts';
 
 // Hooks
 export { useReadingPosition } from './position/useReadingPosition';
