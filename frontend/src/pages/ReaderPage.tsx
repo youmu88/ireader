@@ -26,6 +26,7 @@ import TxtReaderView, { type TxtReaderViewHandle } from '../components/TxtReader
 import { ReaderTopBar } from '../components/ReaderTopBar';
 import { ReaderControlPanel } from '../components/ReaderControlPanel';
 import { useReaderSettings } from '../reader/hooks/useReaderSettings';
+import { useTtsIntegration } from '../reader/hooks/useTtsIntegration';
 import { useReaderInteraction } from '../interaction/useReaderInteraction';
 import { useAuth } from '../contexts/AuthContext';
 import { getToken } from '../services/authService';
@@ -92,7 +93,7 @@ function ReaderPage() {
   const [ttsProgress, setTtsProgress] = useState(0);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
   const [ttsError, setTtsError] = useState<string | null>(null);
-  const [ttsSpeed, setTtsSpeed] = useState(() => {
+  const [ttsSpeed] = useState(() => {
     try {
       const raw = localStorage.getItem('ireader_tts_speed');
       return raw ? parseFloat(raw) : 1.0;
@@ -114,7 +115,7 @@ function ReaderPage() {
   const epubCfiRef = useRef<string | null>(null);
   /** EPUB 章节内阅读比例 (0~1)，由 EpubViewer relocated 事件实时更新，供 TTS 起点推算 */
   const epubChapterRatioRef = useRef<number>(0);
-  const [ttsVoice, setTtsVoice] = useState(() => {
+  const [ttsVoice] = useState(() => {
     try { return localStorage.getItem('ireader_tts_voice') || 'zh-CN-XiaoxiaoNeural'; } catch { return 'zh-CN-XiaoxiaoNeural'; }
   });
 
@@ -194,7 +195,7 @@ useEffect(() => {
 }, [showToc]);
 
   // ── 睡眠计时器 ──
-  const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
+  
 
   // ── 书籍内容搜索（全书·双线程架构） ──
   // 线程1：目录章节名匹配（同步，最高优先级）
@@ -459,7 +460,6 @@ useEffect(() => {
 
   /** 跳转到搜索结果位置（先切换章节，再滚动到匹配位置） */
   // handleSearchJump 定义见 navigateToChapter 之后（约 1090 行附近）
-  const sleepTimerEndRef = useRef<number | null>(null);
   const sleepTimerIntervalRef = useRef<any>(null);
   /** 当前章节 TOC 条目 DOM 引用 — 打开目录时自动滚动到可视区域 */
   const activeTocItemRef = useRef<HTMLDivElement | null>(null);
@@ -1487,408 +1487,31 @@ function stripHtml(html: string): string {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId, currentChapter, loading]);
 
-  const handleStartTTS = useCallback(async () => {
-    if (!bookId || !currentChapter) return;
-
-    // ⭐ 记录触发时的书籍 ID，异步获取文本后校验
-    const triggerBookId = bookId;
-    const text = await getCurrentChapterText();
-    if (!text) return;
-
-    // ⭐ 书籍切换守卫：异步获取文本期间用户可能已切换书籍
-    if (currentBookIdRef.current !== triggerBookId) return;
-
-    try {
-      const player = getDefaultPlayer();
-      ttsPlayerRef.current = player;
-
-      // ⭐ 问题1：检测当前播放器状态，处理暂停/切换
-      const currentState = player.getState();
-      const isPlaying = currentState === 'playing' || currentState === 'paused' || currentState === 'loading';
-      if (isPlaying && player.currentBookId === bookId) {
-        // ✅ 同一本书正在播放 → 暂停（toggle）
-        player.pause();
-        return;
-      }
-      if (isPlaying && player.currentBookId && player.currentBookId !== bookId) {
-        // ✅ 不同书在播放 → 保存旧书位置，切换到新书
-        // 保存旧书最后播放位置到 localStorage（供后续恢复横幅使用）
-        const oldIdx = player.getCurrentIndex();
-        const oldTotal = player.getTotalChunks();
-        if (oldIdx >= 0 && oldTotal > 0) {
-          savePlaybackToLocalStorage({
-            bookId: player.currentBookId,
-            chapterId: (player as any).chapterId || '',
-            segmentIndex: oldIdx,
-            bookTitle: (player as any).bookTitle,
-            chapterTitle: player.chapterTitle || '',
-            timestamp: Date.now(),
-          });
-        }
-        player.stop();
-      }
-
-      // 设置当前播放的书籍信息（供全局状态订阅 + localStorage 持久化使用）
-      player.chapterTitle = currentChapter?.title || '';
-      player.chapterId = currentChapter?.id || '';
-      (player as any).bookTitle = book?.title || '';
-
-      // ⭐ 设置音色 — 优先从 localStorage 读取（用户显式保存的），
-      // 其次是 player.init() 已从后端加载的值，最后才是 state 默认值
-      const savedVoice = (() => {
-        try { return localStorage.getItem('ireader_tts_voice'); } catch { return null; }
-      })();
-      const effectiveVoice = savedVoice || player.getVoice() || ttsVoice;
-      player.setVoice(effectiveVoice);
-      if (effectiveVoice !== ttsVoice) setTtsVoice(effectiveVoice);
-
-      player.setCallbacks({
-        onStateChange: (s) => {
-          setTtsState(s);
-          // 睡眠计时器：暂停/停止时清除定时器
-          if (s !== 'playing') {
-            if (sleepTimerIntervalRef.current) {
-              clearInterval(sleepTimerIntervalRef.current);
-              sleepTimerIntervalRef.current = null;
-            }
-          }
-        },
-        onSegmentPlay: (idx, _total) => {
-          setTtsSegmentText(player.getCurrentSegmentText());
-          // ⭐ 严格单章模式：idx 直接对应当前章节的分段索引
-          setActiveSegmentIndex(idx);
-
-          // ⭐ 自动滚动到当前高亮分段
-          requestAnimationFrame(() => {
-            const container = txtScrollRef.current;
-            if (!container) return;
-            const highlighted = container.querySelector('[data-tts-segment="active"]');
-            if (highlighted) {
-              highlighted.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-          });
-
-          // ⭐ 播放到 75% 时预加载下一章内容（仅内容预加载，不追加到播放器）+ 预取下章 TTS 音频
-          if (_total > 0 && idx >= _total * 0.75) {
-            const ci = chapters.findIndex((c) => c.id === currentChapter?.id);
-            if (ci >= 0 && ci < chapters.length - 1) {
-              preloadNextChapters(currentChapter!.id);
-              // 预取下章 TTS 音频（后台模式跨章无需等待 TTS API）
-              triggerTtsPrefetch(ci + 1).catch(() => {});
-            }
-          }
-        },
-        onProgress: (p) => setTtsProgress(p),
-        onError: (err) => {
-          console.warn('TTS 朗读错误:', err);
-          // ⭐ 段落级合成失败/无可用音频 → 播放器已自动跳过(playNext)，不弹横幅打扰用户
-          if (err.includes('合成失败') || err.includes('无可用音频')) {
-            return;
-          }
-          let userMsg = err;
-          if (err.includes('Failed to fetch') || err.includes('NetworkError') || err.includes('TTS service unavailable')) {
-            userMsg = '语音服务连接失败，请检查设置面板中的 TTS 服务地址是否正确，或切换 TTS 后端';
-          } else if (err.includes('502') || err.includes('TTS 合成失败')) {
-            userMsg = '语音合成失败，TTS 后端可能未启动（默认需 Kokoro :8880），当前仅 Edge-TTS(:8883) 在运行';
-          }
-          setTtsError(userMsg);
-          setTimeout(() => setTtsError(null), 8000);
-        },
-        onEnd: () => {
-          setTtsProgress(1);
-          if (sleepTimerIntervalRef.current) {
-            clearInterval(sleepTimerIntervalRef.current);
-            sleepTimerIntervalRef.current = null;
-          }
-          // ⭐ 单章播放完毕 → 自动加载下一章并继续播放（严格同步）
-          advanceToNextChapterTTSRef.current?.(player);
-        },
-        // ⭐ 锁屏/通知栏上下章控制
-        onPrevChapter: () => {
-          const idx = chapters.findIndex((c) => c.id === (currentChapter?.id || ''));
-          if (idx > 0) {
-            navigateToChapter(chapters[idx - 1]);
-          }
-        },
-        onNextChapter: () => {
-          const idx = chapters.findIndex((c) => c.id === (currentChapter?.id || ''));
-          if (idx >= 0 && idx < chapters.length - 1) {
-            navigateToChapter(chapters[idx + 1]);
-          }
-        },
+  // ── TTS 控制（Phase 6.2c: 委托 useTtsIntegration hook） ──
+  const tts = useTtsIntegration({
+    bookId,
+    getChapterText: getCurrentChapterText,
+    currentChapterId: currentChapter?.id,
+    currentChapterTitle: currentChapter?.title,
+    bookTitle: book?.title,
+    onSegmentChange: (idx, _total) => {
+      setActiveSegmentIndex(idx);
+      requestAnimationFrame(() => {
+        const container = txtScrollRef.current;
+        if (!container) return;
+        const highlighted = container.querySelector('[data-tts-segment="active"]');
+        if (highlighted) highlighted.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
+    },
+    onChapterEnd: () => { advanceToNextChapterTTSRef.current?.(ttsPlayerRef.current!); },
+  });
+  const handleStartTTS = tts.startTTS;
+  const handleStopTTS = tts.stopTTS;
+  const handlePauseTTS = tts.pauseTTS;
+  const handleResumeTTS = tts.resumeTTS;
+  const handleTTSSeek = tts.seekTTS;
+  const handleSetSleepTimer = tts.setSleepTimer;
 
-      // ⭐ 从 localStorage 读取语音设置（仅在确认有显式保存的值时更新）
-      const savedVoiceLs = (() => {
-        try { return localStorage.getItem('ireader_tts_voice'); } catch { return null; }
-      })();
-      const savedSpeedLs = (() => {
-        try {
-          const raw = localStorage.getItem('ireader_tts_speed');
-          return raw ? parseFloat(raw) : null;
-        } catch { return null; }
-      })();
-      if (savedVoiceLs) {
-        setTtsVoice(savedVoiceLs);
-        player.setVoice(savedVoiceLs);
-      }
-      if (savedSpeedLs && savedSpeedLs !== ttsSpeed) {
-        setTtsSpeed(savedSpeedLs);
-        player.setSpeed(savedSpeedLs);
-      }
-      // ⭐ 从 localStorage 读取"实时合成模式"开关（设置页可配置）。
-      // 默认 false（开启本地语音缓存）：优先复用后端已合成的 WAV 与 IDB 缓存音频，
-      // 大幅降低重复朗读延迟；仅当用户显式开启"实时合成"时才传 true 绕过缓存。
-      const noCachePref = (() => {
-        try { return localStorage.getItem('ireader_tts_noCache') === 'true'; } catch { return false; }
-      })();
-
-      // ⭐ 如果播放器已预热初始化（audio 元素已存在），跳过完整 init，仅更新选项
-      if (player['audioElement']) {
-        // 优先使用 localStorage 中用户保存的值
-        const savedVoiceLs2 = (() => {
-          try { return localStorage.getItem('ireader_tts_voice'); } catch { return null; }
-        })();
-        const savedSpeedLs2 = (() => {
-          try {
-            const raw = localStorage.getItem('ireader_tts_speed');
-            return raw ? parseFloat(raw) : null;
-          } catch { return null; }
-        })();
-        const useVoice = savedVoiceLs2 || player.getVoice() || ttsVoice;
-        const useSpeed = savedSpeedLs2 || ttsSpeed;
-        const useSource = localStorage.getItem('ireader_tts_source') || player.getSource();
-        player.setSource(useSource);
-        player.setVoice(useVoice);
-        player.setSpeed(useSpeed);
-        player['currentBookId'] = bookId;
-        player['bookTitle'] = book?.title || '';
-        player['bookCoverUrl'] = book ? `/api/books/${bookId}/cover` : '';
-        if (player['audioElement']) {
-          player['audioElement'].playbackRate = useSpeed;
-        }
-      } else {
-        const savedVoiceLs3 = (() => {
-          try { return localStorage.getItem('ireader_tts_voice'); } catch { return null; }
-        })();
-        const savedSpeedLs3 = (() => {
-          try {
-            const raw = localStorage.getItem('ireader_tts_speed');
-            return raw ? parseFloat(raw) : null;
-          } catch { return null; }
-        })();
-        await player.init({
-          source: localStorage.getItem('ireader_tts_source') || undefined,
-          speed: savedSpeedLs3 || ttsSpeed,
-          voice: savedVoiceLs3 || ttsVoice,
-          noCache: noCachePref,
-          bookId,
-          bookTitle: book?.title || '',
-          bookCoverUrl: book ? `/api/books/${bookId}/cover` : '',
-        });
-      }
-      player.setVolume(ttsVolume);
-
-      // 文本已是纯文本（EPUB 已由 getCurrentChapterText 返回 txtContent，非原始 HTML）
-      await player.load(text, false, currentChapter.id);
-
-      // Start periodic TTS progress saving (also persists to localStorage)
-
-      // ⭐ 从当前阅读位置推断朗读起始分段（解决"朗读与文章位置不同步"问题）
-      const totalChunks = player.getTotalChunks();
-      let startSegment = -1; // -1 表示未确定
-
-      // 1️⃣ 优先使用 savedTtsProgressRef（停止时保存的播放位置，或进入书籍时从 API 获取的进度）
-      //    但仅在用户停止后未翻页时生效——如果翻页了，阅读位置已变，应走第2步推算
-      const savedTts = savedTtsProgressRef.current;
-      if (savedTts && savedTts.chapterId === currentChapter.id && savedTts.segmentIndex > 0) {
-        // 计算当前阅读位置对应的推算 segment，与 savedTts 比较
-        let currentReadRatio = 0;
-        if (book?.format === 'epub') {
-          currentReadRatio = epubChapterRatioRef.current ?? 0;
-        } else if (readingMode === 'scroll') {
-          const container = txtScrollRef.current;
-          if (container && container.scrollHeight > container.clientHeight) {
-            currentReadRatio = container.scrollTop / (container.scrollHeight - container.clientHeight);
-          }
-        } else {
-          currentReadRatio = charOffsetRatioRef.current ?? 0;
-        }
-        const estimatedFromRead = Math.floor(currentReadRatio * totalChunks);
-        // 如果当前阅读位置推算值与 savedTts 差距 ≤ 2 段（约2句话），视为未翻页，直接恢复
-        // 如果差距 > 2 段，说明用户翻页了，放弃 savedTts，走第2步用阅读位置推算
-        if (Math.abs(estimatedFromRead - savedTts.segmentIndex) <= 2) {
-          startSegment = Math.min(savedTts.segmentIndex, Math.max(0, totalChunks - 1));
-        }
-      }
-
-      // 2️⃣ 如果 savedTtsProgressRef 不可用、章节不匹配、或用户停止后翻页了，从当前阅读位置推算
-      if (startSegment < 0 && totalChunks > 0) {
-        let readRatio = 0;
-
-        if (book?.format === 'epub') {
-          // EPUB 模式：使用 epubChapterRatioRef（由 EpubViewer relocated 事件实时更新）
-          readRatio = epubChapterRatioRef.current ?? 0;
-        } else if (readingMode === 'scroll') {
-          // TXT 滚动模式：用滚动比例推算
-          const container = txtScrollRef.current;
-          if (container && container.scrollHeight > container.clientHeight) {
-            readRatio = container.scrollTop / (container.scrollHeight - container.clientHeight);
-          }
-        } else {
-          // TXT 分页模式：用 charOffsetRatioRef（翻页时实时更新）
-          readRatio = charOffsetRatioRef.current ?? 0;
-        }
-
-        if (readRatio > 0) {
-          // 将阅读比例映射到 TTS segment 索引
-          const estimatedIndex = Math.floor(readRatio * totalChunks);
-          startSegment = Math.min(estimatedIndex, Math.max(0, totalChunks - 1));
-        }
-      }
-
-      if (startSegment > 0) {
-        await player.jumpToSegment(startSegment);
-      } else {
-        // ⭐ 无有效位置 → 从第0段开始播放
-        await player.play();
-      }
-    } catch (err) {
-      console.error('TTS 启动失败:', err);
-      setTtsError('语音播放启动失败：TTS 后端服务不可用（默认 Kokoro :8880 未运行），请在设置中切换到 Edge-TTS 或启动 Kokoro 服务');
-      setTimeout(() => setTtsError(null), 10000);
-    }
-  }, [currentChapter, bookId, book, txtContent]);
-
-  /** 上一章切换（用于播放器控制） */
-  const handlePrevChapter = useCallback(async () => {
-    if (!currentChapter) return;
-    const idx = chapters.findIndex((c) => c.id === currentChapter.id);
-    if (idx <= 0) return;
-    // 如果正在播放，先停止
-    const player = ttsPlayerRef.current;
-    if (player && player.getState() !== 'idle') {
-      player.stop();
-      setTtsState('idle');
-      setTtsProgress(0);
-      setActiveSegmentIndex(-1);
-      setTtsSegmentText('');
-    }
-    await goToPrevChapter();
-    // 自动播放上一章
-    setTimeout(() => handleStartTTS(), 100);
-  }, [currentChapter, chapters, goToPrevChapter, handleStartTTS]);
-
-  /** 下一章切换（用于播放器控制） */
-  const handleNextChapter = useCallback(async () => {
-    if (!currentChapter) return;
-    const idx = chapters.findIndex((c) => c.id === currentChapter.id);
-    if (idx < 0 || idx >= chapters.length - 1) return;
-    // 如果正在播放，先停止
-    const player = ttsPlayerRef.current;
-    if (player && player.getState() !== 'idle') {
-      player.stop();
-      setTtsState('idle');
-      setTtsProgress(0);
-      setActiveSegmentIndex(-1);
-      setTtsSegmentText('');
-    }
-    await goToNextChapter();
-    // 自动播放下一章
-    setTimeout(() => handleStartTTS(), 100);
-  }, [currentChapter, chapters, goToNextChapter, handleStartTTS]);
-
-  const handlePrevChapterRef = useRef<() => void>(() => {});
-  const handleNextChapterRef = useRef<() => void>(() => {});
-  handlePrevChapterRef.current = handlePrevChapter;
-  handleNextChapterRef.current = handleNextChapter;
-
-  /** 暂停 TTS */
-  const handlePauseTTS = useCallback(() => {
-    ttsPlayerRef.current?.pause();
-  }, []);
-
-  /** 恢复 TTS */
-  const handleResumeTTS = useCallback(() => {
-    ttsPlayerRef.current?.resume();
-  }, []);
-
-
-  const handleStopTTS = useCallback(() => {
-    // ⭐ 停止前保存当前播放位置，确保下次点击「朗读」时从当前位置恢复而非从开头开始
-    const player = ttsPlayerRef.current;
-    if (player && player.getState() !== 'idle' && currentChapter) {
-      const idx = player.getCurrentIndex();
-      if (idx >= 0) {
-        const total = player.getTotalChunks();
-        savedTtsProgressRef.current = {
-          chapterId: currentChapter.id,
-          segmentIndex: idx,
-          progress: total > 0 ? (idx + 1) / total : 0,
-        };
-      }
-    }
-    // ⭐ 清除 localStorage 播放持久化记录（用户主动停止，不再需要恢复）
-    try {
-      localStorage.removeItem('ireader_last_playback');
-    } catch { /* 静默 */ }
-    // 清除睡眠计时器
-    if (sleepTimerIntervalRef.current) {
-      clearInterval(sleepTimerIntervalRef.current);
-      sleepTimerIntervalRef.current = null;
-    }
-    setSleepTimerMinutes(null);
-    sleepTimerEndRef.current = null;
-    player?.stop();
-    setTtsState('idle');
-    setTtsProgress(0);
-    setTtsSegmentText('');
-    setActiveSegmentIndex(-1);
-  }, [currentChapter]);
-
-  /** 拖动 TTS 进度条 seek */
-  const handleTTSSeek = useCallback(async (progress: number) => {
-    const player = ttsPlayerRef.current;
-    if (!player || player.getState() === 'idle') return;
-    const wasPlaying = player.getState() === 'playing';
-    if (wasPlaying) player.pause();
-    try {
-      await player.seekTo(progress);
-      const idx = player.getCurrentIndex() + 1;
-      const total = player.getTotalChunks();
-      setTtsProgress(total > 0 ? (idx + 1) / total : 0);
-      setTtsSegmentText(player.getCurrentSegmentText());
-      if (wasPlaying) await player.play();
-    } catch {
-      // seek 失败不阻塞
-    }
-  }, []);
-
-  /** 设置睡眠计时器 */
-  const handleSetSleepTimer = useCallback((minutes: number | null) => {
-    setSleepTimerMinutes(minutes);
-    if (sleepTimerIntervalRef.current) {
-      clearInterval(sleepTimerIntervalRef.current);
-      sleepTimerIntervalRef.current = null;
-    }
-    if (minutes === null) {
-      sleepTimerEndRef.current = null;
-      return;
-    }
-    const endAt = Date.now() + minutes * 60 * 1000;
-    sleepTimerEndRef.current = endAt;
-    // 每秒检查一次是否到期
-    sleepTimerIntervalRef.current = setInterval(() => {
-      if (sleepTimerEndRef.current && Date.now() >= sleepTimerEndRef.current) {
-        // 计时到期，停止 TTS
-        if (sleepTimerIntervalRef.current) {
-          clearInterval(sleepTimerIntervalRef.current);
-          sleepTimerIntervalRef.current = null;
-        }
-        handleStopTTS();
-      }
-    }, 1000);
-  }, [handleStopTTS]);
 
 
 
@@ -2179,10 +1802,10 @@ function stripHtml(html: string): string {
               }
             }}
             onPrevChapter={() => {
-              handlePrevChapterRef.current();
+              goToPrevChapterRef.current?.();
             }}
             onNextChapter={() => {
-              handleNextChapterRef.current();
+              goToNextChapterRef.current?.();
             }}
           />
         )}
@@ -2401,9 +2024,9 @@ function stripHtml(html: string): string {
             onResumeTTS={handleResumeTTS}
             onStopTTS={handleStopTTS}
             onSeek={handleTTSSeek}
-            onPrevChapter={handlePrevChapter}
-            onNextChapter={handleNextChapter}
-            sleepTimerMinutes={sleepTimerMinutes}
+            onPrevChapter={() => goToPrevChapterRef.current?.()}
+            onNextChapter={() => goToNextChapterRef.current?.()}
+            sleepTimerMinutes={tts.sleepTimerMinutes}
             onSetSleepTimer={handleSetSleepTimer}
             fontSize={fontSize}
             setFontSize={setFontSize}
