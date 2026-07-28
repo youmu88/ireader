@@ -122,8 +122,7 @@ function ReaderPage() {
   const [readingMode, setReadingMode] = useState<'scroll' | 'paginated'>(initialPrefs.readingMode ?? 'scroll');
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  // ── TXT 翻页：保留原生 column 分页容器（本轮仅重构 EPUB）──
-  const paginatedScrollRef = useRef<HTMLDivElement>(null);
+  // ── TXT 翻页：由 TxtReaderView 组件内部管理 ──
   /** TXT 跨模式共享的字符位置比例 [0,1]，用于切换模式时从当前阅读位置精确恢复 */
   const charOffsetRatioRef = useRef<number>(0);
   // ── EPUB 模式：由 EpubViewer（epub.js）托管，进度用 CFI ──
@@ -2066,76 +2065,7 @@ function stripHtml(html: string): string {
     return () => observer.disconnect();
   }, [readingMode, book?.format]);
 
-  /** 根据 pageIndex 获取分页后的 TXT 内容 */
-
-  // ── 滚动进度保存：跟踪用户滚动位置，定期保存阅读进度 ──
-  const scrollProgressSaveTimer = useRef<any>(null);
-  const handleScrollProgress = useCallback(() => {
-    if (!currentChapter || !chapters.length) return;
-    if (scrollProgressSaveTimer.current) clearTimeout(scrollProgressSaveTimer.current);
-    scrollProgressSaveTimer.current = setTimeout(() => {
-      const container = txtScrollRef.current;
-      const scrollPct = container && container.scrollHeight > container.clientHeight
-        ? container.scrollTop / (container.scrollHeight - container.clientHeight)
-        : 0;
-      const idx = chapters.findIndex(c => c.id === currentChapter.id);
-      debounceSaveProgress({
-        chapterId: currentChapter.id,
-        percentage: (idx + 1) / chapters.length,
-        pageIndex: Math.round(scrollPct * 10000),
-      });
-    }, 2000);
-  }, [currentChapter, chapters, debounceSaveProgress]);
-
-  // 监听 TXT 滚动容器的滚动事件
-  useEffect(() => {
-    if (readingMode !== 'scroll') return;
-    const container = txtScrollRef.current;
-    if (!container) return;
-    container.addEventListener('scroll', handleScrollProgress, { passive: true });
-    return () => {
-      container.removeEventListener('scroll', handleScrollProgress);
-      if (scrollProgressSaveTimer.current) clearTimeout(scrollProgressSaveTimer.current);
-    };
-  }, [readingMode, txtContent, currentChapter, handleScrollProgress]);
-
-  // ⭐ 在 TXT 内容渲染完成后恢复滚动位置（修复 requestAnimationFrame 时机不对的问题）
-  useEffect(() => {
-    if (pendingScrollRestorePct == null) return;
-    // 使用 requestAnimationFrame 确保一次重绘后再恢复
-    const raf = requestAnimationFrame(() => {
-      const container = txtScrollRef.current;
-      if (container && pendingScrollRestorePct > 0) {
-        container.scrollTop = pendingScrollRestorePct * (container.scrollHeight - container.clientHeight);
-      }
-      setPendingScrollRestorePct(null);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [txtContent, pendingScrollRestorePct]);
-
-  // 分页模式页码统计（仅 TXT 使用；EPUB 由 EpubViewer 内部管理）
-  useEffect(() => {
-    if (book?.format === 'epub') {
-      setTotalPages(1);
-      return;
-    }
-    if (readingMode !== 'paginated') {
-      setTotalPages(1);
-      return;
-    }
-    const el = paginatedScrollRef.current;
-    if (!el) return;
-    const raf = requestAnimationFrame(() => {
-      const pw = el.clientWidth || 1;
-      const total = Math.max(1, Math.ceil(el.scrollWidth / pw));
-      setTotalPages(total);
-      const ratio = charOffsetRatioRef.current ?? 0;
-      el.scrollLeft = ratio * Math.max(0, el.scrollWidth - pw);
-      setPageIndex(Math.round(ratio * (total - 1)));
-    });
-    return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [txtContent, book?.format, readingMode, fontSize, lineHeight]);
+  // ── TXT 滚动/分页逻辑已迁移至 TxtReaderView 组件（Phase 2.6）──
 
   // Cleanup on unmount — 使用 ref 避免闭包捕获到 null state
   useEffect(() => {
