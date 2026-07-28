@@ -23,8 +23,12 @@ export type {
   ReadingPositionUpdate,
 } from './position/types';
 
-// TTS 控制器接口
+// TTS 控制器
 export type { TtsController, TtsState } from './tts/types';
+export { SequentialPlayer } from './tts/SequentialPlayer';
+export type { SequentialPlayerOptions, SequentialPlayerCallbacks } from './tts/SequentialPlayer';
+export { DefaultTtsController } from './tts/DefaultTtsController';
+export type { DefaultTtsControllerOptions } from './tts/DefaultTtsController';
 
 // Hooks
 export { useReadingPosition } from './position/useReadingPosition';
