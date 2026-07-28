@@ -248,14 +248,7 @@ export class TTSPlayer {
   private generation = 0;
   /** 所有 blob URL 清单，用于统一清理 */
   private allBlobUrls: string[] = [];
-  /** WAV 拼接模式：chunk 时间偏移映射 [{index, startTime, endTime}] */
-  private chunkTimeSlots: { index: number; startTime: number; endTime: number }[] = [];
-  /** 已拼接的完整章节 WAV Blob URL（单音频源，无需 JS 驱动 chunk 切换） */
-  private concatBlobUrl: string | null = null;
-  /** 是否为拼接模式（单 <audio> 源播整章，JS 仅做 UI 跟踪） */
-  private isConcatMode = false;
-  /** 拼接模式下 position 跟踪的 timeupdate 处理器 */
-  private concatTimeupdater: (() => void) | null = null;
+
   /** 并发 fetch 的最大并发数（后台受限时限制，避免被浏览器完全限流） */
   private static readonly MAX_CONCURRENT_FETCHES = 6;
   /** 当前书籍信息（用于 Media Session 锁屏封面） */
@@ -408,17 +401,6 @@ export class TTSPlayer {
   async jumpToSegment(index: number): Promise<void> {
     if (this.isDestroyed || index < 0 || index >= this.chunks.length) return;
 
-    // 拼接模式：直接设置 audioElement.currentTime 到目标 chunk 的起始时间
-    if (this.isConcatMode && this.audioElement && this.chunkTimeSlots.length > 0) {
-      const slot = this.chunkTimeSlots.find(s => s.index === index);
-      if (slot) {
-        this.audioElement.currentTime = slot.startTime;
-        this.currentIndex = index;
-        this.currentSegmentText = this.chunks[index]?.text || '';
-        return;
-      }
-    }
-
     // 预生成所有到目标分段为止的音频
     const promises: Promise<void>[] = [];
     for (let i = 0; i <= index; i++) {
@@ -465,17 +447,6 @@ export class TTSPlayer {
     if (this.isDestroyed || this.chunks.length === 0) return;
     const clampedProgress = Math.max(0, Math.min(1, progress));
     const targetIndex = Math.round(clampedProgress * (this.chunks.length - 1));
-
-    // 拼接模式：直接设 currentTime
-    if (this.isConcatMode && this.audioElement && this.chunkTimeSlots.length > 0) {
-      const slot = this.chunkTimeSlots.find(s => s.index === targetIndex);
-      if (slot) {
-        this.audioElement.currentTime = slot.startTime;
-        this.currentIndex = targetIndex;
-        this.currentSegmentText = this.chunks[targetIndex]?.text || '';
-        return;
-      }
-    }
 
     await this.jumpToSegment(targetIndex);
   }
@@ -558,12 +529,6 @@ export class TTSPlayer {
     this.currentIndex = -1;
     this.originalChunkCount = 0;
     this.nextChapterAppended = false;
-    this.isConcatMode = false;
-    this.chunkTimeSlots = [];
-    if (this.concatTimeupdater && this.audioElement) {
-      this.audioElement.removeEventListener('timeupdate', this.concatTimeupdater);
-      this.concatTimeupdater = null;
-    }
     this.setState('loading');
 
     // ⭐ 批量检查 IDB 中已缓存的 TTS 音频分片。
@@ -609,8 +574,8 @@ export class TTSPlayer {
       if (this.currentIndex < 0) {
         this.currentIndex = -1;
       }
-      // 等待预取的 chunk 就绪后尝试 WAV 拼接模式
-      await this.initConcatPlay();
+      // 从第一个分段开始播放
+      this.playNext();
       return;
     }
   }
@@ -644,17 +609,7 @@ export class TTSPlayer {
       try { URL.revokeObjectURL(this.currentBlobUrl); } catch { /* ignore */ }
       this.currentBlobUrl = null;
     }
-    // 清理 concat 资源（重新加载章节时）
-    if (this.concatBlobUrl) {
-      try { URL.revokeObjectURL(this.concatBlobUrl); } catch { /* ignore */ }
-      this.concatBlobUrl = null;
-    }
-    this.chunkTimeSlots = [];
-    this.isConcatMode = false;
-    if (this.concatTimeupdater && this.audioElement) {
-      this.audioElement.removeEventListener('timeupdate', this.concatTimeupdater);
-      this.concatTimeupdater = null;
-    }
+
   }
 
   destroy(): void {
@@ -675,11 +630,7 @@ export class TTSPlayer {
       window.removeEventListener('pagehide', this.boundPageHideHandler);
       this.boundPageHideHandler = null;
     }
-    // 清理 concat position 跟踪
-    if (this.concatTimeupdater && this.audioElement) {
-      this.audioElement.removeEventListener('timeupdate', this.concatTimeupdater);
-      this.concatTimeupdater = null;
-    }
+
     // 清除 Media Session 元数据
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = null;
@@ -715,14 +666,7 @@ export class TTSPlayer {
     // ── 设置 <audio> 事件 ──
     this.audioElement.onended = () => {
       if (this.isDestroyed) return;
-      if (this.isConcatMode) {
-        // ⭐ 拼接模式：整章音频已播完 → 触发章节结束，无需 chunk 切换
-        this.isConcatMode = false;
-        this.setState('idle');
-        this.updateMediaSessionState('none');
-        this.callbacks.onEnd?.();
-        return;
-      }
+
       if (this.state === 'playing') {
         this.playNext();
       }
@@ -758,11 +702,7 @@ export class TTSPlayer {
       if (this.isDestroyed) return;
       if (document.visibilityState === 'hidden') {
         this.isBackground = true;
-        // ⭐ 尚未拼接且正在 chunk-by-chunk 播放 → 尝试切换到拼接模式
-        if (!this.isConcatMode && this.state === 'playing' && this.chunks.length > 1) {
-          // 尝试拼接已就绪的 chunk 并切换到单源播放
-          this.switchToConcatInBackground();
-        }
+
       } else if (document.visibilityState === 'visible') {
         this.isBackground = false;
         // ⭐ 回到前台时检查是否需要续播：
@@ -774,15 +714,7 @@ export class TTSPlayer {
           const isEnded = this.audioElement.ended ||
             (dur > 0 && ct > 0 && ct >= dur - 0.3);
           if (isEnded) {
-            if (this.isConcatMode) {
-              // 拼接模式：整章结束
-              this.isConcatMode = false;
-              this.setState('idle');
-              this.updateMediaSessionState('none');
-              this.callbacks.onEnd?.();
-            } else {
-              this.playNext();
-            }
+            this.playNext();
           } else if (this.audioElement.paused) {
             // ⭐ 音频被浏览器意外暂停（如 PWA 切换/关闭回收音频焦点）→ 立即恢复
             this.audioElement.play().catch(() => {});
@@ -947,317 +879,9 @@ export class TTSPlayer {
     });
   }
 
-  // ── WAV 拼接：整章单音频源（移动端后台持续播放的核心方案） ──
 
-  /**
-   * 解析 WAV 文件头，提取 PCM 格式信息和数据
-   * 仅支持 PCM 格式 (format=1)
-   */
-  private parseWav(buffer: ArrayBuffer): { sampleRate: number; numChannels: number; bitsPerSample: number; dataSize: number; pcmData: Uint8Array } | null {
-    const view = new DataView(buffer);
-    if (view.getUint32(0, true) !== 0x46464952) return null; // "RIFF"
-    if (view.getUint32(8, true) !== 0x45564157) return null; // "WAVE"
-    if (view.getUint16(20, true) !== 1) return null;         // 仅 PCM
-    const dataSize = view.getUint32(40, true);
-    return {
-      sampleRate: view.getUint32(24, true),
-      numChannels: view.getUint16(22, true),
-      bitsPerSample: view.getUint16(34, true),
-      dataSize,
-      pcmData: new Uint8Array(buffer, 44, dataSize),
-    };
-  }
 
-  /**
-   * 将当前所有已就绪的 chunk WAV 拼接为一个 WAV Blob URL
-   * 若仅有一个 chunk 则直接返回其 URL（无需拼接）
-   * 返回拼接后的 Blob URL，同时构建 chunkTimeSlots 时间映射
-   */
-  private async concatenateReadyChunks(): Promise<string | null> {
-    const ready = this.chunks.filter(c => c.status === 'ready' && c.audioBlobUrl);
-    if (ready.length === 0) return null;
-    if (ready.length === 1) {
-      const url = ready[0].audioBlobUrl!;
-      // 构建单 chunk 时间映射
-      const resp = await fetch(url);
-      const buf = await resp.arrayBuffer();
-      const info = this.parseWav(buf);
-      if (info) {
-        const dur = info.dataSize / (info.sampleRate * info.numChannels * (info.bitsPerSample / 8));
-        this.chunkTimeSlots = [{ index: ready[0].index, startTime: 0, endTime: dur }];
-      }
-      return url;
-    }
 
-    const pcmChunks: Uint8Array[] = [];
-    const slots: { index: number; startTime: number; endTime: number }[] = [];
-    let sampleRate = 0, numChannels = 0, bitsPerSample = 0;
-    let totalDataSize = 0;
-    let currentTime = 0;
-
-    for (const chunk of ready) {
-      try {
-        const resp = await fetch(chunk.audioBlobUrl!);
-        const buf = await resp.arrayBuffer();
-        const info = this.parseWav(buf);
-        if (!info) continue;
-        if (sampleRate === 0) {
-          sampleRate = info.sampleRate;
-          numChannels = info.numChannels;
-          bitsPerSample = info.bitsPerSample;
-        }
-        const dur = info.dataSize / (info.sampleRate * info.numChannels * (info.bitsPerSample / 8));
-        slots.push({ index: chunk.index, startTime: currentTime, endTime: currentTime + dur });
-        currentTime += dur;
-        pcmChunks.push(info.pcmData);
-        totalDataSize += info.dataSize;
-      } catch { /* skip failed chunk */ }
-    }
-
-    if (pcmChunks.length === 0) return null;
-    this.chunkTimeSlots = slots;
-
-    // 构建新的 WAV 头 + PCM 数据
-    const headerSize = 44;
-    const totalSize = headerSize + totalDataSize;
-    const result = new ArrayBuffer(totalSize);
-    const v = new DataView(result);
-
-    const w = (off: number, str: string) => {
-      for (let i = 0; i < str.length; i++) v.setUint8(off + i, str.charCodeAt(i));
-    };
-    w(0, 'RIFF');
-    v.setUint32(4, totalSize - 8, true);
-    w(8, 'WAVE');
-    w(12, 'fmt ');
-    v.setUint32(16, 16, true);
-    v.setUint16(20, 1, true);
-    v.setUint16(22, numChannels, true);
-    v.setUint32(24, sampleRate, true);
-    v.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true);
-    v.setUint16(32, numChannels * (bitsPerSample / 8), true);
-    v.setUint16(34, bitsPerSample, true);
-    w(36, 'data');
-    v.setUint32(40, totalDataSize, true);
-
-    let offset = 44;
-    for (const pcm of pcmChunks) {
-      new Uint8Array(result, offset, pcm.length).set(pcm);
-      offset += pcm.length;
-    }
-
-    const blob = new Blob([result], { type: 'audio/wav' });
-    const url = URL.createObjectURL(blob);
-    this.allBlobUrls.push(url);
-    this.concatBlobUrl = url;
-    return url;
-  }
-
-  /**
-   * 尝试以 WAV 拼接模式播放整章（单音频源）
-   * 1. 等待足够 chunk 就绪（至多 2s）
-   * 2. 若能覆盖 80%+ chunk 则拼接播放
-   * 3. 否则退回 chunk-by-chunk 模式
-   */
-  private async initConcatPlay(): Promise<void> {
-    if (this.isDestroyed) return;
-
-    // 等待预取完成或超时 2s
-    const waitReady = async (minCount: number, timeoutMs: number): Promise<number> => {
-      const start = Date.now();
-      let count: number;
-      while (Date.now() - start < timeoutMs) {
-        count = this.chunks.filter(c => c.status === 'ready').length;
-        if (count >= minCount) return count;
-        await new Promise(r => setTimeout(r, 100));
-      }
-      return this.chunks.filter(c => c.status === 'ready').length;
-    };
-
-    const readyCount = await waitReady(Math.min(5, this.chunks.length), 2000);
-    if (this.isDestroyed) return;
-
-    // 条件：至少 5 个 chunk 就绪，或者就绪占比 > 20%（短章节）
-    const readyPct = this.chunks.length > 0 ? readyCount / this.chunks.length : 0;
-    const canConcat = readyCount >= 5 || readyPct > 0.2;
-
-    // ⭐ 方案2b: 已有跳转位置时跳过 WAV 拼接，直接 playNext 从指定位置播放
-    if (this.currentIndex >= 0) {
-      this.playNext();
-      return;
-    }
-
-    if (canConcat) {
-      // 尝试拼接后以单源播放
-      const concatUrl = await this.concatenateReadyChunks();
-      if (this.isDestroyed) return;
-
-      if (concatUrl && this.chunkTimeSlots.length > 0) {
-        // 切换到拼接模式：单源播放整章
-        this.isConcatMode = true;
-        this.currentIndex = -1;
-        this.playConcatSource(concatUrl);
-        // 后台继续预取剩余 chunk（拼接仅用了已就绪的，后续 chunk 继续在后台拉取）
-        this.prefetchAllRemaining().catch(() => {});
-        return;
-      }
-    }
-
-    // 退回 chunk-by-chunk 模式
-    this.currentIndex = -1;
-    this.playNext();
-  }
-
-  /**
-   * 播放拼接后的单音频源（整章 WAV）
-   * 使用 timeupdate 跟踪位置以更新分段高亮
-   */
-  private playConcatSource(blobUrl: string): void {
-    if (!this.audioElement || this.isDestroyed) return;
-
-    this.stopInternal();
-
-    this.audioElement.src = blobUrl;
-    this.currentBlobUrl = blobUrl;
-    this.audioElement.playbackRate = this.speed;
-    this.audioElement.volume = this.volume;
-
-    // 设置 position 跟踪（映射 currentTime → chunk index 用于 UI 高亮）
-    this.setupConcatPositionTracking();
-
-    this.updateMediaSessionMetadata();
-    this.setState('playing');
-    this.updateMediaSessionState('playing');
-
-    this.audioElement.play().catch((err) => {
-      if (err.name === 'NotAllowedError') {
-        this.callbacks.onBackgroundInterrupted?.();
-      } else {
-        // play() 失败 → 退回 chunk-by-chunk
-        console.warn('Concat mode play failed, fallback to chunk-by-chunk:', err.message);
-        this.isConcatMode = false;
-        this.currentIndex = -1;
-        this.playNext();
-      }
-    });
-  }
-
-  /**
-   * 在拼接模式下用 timeupdate 跟踪播放位置 → 映射到 chunk index
-   * 用于 UI 分段高亮和进度更新（非驱动播放，仅跟踪）
-   */
-  private setupConcatPositionTracking(): void {
-    if (!this.audioElement || this.isDestroyed) return;
-    // 移除旧跟踪
-    if (this.concatTimeupdater) {
-      this.audioElement.removeEventListener('timeupdate', this.concatTimeupdater);
-    }
-    const slots = this.chunkTimeSlots;
-    if (slots.length === 0) {
-      this.concatTimeupdater = null;
-      return;
-    }
-    let lastIdx = -1;
-    this.concatTimeupdater = () => {
-      if (this.isDestroyed || !this.audioElement || !this.isConcatMode) return;
-      const ct = this.audioElement.currentTime;
-      // 二分查找当前时间对应的 chunk
-      let lo = 0, hi = slots.length - 1, found = -1;
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (ct >= slots[mid].startTime && ct < slots[mid].endTime) {
-          found = slots[mid].index; break;
-        } else if (ct < slots[mid].startTime) {
-          hi = mid - 1;
-        } else {
-          lo = mid + 1;
-        }
-      }
-      if (found < 0) {
-        // 可能已播完（ct >= last endTime）
-        if (ct >= slots[slots.length - 1].endTime) {
-          found = slots[slots.length - 1].index;
-        } else {
-          return;
-        }
-      }
-      if (found !== lastIdx) {
-        lastIdx = found;
-        this.currentIndex = found;
-        this.currentSegmentText = this.chunks[found]?.text || '';
-        this.callbacks.onSegmentPlay?.(found, this.chunks.length);
-        const progress = (found + 1) / this.chunks.length;
-        this.callbacks.onProgress?.(progress);
-        this.notifyGlobalListeners();
-      }
-    };
-    this.audioElement.addEventListener('timeupdate', this.concatTimeupdater);
-  }
-
-  /**
-   * 进入后台时从 chunk-by-chunk 切换到拼接模式
-   * 预取所有剩余 chunk，拼接后作为单音频源播放，实现后台持续播放
-   * 之所以不在前台立即切换是因为前端切换会中断用户正在听到的内容
-   */
-  private switchToConcatInBackground(): void {
-    if (this.isDestroyed || this.chunks.length <= 1) return;
-    // 后台异步拼接：不阻塞 visibilitychange
-    this.switchToConcatAsync().catch(() => {});
-  }
-
-  private async switchToConcatAsync(): Promise<void> {
-    if (this.isDestroyed) return;
-
-    // 等待所有 chunk 就绪（有超时，避免无限制等待）
-    const start = Date.now();
-    while (Date.now() - start < 5000) {
-      const ready = this.chunks.filter(c => c.status === 'ready').length;
-      if (ready >= this.chunks.length) break;
-      await new Promise(r => setTimeout(r, 200));
-    }
-
-    if (this.isDestroyed || this.isConcatMode) return;
-
-    // 拼接所有已就绪的 chunk
-    const concatUrl = await this.concatenateReadyChunks();
-    if (this.isDestroyed || !concatUrl || this.chunkTimeSlots.length === 0) return;
-
-    // 计算当前播放位置：currentIndex 之前所有 chunk 的累计时长
-    const currentIdx = this.currentIndex;
-    let seekTime = 0;
-    const el = this.audioElement;
-    if (el) {
-      // 当前 chunk 已播放的时长
-      const elapsedInCurrent = el.currentTime;
-      const slot = this.chunkTimeSlots.find(s => s.index === currentIdx);
-      if (slot) {
-        seekTime = slot.startTime + elapsedInCurrent;
-      } else {
-        // 找不到当前 chunk → 从第一个 chunk 开始
-        seekTime = 0;
-      }
-    }
-
-    // 切换到拼接音频源
-    this.isConcatMode = true;
-    if (this.concatTimeupdater && this.audioElement) {
-      this.audioElement.removeEventListener('timeupdate', this.concatTimeupdater);
-      this.concatTimeupdater = null;
-    }
-    this.audioElement!.src = concatUrl;
-    this.currentBlobUrl = concatUrl;
-    try {
-      this.audioElement!.currentTime = Math.max(0, seekTime);
-    } catch { /* 某些浏览器不支持设 currentTime */ }
-    this.audioElement!.playbackRate = this.speed;
-    this.audioElement!.volume = this.volume;
-    this.setupConcatPositionTracking();
-    this.audioElement!.play().catch(() => {
-      // 切换失败，回退 chunk-by-chunk
-      this.isConcatMode = false;
-    });
-    this.updateMediaSessionState('playing');
-  }
 
   // ── 跨章预取：提前合成下一章 TTS 音频，后台无缝过渡 ──
 
@@ -1346,16 +970,7 @@ export class TTSPlayer {
       try { URL.revokeObjectURL(this.currentBlobUrl); } catch { /* ignore */ }
       this.currentBlobUrl = null;
     }
-    if (this.concatBlobUrl) {
-      try { URL.revokeObjectURL(this.concatBlobUrl); } catch { /* ignore */ }
-      this.concatBlobUrl = null;
-    }
-    this.chunkTimeSlots = [];
-    this.isConcatMode = false;
-    if (this.concatTimeupdater && this.audioElement) {
-      this.audioElement.removeEventListener('timeupdate', this.concatTimeupdater);
-      this.concatTimeupdater = null;
-    }
+
 
     this.generation++;
     this.chunks = chunks;
