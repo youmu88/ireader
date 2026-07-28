@@ -4,19 +4,105 @@
  * 将书籍章节内容和 TTS 音频缓存到浏览器本地 IndexedDB，
  * 支持离线阅读和收听（例如在飞机上）。
  *
- * 数据库：ireader_cache (v1)
+ * 数据库：ireader_cache (v6)
  * Object stores:
- *   - bookChapters: 书籍章节内容（key: bookId:chapterId）
- *   - ttsAudio:     TTS 音频数据（key: bookId:chapterId:segmentIndex）
- *   - cacheMeta:    缓存元信息（key: bookId）
+ *   - bookChapters:     书籍章节内容（key: bookId:chapterId）
+ *   - ttsAudio:         TTS 音频数据（key: bookId:chapterId:segmentIndex）
+ *   - cacheMeta:        缓存元信息（key: bookId）
+ *   - epubResources:    EPUB 内部资源（key: bookId:path）
+ *   - epubArchives:     EPUB 原始 zip（key: bookId）
+ *   - downloadSessions: 下载会话/续传（key: sessionId）
+ *   - offlinePackages:  完整离线包元数据（key: bookId）
  */
 import { openDB, type IDBPDatabase } from 'idb';
 
 const DB_NAME = 'ireader_cache';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 export type OfflinePackageStatus = 'downloading' | 'ready' | 'failed' | 'stale';
 
+// ── 完整离线包类型（P0-5） ──
+
+/** 资源清单条目 */
+export interface OfflineResourceEntry {
+  path: string;
+  contentType: string;
+  size: number;
+  hash: string;
+  cached: boolean;
+}
+
+/** TOC 节点 */
+export interface OfflineTocNode {
+  id: string;
+  title: string;
+  href: string;
+  fragment: string | null;
+  spineIndex: number;
+  level: number;
+  children: OfflineTocNode[];
+}
+
+/** 完整离线包（替代旧 OfflineBookPackageMeta 的完整版本） */
+export interface OfflineBookPackage {
+  packageId: string;
+  bookId: string;
+  bookVersionHash: string | null;
+  manifestVersion: number;
+
+  metadata: {
+    title: string;
+    author: string;
+    format: 'epub' | 'txt';
+    coverPath: string | null;
+  };
+
+  chapters: { total: number; cached: number };
+
+  epubResources: {
+    total: number;
+    cached: number;
+    totalBytes: number;
+    cachedBytes: number;
+    manifest: OfflineResourceEntry[];
+  };
+
+  toc: OfflineTocNode[];
+
+  progress: { cfi: string | null; chapterId: string | null; updatedAt: number };
+
+  status: OfflinePackageStatus;
+  totalBytes: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** EPUB 离线包下载会话（续传） */
+export interface EpubDownloadSession {
+  sessionId: string;
+  bookId: string;
+  sessionType: 'epub-package';
+  status: 'active' | 'completed' | 'failed';
+  totalItems: number;
+  completedItems: string[];
+  failedItems: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 包校验结果 */
+export interface PackageValidationResult {
+  valid: boolean;
+  missingResources: string[];
+  corruptResources: string[];
+  archivePresent: boolean;
+  chaptersPresent: boolean;
+}
+
+/**
+ * 旧版离线包元数据（向后兼容）
+ * @deprecated 使用 OfflineBookPackage 代替
+ */
 export interface OfflineBookPackageMeta {
   bookId: string;
   versionHash: string | null;
@@ -147,9 +233,9 @@ function getDB(): Promise<IDBPDatabase> {
           const store = db.createObjectStore('downloadSessions', { keyPath: 'sessionId' });
           store.createIndex('bookId', 'bookId', { unique: false });
         }
-        if (!db.objectStoreNames.contains('downloadSessions')) {
-          const store = db.createObjectStore('downloadSessions', { keyPath: 'sessionId' });
-          store.createIndex('bookId', 'bookId', { unique: false });
+        if (!db.objectStoreNames.contains('offlinePackages')) {
+          const store = db.createObjectStore('offlinePackages', { keyPath: 'bookId' });
+          store.createIndex('status', 'status', { unique: false });
         }
       },
     });
@@ -363,53 +449,159 @@ export async function getCachedEpubArchive(bookId: string): Promise<{ data: Arra
   }
 }
 
+/** 获取完整离线包（新版） */
+export async function getOfflinePackage(bookId: string): Promise<OfflineBookPackage | null> {
+  try {
+    const db = await getDB();
+    return await db.get('offlinePackages', bookId) as OfflineBookPackage | undefined ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** 保存完整离线包 */
+async function saveOfflinePackage(pkg: OfflineBookPackage): Promise<void> {
+  const db = await getDB();
+  await db.put('offlinePackages', pkg);
+  // 同步旧版 offlinePackage 字段到 cacheMeta（向后兼容 EpubViewer）
+  const existing = await db.get('cacheMeta', pkg.bookId) as CacheMeta | undefined;
+  if (existing) {
+    existing.offlinePackage = {
+      bookId: pkg.bookId,
+      versionHash: pkg.bookVersionHash,
+      status: pkg.status,
+      totalResources: pkg.epubResources.total,
+      cachedResources: pkg.epubResources.cached,
+      updatedAt: pkg.updatedAt,
+    };
+    existing.lastCachedAt = pkg.updatedAt;
+    await db.put('cacheMeta', existing);
+  }
+}
+
+/** 创建或恢复 EPUB 包下载会话 */
+async function getOrCreateEpubDownloadSession(bookId: string, totalItems: number): Promise<EpubDownloadSession> {
+  const db = await getDB();
+  const existing = await db.getAllFromIndex('downloadSessions', 'bookId', bookId) as EpubDownloadSession[];
+  const active = existing.find(s => s.sessionType === 'epub-package' && s.status === 'active');
+  if (active) return active;
+  const session: EpubDownloadSession = {
+    sessionId: `${bookId}:epub:${Date.now()}`,
+    bookId,
+    sessionType: 'epub-package',
+    status: 'active',
+    totalItems,
+    completedItems: [],
+    failedItems: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  await db.put('downloadSessions', session);
+  return session;
+}
+
+async function updateEpubDownloadSession(session: EpubDownloadSession): Promise<void> {
+  const db = await getDB();
+  session.updatedAt = Date.now();
+  await db.put('downloadSessions', session);
+}
+
+/**
+ * 下载完整 EPUB 离线包（含资源清单、封面、TOC、续传）
+ */
 export async function downloadOfflineEpubPackage(
   bookId: string,
   bookTitle: string,
   chapters: ChapterCacheInput[],
   onProgress?: (completed: number, total: number) => void,
+  options?: { author?: string; toc?: OfflineTocNode[]; coverPath?: string | null },
 ): Promise<OfflineBookPackageMeta> {
   const db = await getDB();
-  const setStatus = async (value: OfflineBookPackageMeta) => {
-    const existing = await db.get('cacheMeta', bookId) as CacheMeta | undefined;
-    await db.put('cacheMeta', {
-      ...(existing || { bookId, bookTitle, totalChapters: chapters.length, cachedChapters: 0, totalAudioSegments: 0, cachedAudioSegments: 0, lastCachedAt: Date.now() }),
-      bookTitle,
-      offlinePackage: value,
-      lastCachedAt: Date.now(),
-    } as CacheMeta);
-  };
 
   try {
+    // 1. 获取资源清单
     const manifestResponse = await fetch(`/api/books/${encodeURIComponent(bookId)}/resources`, { headers: authHeaders() });
     if (!manifestResponse.ok) throw new Error('无法获取 EPUB 资源清单');
     const manifestJson = await manifestResponse.json();
     const manifest = manifestJson?.data;
     if (!manifest?.resources?.length) throw new Error('EPUB 资源清单为空');
 
-    const total = chapters.length + manifest.resources.length;
-    let completed = 0;
-    const packageMeta: OfflineBookPackageMeta = {
-      bookId,
-      versionHash: manifest.versionHash || null,
-      status: 'downloading',
-      totalResources: manifest.resources.length,
-      cachedResources: 0,
-      updatedAt: Date.now(),
-    };
-    await setStatus(packageMeta);
+    const versionHash: string | null = manifest.versionHash || null;
+    const resources = manifest.resources as Array<{ path: string; size: number; contentType: string; hash: string }>;
+    const totalBytes = resources.reduce((sum, r) => sum + r.size, 0);
+    const total = chapters.length + resources.length + 1; // +1 for archive
 
-    await cacheBookChapters(bookId, bookTitle, chapters);
-    completed += chapters.length;
+    // 2. 创建/恢复下载会话
+    const session = await getOrCreateEpubDownloadSession(bookId, total);
+    const completedSet = new Set(session.completedItems);
+
+    // 3. 构建完整包结构
+    const now = Date.now();
+    const pkg: OfflineBookPackage = {
+      packageId: `${bookId}:${versionHash || 'unknown'}`,
+      bookId,
+      bookVersionHash: versionHash,
+      manifestVersion: 1,
+      metadata: {
+        title: bookTitle,
+        author: options?.author || '',
+        format: 'epub',
+        coverPath: options?.coverPath ?? null,
+      },
+      chapters: { total: chapters.length, cached: 0 },
+      epubResources: {
+        total: resources.length,
+        cached: 0,
+        totalBytes,
+        cachedBytes: 0,
+        manifest: resources.map(r => ({ path: r.path, contentType: r.contentType, size: r.size, hash: r.hash, cached: completedSet.has(`res:${r.path}`) })),
+      },
+      toc: options?.toc || [],
+      progress: { cfi: null, chapterId: null, updatedAt: now },
+      status: 'downloading',
+      totalBytes,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await saveOfflinePackage(pkg);
+
+    let completed = completedSet.size;
     onProgress?.(completed, total);
 
-    const archiveResponse = await fetch(`/api/books/${encodeURIComponent(bookId)}/file/`, { headers: authHeaders() });
-    if (!archiveResponse.ok) throw new Error('EPUB 原始文件下载失败');
-    const archiveTx = db.transaction('epubArchives', 'readwrite');
-    await archiveTx.objectStore('epubArchives').put({ bookId, versionHash: manifest.versionHash || null, data: await archiveResponse.arrayBuffer(), cachedAt: Date.now() } as EpubArchiveCache);
-    await archiveTx.done;
+    // 4. 缓存章节（跳过已完成）
+    if (!completedSet.has('chapters')) {
+      await cacheBookChapters(bookId, bookTitle, chapters);
+      session.completedItems.push('chapters');
+      completedSet.add('chapters');
+      completed++;
+      await updateEpubDownloadSession(session);
+      onProgress?.(completed, total);
+    }
+    pkg.chapters.cached = chapters.length;
 
-    for (const resource of manifest.resources as Array<{ path: string; contentType: string; hash: string }>) {
+    // 5. 下载原始 EPUB 归档（跳过已完成）
+    if (!completedSet.has('archive')) {
+      const archiveResponse = await fetch(`/api/books/${encodeURIComponent(bookId)}/file/`, { headers: authHeaders() });
+      if (!archiveResponse.ok) throw new Error('EPUB 原始文件下载失败');
+      const archiveData = await archiveResponse.arrayBuffer();
+      const archiveTx = db.transaction('epubArchives', 'readwrite');
+      await archiveTx.objectStore('epubArchives').put({ bookId, versionHash, data: archiveData, cachedAt: Date.now() } as EpubArchiveCache);
+      await archiveTx.done;
+      session.completedItems.push('archive');
+      completedSet.add('archive');
+      completed++;
+      await updateEpubDownloadSession(session);
+      onProgress?.(completed, total);
+    }
+
+    // 6. 逐个下载资源（跳过已完成，支持续传）
+    for (const resource of resources) {
+      const itemKey = `res:${resource.path}`;
+      if (completedSet.has(itemKey)) {
+        pkg.epubResources.cached++;
+        pkg.epubResources.cachedBytes += resource.size;
+        continue;
+      }
       const urlPath = resource.path.split('/').map(encodeURIComponent).join('/');
       const response = await fetch(`/api/books/${encodeURIComponent(bookId)}/file/${urlPath}`, { headers: authHeaders() });
       if (!response.ok) throw new Error(`资源下载失败：${resource.path}`);
@@ -426,28 +618,120 @@ export async function downloadOfflineEpubPackage(
         cachedAt: Date.now(),
       } as EpubResourceCache);
       await resourceTx.done;
-      completed += 1;
-      packageMeta.cachedResources += 1;
-      packageMeta.updatedAt = Date.now();
-      await setStatus(packageMeta);
+
+      // 更新清单中该资源的 cached 状态
+      const entry = pkg.epubResources.manifest.find(e => e.path === resource.path);
+      if (entry) entry.cached = true;
+      pkg.epubResources.cached++;
+      pkg.epubResources.cachedBytes += resource.size;
+
+      session.completedItems.push(itemKey);
+      completedSet.add(itemKey);
+      completed++;
+      await updateEpubDownloadSession(session);
+      pkg.updatedAt = Date.now();
+      await saveOfflinePackage(pkg);
       onProgress?.(completed, total);
     }
 
-    packageMeta.status = 'ready';
-    packageMeta.updatedAt = Date.now();
-    await setStatus(packageMeta);
-    return packageMeta;
-  } catch (error) {
-    const failed: OfflineBookPackageMeta = {
+    // 7. 标记完成
+    pkg.status = 'ready';
+    pkg.updatedAt = Date.now();
+    await saveOfflinePackage(pkg);
+    session.status = 'completed';
+    await updateEpubDownloadSession(session);
+
+    // 返回旧版兼容结构
+    return {
       bookId,
-      versionHash: null,
-      status: 'failed',
-      totalResources: 0,
-      cachedResources: 0,
-      updatedAt: Date.now(),
+      versionHash,
+      status: 'ready',
+      totalResources: resources.length,
+      cachedResources: resources.length,
+      updatedAt: pkg.updatedAt,
     };
-    await setStatus(failed);
+  } catch (error) {
+    // 标记失败
+    const failedPkg = await getOfflinePackage(bookId);
+    if (failedPkg) {
+      failedPkg.status = 'failed';
+      failedPkg.updatedAt = Date.now();
+      await saveOfflinePackage(failedPkg);
+    }
+    // 旧版兼容
+    const existing = await db.get('cacheMeta', bookId) as CacheMeta | undefined;
+    if (existing) {
+      existing.offlinePackage = { bookId, versionHash: null, status: 'failed', totalResources: 0, cachedResources: 0, updatedAt: Date.now() };
+      await db.put('cacheMeta', existing);
+    }
     throw error;
+  }
+}
+
+/**
+ * 校验离线包完整性
+ */
+export async function validateOfflinePackage(bookId: string): Promise<PackageValidationResult> {
+  const db = await getDB();
+  const pkg = await db.get('offlinePackages', bookId) as OfflineBookPackage | undefined;
+  if (!pkg) {
+    return { valid: false, missingResources: [], corruptResources: [], archivePresent: false, chaptersPresent: false };
+  }
+
+  const missingResources: string[] = [];
+  const corruptResources: string[] = [];
+
+  // 检查归档
+  const archive = await db.get('epubArchives', bookId) as EpubArchiveCache | undefined;
+  const archivePresent = !!archive;
+
+  // 检查章节
+  const cachedChapters = await db.getAllFromIndex('bookChapters', 'bookId', bookId) as BookChapterCache[];
+  const chaptersPresent = cachedChapters.length >= pkg.chapters.total;
+
+  // 检查资源
+  for (const entry of pkg.epubResources.manifest) {
+    const cached = await db.get('epubResources', `${bookId}:${entry.path}`) as EpubResourceCache | undefined;
+    if (!cached) {
+      missingResources.push(entry.path);
+    } else if (cached.hash !== entry.hash) {
+      corruptResources.push(entry.path);
+    }
+  }
+
+  return {
+    valid: archivePresent && chaptersPresent && missingResources.length === 0 && corruptResources.length === 0,
+    missingResources,
+    corruptResources,
+    archivePresent,
+    chaptersPresent,
+  };
+}
+
+/**
+ * 失效检测：比对本地包 versionHash 与服务端最新 fileHash
+ * 返回 true 表示包已过期（书籍被重新上传）
+ */
+export async function checkPackageStaleness(bookId: string): Promise<boolean> {
+  try {
+    const pkg = await getOfflinePackage(bookId);
+    if (!pkg || pkg.status !== 'ready') return false;
+
+    const res = await fetch(`/api/books/${encodeURIComponent(bookId)}`, { headers: authHeaders() });
+    if (!res.ok) return false;
+    const json = await res.json();
+    const serverHash = json?.data?.fileHash;
+    if (!serverHash) return false;
+
+    if (pkg.bookVersionHash !== serverHash) {
+      pkg.status = 'stale';
+      pkg.updatedAt = Date.now();
+      await saveOfflinePackage(pkg);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 

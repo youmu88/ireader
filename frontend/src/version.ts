@@ -106,7 +106,7 @@
  *   6) 新增 useReadingPosition.test.ts：10 个单元测试全绿
  *   7) 验收：tsc --noEmit 通过，vitest 10/10 通过
  */
-export const APP_VERSION = '2.24.1';
+export const APP_VERSION = '2.25.0';
 /**
  * 2.16.3 (2026-07-16): [BUGFIX] 移除有缺陷的 EPUB 滚动监听自动加载，替换为常驻上下章按钮
  *   1) 根因：epub.js scrolled-doc 模式的 iframe 内 scroll 事件监听不可靠（容器/内容尺寸变化等

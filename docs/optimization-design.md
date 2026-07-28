@@ -73,7 +73,7 @@
 
 ### P1：影响核心体验和维护成本
 
-#### P1-1 EPUB 章节语义重复实现
+#### P1-1 EPUB 章节语义重复实现 ✅
 
 EPUB 解析在 [backend/src/parser/epub.ts](/Users/wilsonwen/workspace/ireader/backend/src/parser/epub.ts) 中以 flow/spine 为主，再用 TOC 锚点补充单文件合集；章节接口又通过正则截取锚点；TTS 服务再次使用另一套正则提取锚点；前端 epub.js 又使用 spine index 跳转目录。这会造成目录项、阅读位置、文本缓存和语音段落互相错位。
 
@@ -96,13 +96,13 @@ Book
 
 目录展示、epub.js 跳转、章节接口、离线缓存、TTS 均只使用该模型。
 
-#### P1-2 EPUB 章节缓存存在锚点路径错误
+#### P1-2 EPUB 章节缓存存在锚点路径错误 ✅
 
 [backend/src/services/contentCacheService.ts](/Users/wilsonwen/workspace/ireader/backend/src/services/contentCacheService.ts) 对 EPUB 直接使用 `chapter.href` 拼接文件路径，没有移除 `#fragment`。含锚点的单文件 EPUB 会缓存失败或取不到文件。
 
 **设计要求**：统一调用 `resolveChapterResource(chapter)`，内部拆分 href 和 fragment，先读取资源，再按 DOM 结构截取片段；不得在多个业务模块复制字符串正则。
 
-#### P1-3 章节内容接口返回原始 HTML，前端多处自行清洗
+#### P1-3 章节内容接口返回原始 HTML，前端多处自行清洗 ✅
 
 当前 EPUB 正文、全文搜索、TTS、离线缓存分别使用不同的 HTML 清洗方式。简单正则不能可靠处理嵌套标签、脚本、样式、实体、CDATA、表格、ruby、注音和 block 结构。
 
