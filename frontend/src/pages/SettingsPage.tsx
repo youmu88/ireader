@@ -229,6 +229,8 @@ export default function SettingsPage() {
       try {
         localStorage.setItem('ireader_tts_source', 'openai');
         localStorage.setItem('ireader_tts_voice', selectedVoice);
+        localStorage.setItem('ireader_tts_synthesisRate', String(speed));
+        // backward compat: 旧 key 保留一份，逐步废弃
         localStorage.setItem('ireader_tts_speed', String(speed));
       } catch { /* ignore */ }
       setTimeout(() => setSaveMessage(''), 3000);
@@ -429,13 +431,14 @@ export default function SettingsPage() {
           </h2>
           <div className="rounded-2xl overflow-hidden shadow-ios-sm"
             style={{ background: 'var(--color-bg-card)' }}>
-            {/* 语速 */}
+            {/* 合成语速（影响音频生成和缓存身份） */}
             <div className="px-4 py-3.5"
               style={{ borderBottom: '0.5px solid var(--color-border)' }}>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>语速</span>
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>合成语速</span>
                 <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{speed.toFixed(1)}x</span>
               </div>
+              <p className="text-[11px] mb-1" style={{ color: 'var(--color-text-muted)' }}>影响语音生成和缓存，调整后需重新合成。播放倍速请在阅读器中调节。</p>
               <input type="range" min="0.5" max="2.0" step="0.1" value={speed}
                 onChange={e => setSpeed(parseFloat(e.target.value))}
                 className="w-full" style={{ accentColor: 'var(--color-primary)' }} />

@@ -131,7 +131,8 @@ interface EpubArchiveCache {
 
 export interface TTSAudioIdentity {
   voice: string;
-  speed: number;
+  /** 合成语速（影响缓存身份，不同于本地播放倍速 playbackRate） */
+  synthesisRate: number;
   source: string;
   text: string;
 }
@@ -147,7 +148,7 @@ function fingerprintText(text: string): string {
 
 function getTTSAudioKey(bookId: string, chapterId: string, segmentIndex: number, identity?: TTSAudioIdentity): string {
   if (!identity) return `${bookId}:${chapterId}:${segmentIndex}`;
-  return `${bookId}:${chapterId}:${segmentIndex}:${encodeURIComponent(identity.source)}:${encodeURIComponent(identity.voice)}:${identity.speed}:${fingerprintText(identity.text)}`;
+  return `${bookId}:${chapterId}:${segmentIndex}:${encodeURIComponent(identity.source)}:${encodeURIComponent(identity.voice)}:${identity.synthesisRate}:${fingerprintText(identity.text)}`;
 }
 
 interface BookChapterCache {
@@ -169,7 +170,7 @@ interface TTSAudioCache {
   duration: number;
   cachedAt: number;
   voice?: string;
-  speed?: number;
+  synthesisRate?: number;
   source?: string;
   textFingerprint?: string;
 }
@@ -459,7 +460,10 @@ export async function getOfflinePackage(bookId: string): Promise<OfflineBookPack
   }
 }
 
-/** 获取所有已缓存离线包的 bookId 列表 */
+/**
+ * 获取所有已缓存离线包的 bookId 列表
+ * 用于书架页 mount 时批量执行 checkPackageStaleness
+ */
 export async function getAllOfflinePackageBookIds(): Promise<string[]> {
   try {
     const db = await getDB();
@@ -783,7 +787,7 @@ export async function cacheTTSAudio(
     duration: duration ?? 0,
     cachedAt: Date.now(),
     voice: identity?.voice,
-    speed: identity?.speed,
+    synthesisRate: identity?.synthesisRate,
     source: identity?.source,
     textFingerprint: identity ? fingerprintText(identity.text) : undefined,
   } as TTSAudioCache);
@@ -834,7 +838,7 @@ export async function cacheTTSAudioBatch(
       duration: item.duration ?? 0,
       cachedAt: now,
       voice: item.identity?.voice,
-      speed: item.identity?.speed,
+      synthesisRate: item.identity?.synthesisRate,
       source: item.identity?.source,
       textFingerprint: item.identity ? fingerprintText(item.identity.text) : undefined,
     } as TTSAudioCache);
@@ -939,13 +943,14 @@ export interface BookCacheStatus {
 /** P1-7：TTS profile 过滤参数 */
 export interface TTSProfileFilter {
   voice: string;
-  speed: number;
+  /** 合成语速（缓存身份组成部分） */
+  synthesisRate: number;
   source: string;
 }
 
 /**
  * 获取一本书的缓存状态
- * P1-7：传入 profile 时按当前 voice/speed/source 统计音频覆盖率
+ * P1-7：传入 profile 时按当前 voice/synthesisRate/source 统计音频覆盖率
  */
 export async function getBookCacheStatus(bookId: string, profile?: TTSProfileFilter): Promise<BookCacheStatus | null> {
   try {
@@ -960,7 +965,7 @@ export async function getBookCacheStatus(bookId: string, profile?: TTSProfileFil
       const tx = db.transaction('ttsAudio', 'readonly');
       const audioStore = tx.objectStore('ttsAudio');
       const allAudio = await audioStore.index('bookId').getAll(bookId) as TTSAudioCache[];
-      const profileKey = `${profile.voice}:${profile.speed}:${profile.source}`;
+      const profileKey = `${profile.voice}:${profile.synthesisRate}:${profile.source}`;
       const matched = allAudio.filter(a => a.key.includes(profileKey));
       currentProfileCoverage = meta.totalAudioSegments > 0 ? matched.length / meta.totalAudioSegments : 0;
     }
@@ -1367,13 +1372,13 @@ export function onNetworkChange(callback: (online: boolean) => void): () => void
 export async function downloadBatchCachedAudio(
   bookId: string,
   voice: string,
-  speed: number,
+  synthesisRate: number,
   source: string,
   chapterSegments: Map<string, string[]>,
   onProgress?: (chapterId: string, segIdx: number) => void,
 ): Promise<number> {
   try {
-    const res = await fetch(`/api/tts/batch-cache/${bookId}?voice=${encodeURIComponent(voice)}&speed=${speed}&source=${encodeURIComponent(source)}`, {
+    const res = await fetch(`/api/tts/batch-cache/${bookId}?voice=${encodeURIComponent(voice)}&speed=${synthesisRate}&source=${encodeURIComponent(source)}`, {
       headers: (() => {
         const headers: Record<string, string> = {};
         const token = localStorage.getItem('ireader_auth_token');
@@ -1418,7 +1423,7 @@ export async function downloadBatchCachedAudio(
               chapterId: seg.chapterId,
               segmentIndex: segIdx,
               audioData: arrayBuffer,
-              identity: { voice, speed, source, text: seg.text! },
+              identity: { voice, synthesisRate, source, text: seg.text! },
             });
             downloadedCount++;
             onProgress?.(seg.chapterId, segIdx);
@@ -1460,9 +1465,9 @@ export interface DownloadSession {
   updatedAt: number;
 }
 
-/** 生成 profile hash（voice+speed+source） */
-export function computeProfileHash(voice: string, speed: number, source: string): string {
-  return `${voice}:${speed}:${source}`;
+/** 生成 profile hash（voice+synthesisRate+source） */
+export function computeProfileHash(voice: string, synthesisRate: number, source: string): string {
+  return `${voice}:${synthesisRate}:${source}`;
 }
 
 /** 创建或恢复下载 session */

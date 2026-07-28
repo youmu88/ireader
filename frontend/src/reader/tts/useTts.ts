@@ -17,7 +17,10 @@ import type { ReaderEngine } from '../engine/types';
 export interface UseTtsOptions {
   bookId: string | undefined;
   engine: ReaderEngine | null;
-  speed?: number;
+  /** 合成语速（影响缓存身份） */
+  synthesisRate?: number;
+  /** 本地播放倍速（不影响缓存） */
+  playbackRate?: number;
   voice?: string;
   source?: string;
   noCache?: boolean;
@@ -35,14 +38,17 @@ export interface UseTtsResult {
   resume: () => void;
   stop: () => void;
   jumpToSegment: (index: number) => Promise<void>;
-  setSpeed: (speed: number) => void;
+  /** 设置本地播放倍速（即时生效） */
+  setPlaybackRate: (rate: number) => void;
+  /** 设置合成语速（影响后续合成缓存身份） */
+  setSynthesisRate: (rate: number) => void;
   setVoice: (voice: string) => void;
   /** 获取控制器实例（供高级场景） */
   getController: () => DefaultTtsController | null;
 }
 
 export function useTts(options: UseTtsOptions): UseTtsResult {
-  const { bookId, engine, speed, voice, source, noCache } = options;
+  const { bookId, engine, synthesisRate, playbackRate, voice, source, noCache } = options;
 
   const controllerRef = useRef<DefaultTtsController | null>(null);
   const [state, setState] = useState<TtsState>('idle');
@@ -57,7 +63,8 @@ export function useTts(options: UseTtsOptions): UseTtsResult {
     const ctrl = new DefaultTtsController({
       bookId,
       engine,
-      speed,
+      synthesisRate,
+      playbackRate,
       voice,
       source,
       noCache,
@@ -82,10 +89,14 @@ export function useTts(options: UseTtsOptions): UseTtsResult {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId, engine]);
 
-  // 同步 speed/voice 变化
+  // 同步 synthesisRate/playbackRate/voice 变化
   useEffect(() => {
-    if (speed != null) controllerRef.current?.setSpeed(speed);
-  }, [speed]);
+    if (synthesisRate != null) controllerRef.current?.setSynthesisRate(synthesisRate);
+  }, [synthesisRate]);
+
+  useEffect(() => {
+    if (playbackRate != null) controllerRef.current?.setPlaybackRate(playbackRate);
+  }, [playbackRate]);
 
   useEffect(() => {
     if (voice) controllerRef.current?.setVoice(voice);
@@ -111,8 +122,12 @@ export function useTts(options: UseTtsOptions): UseTtsResult {
     await controllerRef.current?.jumpToSegment(index);
   }, []);
 
-  const setSpeedFn = useCallback((s: number) => {
-    controllerRef.current?.setSpeed(s);
+  const setPlaybackRateFn = useCallback((r: number) => {
+    controllerRef.current?.setPlaybackRate(r);
+  }, []);
+
+  const setSynthesisRateFn = useCallback((r: number) => {
+    controllerRef.current?.setSynthesisRate(r);
   }, []);
 
   const setVoiceFn = useCallback((v: string) => {
@@ -131,7 +146,8 @@ export function useTts(options: UseTtsOptions): UseTtsResult {
     resume,
     stop,
     jumpToSegment,
-    setSpeed: setSpeedFn,
+    setPlaybackRate: setPlaybackRateFn,
+    setSynthesisRate: setSynthesisRateFn,
     setVoice: setVoiceFn,
     getController,
   };

@@ -5,7 +5,11 @@ import type { ReadingPosition } from './types';
 import { loadLocalPosition, useProgressPersistence } from './useProgressPersistence';
 
 vi.mock('axios', () => ({
-  default: { put: vi.fn(() => Promise.resolve({ data: { success: true } })) },
+  default: { put: vi.fn(() => Promise.resolve({ data: { success: true, conflict: false, data: { progressVersion: 2, deviceId: 'test-device', updatedAt: '2026-01-01T00:00:00Z' } } })) },
+}));
+
+vi.mock('../../services/deviceId', () => ({
+  getDeviceId: () => 'test-device-id',
 }));
 
 // ── 工具 ─────────────────────────────────────────────────
@@ -54,6 +58,7 @@ describe('useProgressPersistence', () => {
     expect(axios.put).toHaveBeenCalledWith('/api/books/book-1/progress', expect.objectContaining({
       chapterId: 'ch-1',
       percentage: 25, // (2 + 0.5) / 10 * 100 = 25
+      deviceId: 'test-device-id',
     }));
   });
 

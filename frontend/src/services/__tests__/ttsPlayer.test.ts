@@ -116,13 +116,22 @@ describe('TTSPlayer — 状态管理', () => {
     expect(player.getState()).toBe('idle');
   });
 
-  it('should respect speed limits', () => {
-    player.setSpeed(0.1);
-    expect(player.getSpeed()).toBe(0.5);
-    player.setSpeed(3.0);
-    expect(player.getSpeed()).toBe(2.0);
-    player.setSpeed(1.5);
-    expect(player.getSpeed()).toBe(1.5);
+  it('should respect playbackRate limits', () => {
+    player.setPlaybackRate(0.1);
+    expect(player.getPlaybackRate()).toBe(0.5);
+    player.setPlaybackRate(5.0);
+    expect(player.getPlaybackRate()).toBe(3.0);
+    player.setPlaybackRate(1.5);
+    expect(player.getPlaybackRate()).toBe(1.5);
+  });
+
+  it('should respect synthesisRate limits', () => {
+    player.setSynthesisRate(0.1);
+    expect(player.getSynthesisRate()).toBe(0.5);
+    player.setSynthesisRate(3.0);
+    expect(player.getSynthesisRate()).toBe(2.0);
+    player.setSynthesisRate(1.25);
+    expect(player.getSynthesisRate()).toBe(1.25);
   });
 
   it('should return correct current index and total', async () => {

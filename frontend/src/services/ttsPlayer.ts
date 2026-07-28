@@ -72,6 +72,11 @@ interface TTSChunk {
 export interface TTSPlayerOptions {
   source?: string;
   voice?: string;
+  /** 合成语速（影响 TTS API 参数和缓存身份） */
+  synthesisRate?: number;
+  /** 本地播放倍速（不影响缓存身份，仅改变 audio.playbackRate） */
+  playbackRate?: number;
+  /** @deprecated 使用 synthesisRate 代替 */
   speed?: number;
   preGenCount?: number;
   /** 调试：跳过后端 TTS 音频缓存，每次都实时合成 */
@@ -224,7 +229,10 @@ export class TTSPlayer {
   private currentIndex = -1;
   private state: PlayerState = 'idle';
   private callbacks: TTSPlayerCallbacks = {};
-  private speed = 1.0;
+  /** 合成语速（影响 TTS API 参数和缓存身份） */
+  private synthesisRate = 1.0;
+  /** 本地播放倍速（不影响缓存身份） */
+  private playbackRate = 1.0;
   private source = 'kokoro';
   private voice = 'zh-CN-XiaoxiaoNeural';
   private preGenCount = 10;
@@ -281,7 +289,9 @@ export class TTSPlayer {
   // ── 初始化 ──
 
   async init(options?: TTSPlayerOptions): Promise<void> {
-    if (options?.speed) this.speed = options.speed;
+    if (options?.synthesisRate) this.synthesisRate = options.synthesisRate;
+    else if (options?.speed) this.synthesisRate = options.speed; // backward compat
+    if (options?.playbackRate) this.playbackRate = options.playbackRate;
     if (options?.source) this.source = options.source;
     if (options?.voice) this.voice = options.voice;
     if (options?.preGenCount) this.preGenCount = options.preGenCount;
@@ -292,7 +302,7 @@ export class TTSPlayer {
 
     // ⭐ 如果 audio 元素已存在（预热时已初始化），只更新选项和设置
     if (this.audioElement) {
-      this.audioElement.playbackRate = this.speed;
+      this.audioElement.playbackRate = this.playbackRate;
       this.updateMediaSessionMetadata();
       return;
     }
@@ -302,7 +312,7 @@ export class TTSPlayer {
     if (cachedSettings) {
       this.source = cachedSettings.source || this.source;
       this.voice = cachedSettings.voiceId || this.voice;
-      this.speed = cachedSettings.speed ?? this.speed;
+      this.synthesisRate = cachedSettings.speed ?? this.synthesisRate;
     }
     // 注意：未命中缓存时不再 await 网络取设置（避免冷启动阻塞点击朗读 1~2s），
     // 直接用默认值继续创建 <audio> 元素，设置随后由下方后台异步刷新补齐。
@@ -314,9 +324,9 @@ export class TTSPlayer {
         if (!this.isDestroyed) {
           if (!options?.source) this.source = settings.source || this.source;
           if (!options?.voice) this.voice = settings.voiceId || this.voice;
-          if (!options?.speed) this.speed = settings.speed ?? this.speed;
+          if (!options?.synthesisRate && !options?.speed) this.synthesisRate = settings.speed ?? this.synthesisRate;
           saveCachedTTSSettings(settings);
-          if (this.audioElement) this.audioElement.playbackRate = this.speed;
+          if (this.audioElement) this.audioElement.playbackRate = this.playbackRate;
         }
       }).catch(() => {});
     }
@@ -325,7 +335,7 @@ export class TTSPlayer {
     const el = new Audio();
     el.preload = 'auto';
     el.volume = this.volume;
-    el.playbackRate = this.speed;
+    el.playbackRate = this.playbackRate;
     el.style.display = 'none';
     document.body.appendChild(el);
     this.audioElement = el;
@@ -342,15 +352,35 @@ export class TTSPlayer {
 
   // ── 设置语速 ──
 
-  setSpeed(speed: number): void {
-    this.speed = Math.max(0.5, Math.min(2.0, speed));
-    if (this.audioElement && this.state === 'playing') {
-      this.audioElement.playbackRate = this.speed;
+  /** 设置本地播放倍速（即时生效，不影响缓存身份） */
+  setPlaybackRate(rate: number): void {
+    this.playbackRate = Math.max(0.5, Math.min(3.0, rate));
+    if (this.audioElement) {
+      this.audioElement.playbackRate = this.playbackRate;
     }
   }
 
+  getPlaybackRate(): number {
+    return this.playbackRate;
+  }
+
+  /** 设置合成语速（影响后续合成的缓存身份） */
+  setSynthesisRate(rate: number): void {
+    this.synthesisRate = Math.max(0.5, Math.min(2.0, rate));
+  }
+
+  getSynthesisRate(): number {
+    return this.synthesisRate;
+  }
+
+  /** @deprecated 使用 setPlaybackRate 代替 */
+  setSpeed(speed: number): void {
+    this.setPlaybackRate(speed);
+  }
+
+  /** @deprecated 使用 getPlaybackRate 代替 */
   getSpeed(): number {
-    return this.speed;
+    return this.playbackRate;
   }
 
   // ── 设置音量 ──
@@ -367,7 +397,7 @@ export class TTSPlayer {
   }
 
   private getAudioIdentity(text: string): TTSAudioIdentity {
-    return { voice: this.voice, speed: this.speed, source: this.source, text };
+    return { voice: this.voice, synthesisRate: this.synthesisRate, source: this.source, text };
   }
 
   getState(): PlayerState {
@@ -862,7 +892,7 @@ export class TTSPlayer {
 
     this.audioElement.src = blobUrl;
     this.currentBlobUrl = blobUrl;
-    this.audioElement.playbackRate = this.speed;
+    this.audioElement.playbackRate = this.playbackRate;
     this.audioElement.volume = this.volume;
 
     // 播放时更新 Media Session 元数据（书名+封面）
@@ -1187,7 +1217,7 @@ export class TTSPlayer {
       body: JSON.stringify({
         input: text,
         voice: this.voice,
-        speed: this.speed,
+        speed: this.synthesisRate,
         response_format: 'wav',
         tts_source: this.source,
         no_cache: this.noCache,

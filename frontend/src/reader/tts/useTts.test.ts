@@ -16,7 +16,8 @@ vi.mock('./DefaultTtsController', () => {
       resume: vi.fn(),
       stop: vi.fn(),
       jumpToSegment: vi.fn(async () => {}),
-      setSpeed: vi.fn(),
+      setPlaybackRate: vi.fn(),
+      setSynthesisRate: vi.fn(),
       setVoice: vi.fn(),
       onSegmentChange: vi.fn(() => () => {}),
       onStateChange: vi.fn(() => () => {}),
@@ -103,11 +104,13 @@ describe('useTts', () => {
     expect(ctrl.jumpToSegment).toHaveBeenCalledWith(5);
   });
 
-  it('setSpeed/setVoice 委托给 controller', () => {
+  it('setPlaybackRate/setSynthesisRate/setVoice 委托给 controller', () => {
     const { result } = renderHook(() => useTts({ bookId: 'b1', engine }));
     const ctrl = result.current.getController()!;
-    act(() => { result.current.setSpeed(1.5); });
-    expect(ctrl.setSpeed).toHaveBeenCalledWith(1.5);
+    act(() => { result.current.setPlaybackRate(1.5); });
+    expect(ctrl.setPlaybackRate).toHaveBeenCalledWith(1.5);
+    act(() => { result.current.setSynthesisRate(1.25); });
+    expect(ctrl.setSynthesisRate).toHaveBeenCalledWith(1.25);
     act(() => { result.current.setVoice('zh-CN-XiaoxiaoNeural'); });
     expect(ctrl.setVoice).toHaveBeenCalledWith('zh-CN-XiaoxiaoNeural');
   });

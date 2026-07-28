@@ -108,12 +108,12 @@ describe('offlineCacheService', () => {
     });
 
     it('应按文本和语音配置隔离本地音频缓存', async () => {
-      const identity = { voice: 'voice-a', speed: 1, source: 'edgetts', text: '第一段正文。' };
+      const identity = { voice: 'voice-a', synthesisRate: 1, source: 'edgetts', text: '第一段正文。' };
       await cacheTTSAudio(BOOK_ID, 'ch1', 0, new Uint8Array([1, 2, 3]).buffer, undefined, identity);
 
       expect(await getCachedTTSAudio(BOOK_ID, 'ch1', 0, identity)).not.toBeNull();
       expect(await getCachedTTSAudio(BOOK_ID, 'ch1', 0, { ...identity, voice: 'voice-b' })).toBeNull();
-      expect(await getCachedTTSAudio(BOOK_ID, 'ch1', 0, { ...identity, speed: 1.25 })).toBeNull();
+      expect(await getCachedTTSAudio(BOOK_ID, 'ch1', 0, { ...identity, synthesisRate: 1.25 })).toBeNull();
       expect(await getCachedTTSAudio(BOOK_ID, 'ch1', 0, { ...identity, text: '正文已修改。' })).toBeNull();
     });
   });

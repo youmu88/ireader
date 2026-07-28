@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import axios from 'axios';
 import type { ReadingPosition } from './types';
+import { getDeviceId } from '../../services/deviceId';
 
 // ── 常量 ─────────────────────────────────────────────────
 
@@ -36,6 +37,23 @@ export interface ProgressPayload {
   textOffset?: number;
   /** EPUB CFI */
   cfi?: string;
+  /** 单调递增版本号，用于多设备冲突合并 */
+  progressVersion: number;
+  /** 写入来源设备标识 */
+  deviceId: string;
+}
+
+/** 后端 PUT 响应中的冲突信息 */
+export interface ProgressSaveResponse {
+  success: boolean;
+  conflict: boolean;
+  message?: string;
+  data?: {
+    progressVersion: number;
+    deviceId: string | null;
+    updatedAt: string;
+    [key: string]: unknown;
+  };
 }
 
 export interface UseProgressPersistenceOptions {
@@ -48,14 +66,20 @@ export interface UseProgressPersistenceOptions {
 }
 
 export interface UseProgressPersistenceResult {
+  /** 命令式保存（走 debounce 管道，供外部事件处理器调用） */
+  save: (pos: ReadingPosition) => void;
+  /** 立即保存（跳过 debounce，用于页面卸载等必须同步写入的场景） */
+  saveImmediate: (pos: ReadingPosition) => void;
   /** 立即刷新待保存的位置（跳过 debounce，用于页面卸载前） */
   flush: () => void;
+  /** 从服务端同步版本号（恢复进度后调用，避免首次保存触发冲突） */
+  syncVersion: (serverVersion: number) => void;
 }
 
 // ── 工具函数 ─────────────────────────────────────────────
 
 /** ReadingPosition → 后端 API payload */
-function toPayload(pos: ReadingPosition, totalChapters: number): ProgressPayload {
+function toPayload(pos: ReadingPosition, totalChapters: number, version: number): ProgressPayload {
   const percentage = totalChapters > 0
     ? Math.round(((pos.chapterIndex + pos.ratio) / totalChapters) * 100)
     : 0;
@@ -63,6 +87,8 @@ function toPayload(pos: ReadingPosition, totalChapters: number): ProgressPayload
   const payload: ProgressPayload = {
     chapterId: pos.chapterId,
     percentage: Math.max(0, Math.min(100, percentage)),
+    progressVersion: version,
+    deviceId: getDeviceId(),
   };
 
   // 滚动模式：ratio → pageIndex (0~10000)
@@ -71,6 +97,10 @@ function toPayload(pos: ReadingPosition, totalChapters: number): ProgressPayload
   } else if (pos.page != null && pos.pageCount != null && pos.pageCount > 1) {
     // 分页模式：page/pageCount → pageIndex
     payload.pageIndex = Math.round((pos.page / (pos.pageCount - 1)) * 10000);
+  }
+
+  if (pos.textOffset != null) {
+    payload.textOffset = pos.textOffset;
   }
 
   if (pos.cfi) {
@@ -110,6 +140,13 @@ export function useProgressPersistence(
   const pendingRef = useRef<ReadingPosition | null>(null);
   const optionsRef = useRef({ bookId, totalChapters, enabled });
   optionsRef.current = { bookId, totalChapters, enabled };
+  /** 本地版本号，每次成功保存后从服务端响应同步 */
+  const versionRef = useRef(1);
+
+  /** 从服务端同步版本号（恢复进度后调用） */
+  const syncVersion = useCallback((serverVersion: number) => {
+    versionRef.current = serverVersion;
+  }, []);
 
   /** 执行实际保存（API + localStorage） */
   const doSave = useCallback((pos: ReadingPosition) => {
@@ -119,10 +156,44 @@ export function useProgressPersistence(
     // localStorage 同步写入（每次位置变化都写，保证崩溃恢复）
     persistToLocal(pos);
 
+    // 递增本地版本号
+    versionRef.current += 1;
+
     // API 异步写入
-    const payload = toPayload(pos, total);
-    axios.put(`/api/books/${bid}/progress`, payload).catch(() => { /* 静默 */ });
+    const payload = toPayload(pos, total, versionRef.current);
+    axios.put(`/api/books/${bid}/progress`, payload)
+      .then((res) => {
+        const body = res.data as ProgressSaveResponse;
+        if (body?.data?.progressVersion != null) {
+          versionRef.current = body.data.progressVersion;
+        }
+      })
+      .catch(() => { /* 静默 */ });
   }, []);
+
+  /** 命令式保存（走 debounce 管道） */
+  const save = useCallback((pos: ReadingPosition) => {
+    persistToLocal(pos);
+    pendingRef.current = pos;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      if (pendingRef.current) {
+        doSave(pendingRef.current);
+        pendingRef.current = null;
+      }
+    }, SAVE_DEBOUNCE_MS);
+  }, [doSave]);
+
+  /** 立即保存（跳过 debounce） */
+  const saveImmediate = useCallback((pos: ReadingPosition) => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    pendingRef.current = null;
+    doSave(pos);
+  }, [doSave]);
 
   /** 立即刷新（跳过 debounce） */
   const flush = useCallback(() => {
@@ -178,5 +249,5 @@ export function useProgressPersistence(
     };
   }, [flush]);
 
-  return { flush };
+  return { save, saveImmediate, flush, syncVersion };
 }

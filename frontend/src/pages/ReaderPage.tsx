@@ -28,6 +28,7 @@ import { useReaderSettings } from '../reader/hooks/useReaderSettings';
 import { useTtsIntegration } from '../reader/hooks/useTtsIntegration';
 import { useOfflineFallback } from '../reader/hooks/useOfflineFallback';
 import { useProgressRestore } from '../reader/hooks/useProgressRestore';
+import { useProgressPersistence } from '../reader/position/useProgressPersistence';
 import { useReaderInteraction } from '../interaction/useReaderInteraction';
 import { useAuth } from '../contexts/AuthContext';
 import { getToken } from '../services/authService';
@@ -49,7 +50,6 @@ interface Chapter {
   endOffset?: number;
 }
 
-const PROGRESS_SAVE_DELAY = 800; // ms debounce for saving progress
 
 const TTS_PLAYBACK_KEY = 'ireader_tts_playback'; // localStorage key for TTS playback session (survives page refresh)
 
@@ -63,6 +63,7 @@ function ReaderPage() {
   const progressRestore = useProgressRestore();
   const [book, setBook] = useState<Book | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
+  const { save: saveProgress, saveImmediate, flush: flushProgress, syncVersion } = useProgressPersistence(null, { bookId, totalChapters: chapters.length });
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
   const [txtContent, setTxtContent] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -96,9 +97,10 @@ function ReaderPage() {
   const [ttsProgress, setTtsProgress] = useState(0);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
   const [ttsError, setTtsError] = useState<string | null>(null);
+  /** 合成语速（影响缓存身份，来自设置页） */
   const [ttsSpeed] = useState(() => {
     try {
-      const raw = localStorage.getItem('ireader_tts_speed');
+      const raw = localStorage.getItem('ireader_tts_synthesisRate') || localStorage.getItem('ireader_tts_speed');
       return raw ? parseFloat(raw) : 1.0;
     } catch { return 1.0; }
   });
@@ -130,7 +132,6 @@ function ReaderPage() {
   const [selectedText, setSelectedText] = useState('');
   const [copiedToast, setCopiedToast] = useState(false);
   const txtPageRef = useRef<HTMLDivElement>(null);
-  const progressSaveTimer = useRef<any>(null);
 
   const ttsPlayerRef = useRef<ReturnType<typeof getDefaultPlayer> | null>(null);
   const chaptersRef = useRef(chapters);
@@ -569,7 +570,7 @@ useEffect(() => {
       })();
       const effectiveSpeed = (() => {
         try {
-          const raw = localStorage.getItem('ireader_tts_speed');
+          const raw = localStorage.getItem('ireader_tts_synthesisRate') || localStorage.getItem('ireader_tts_speed');
           return raw ? parseFloat(raw) : ttsSpeed;
         } catch { return ttsSpeed; }
       })();
@@ -636,7 +637,7 @@ useEffect(() => {
               const idx = i++;
               const task = allTasks[idx];
               try {
-                const identity = { voice: effectiveVoice, speed: effectiveSpeed, source: effectiveSource, text: task.seg };
+                const identity = { voice: effectiveVoice, synthesisRate: effectiveSpeed, source: effectiveSource, text: task.seg };
                 const existing = await getCachedTTSAudio(bookId, task.chapter.id, task.segIdx, identity);
                 if (!existing) {
                   const res = await fetch('/api/tts', {
@@ -805,7 +806,7 @@ useEffect(() => {
         })();
         const savedSpeed = (() => {
           try {
-            const raw = localStorage.getItem('ireader_tts_speed');
+            const raw = localStorage.getItem('ireader_tts_synthesisRate') || localStorage.getItem('ireader_tts_speed');
             return raw ? parseFloat(raw) : null;
           } catch { return null; }
         })();
@@ -816,7 +817,7 @@ useEffect(() => {
         // 提前初始化播放器（创建 audio 元素 + 缓存 TTS 设置）
         await player.init({
           source: localStorage.getItem('ireader_tts_source') || undefined,
-          speed: savedSpeed || ttsSpeed,
+          synthesisRate: savedSpeed || ttsSpeed,
           voice: savedVoice || ttsVoice,
           noCache: noCachePref,
           bookId,
@@ -892,6 +893,11 @@ useEffect(() => {
 
       // ⭐ 再次校验书籍是否仍为同一本
       if (currentBookIdRef.current !== triggerBookId) return;
+
+      // ⭐ 同步服务端版本号，避免首次保存因版本落后被拒绝
+      if (progressResult?.progressVersion != null) {
+        syncVersion(progressResult.progressVersion);
+      }
 
       if (targetChapter) {
         if (isEpub) {
@@ -1124,15 +1130,6 @@ function stripHtml(html: string): string {
     player.prefetchChapterSegments(segments, nextCh.id).catch(() => {});
   }, [chapters, bookId, book]);
 
-  // Debounced progress save
-  const debounceSaveProgress = useCallback((data: Record<string, any>) => {
-    if (progressSaveTimer.current) clearTimeout(progressSaveTimer.current);
-    progressSaveTimer.current = setTimeout(async () => {
-      try {
-        await axios.put(`/api/books/${bookId}/progress`, data);
-      } catch { /* silent */ }
-    }, PROGRESS_SAVE_DELAY);
-  }, [bookId]);
 
   // TXT / EPUB 通用章节导航
   const navigateToChapter = async (chapter: Chapter, _append?: boolean) => {
@@ -1152,7 +1149,7 @@ function stripHtml(html: string): string {
       await loadChapterContent(chapter, undefined, undefined, _append);
     }
 
-    debounceSaveProgress({ chapterId: chapter.id, percentage: chapter.order / chapters.length });
+    saveProgress({ bookId: bookId!, chapterId: chapter.id, chapterIndex: chapter.order, ratio: 0, timestamp: Date.now() });
   };
 
   // 保持 ref 指向最新函数，供翻页动画等异步回调使用
@@ -1262,11 +1259,8 @@ function stripHtml(html: string): string {
       return;
     }
     const nextCh = chaptersRef.current[ci + 1];
-    // 保存上一章完成进度（单个章节完成后标记为全书进度 = (ci+1)/total）
-    const totalChaps = chaptersRef.current.length;
-    const chapterDonePct = (ci + 1) / totalChaps;
-    // 写入真实的全书进度
-    debounceSaveProgress({ chapterId: currentChapterRef.current.id, percentage: chapterDonePct });
+    // 保存上一章完成进度（ratio=1 表示章节读完，hook 内部计算全书百分比）
+    saveProgress({ bookId: bookId!, chapterId: currentChapterRef.current.id, chapterIndex: ci, ratio: 1, timestamp: Date.now() });
     try {
       let content = await getCachedChapterContent(triggerBookId!, nextCh.id);
       if (!content) {
@@ -1556,18 +1550,17 @@ function stripHtml(html: string): string {
         const idx = ttsPlayerRef.current.getCurrentIndex();
         const total = ttsPlayerRef.current.getTotalChunks();
         if (idx >= 0 && total > 0) {
-          // ⭐ 直接 axios.put（绕过 debounceSaveProgress，避免 800ms 延时被后面的 clearTimeout 取消）
+          // ⭐ 通过 useProgressPersistence 立即保存（携带 progressVersion/deviceId）
           const cIdx = chaptersRef.current.findIndex((c: any) => c.id === chap.id);
-          const totalCh = chaptersRef.current.length;
           const chapterPct = (idx + 1) / total;
-          const bookPct = cIdx >= 0 && totalCh > 0
-            ? (cIdx + chapterPct) / totalCh
-            : chapterPct;
-          axios.put(`/api/books/${bookId}/progress`, {
+          saveImmediate({
+            bookId: bookId!,
             chapterId: chap.id,
+            chapterIndex: cIdx >= 0 ? cIdx : 0,
+            ratio: chapterPct,
             textOffset: idx,
-            percentage: bookPct,
-          }).catch(() => {});
+            timestamp: Date.now(),
+          });
           // 同时也持久化到 localStorage
           savePlaybackToLocalStorage({
             bookId: bookId || '',
@@ -1577,9 +1570,7 @@ function stripHtml(html: string): string {
           });
         }
       }
-      if (progressSaveTimer.current) {
-        clearTimeout(progressSaveTimer.current);
-      }
+      flushProgress();
       // 不销毁 TTS 播放器——保持后台播放（用户可能在书架页继续听）
       if (ttsPlayerRef.current) {
         ttsPlayerRef.current = null;
@@ -1700,7 +1691,14 @@ function stripHtml(html: string): string {
                 epubChapterRatioRef.current = chapterRatio;
               }
               if (currentBookIdRef.current) {
-                debounceSaveProgress({ cfi });
+                saveProgress({
+                  bookId: currentBookIdRef.current,
+                  chapterId: currentChapterRef.current?.id || '',
+                  chapterIndex: currentChapterRef.current?.order ?? 0,
+                  ratio: epubChapterRatioRef.current ?? 0,
+                  cfi,
+                  timestamp: Date.now(),
+                });
               }
             }}
             onPrevChapter={() => {

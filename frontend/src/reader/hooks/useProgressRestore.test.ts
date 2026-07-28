@@ -21,14 +21,19 @@ describe('useProgressRestore (Phase 6.3d)', () => {
     const res = await result.current.restore('b1', chapters, false);
     expect(res?.targetChapter.id).toBe('c1');
     expect(res?.restoreRatio).toBe(0);
+    expect(res?.progressVersion).toBe(0);
+    expect(res?.deviceId).toBeNull();
   });
 
   it('有 chapterId 时精确匹配', async () => {
-    vi.mocked(axios.get).mockResolvedValue({ data: { data: { chapterId: 'c2', percentage: 0.5 } } });
+    vi.mocked(axios.get).mockResolvedValue({ data: { data: { chapterId: 'c2', percentage: 0.5, progressVersion: 5, deviceId: 'dev-1', updatedAt: '2026-07-01T00:00:00Z' } } });
     const { result } = renderHook(() => useProgressRestore());
     const res = await result.current.restore('b1', chapters, false);
     expect(res?.targetChapter.id).toBe('c2');
     expect(res?.restoreRatio).toBe(0.5);
+    expect(res?.progressVersion).toBe(5);
+    expect(res?.deviceId).toBe('dev-1');
+    expect(res?.updatedAt).toBe('2026-07-01T00:00:00Z');
   });
 
   it('chapterId 不匹配时按 percentage 兜底', async () => {

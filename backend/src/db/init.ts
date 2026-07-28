@@ -546,4 +546,16 @@ function migrateOldTables(sqlite: Database.Database) {
   } catch (err) {
     console.error('[迁移] 数据库升级失败（可能是新表或已有列，忽略）:', (err as Error).message);
   }
+
+  // Migration: add progress_version and device_id for multi-device conflict resolution
+  try {
+    sqlite.exec(`
+      ALTER TABLE reading_progress ADD COLUMN progress_version INTEGER NOT NULL DEFAULT 1;
+    `);
+  } catch { /* column already exists */ }
+  try {
+    sqlite.exec(`
+      ALTER TABLE reading_progress ADD COLUMN device_id TEXT;
+    `);
+  } catch { /* column already exists */ }
 }

@@ -23,7 +23,8 @@ vi.mock('./SequentialPlayer', () => ({
     jumpToSegment: vi.fn(async (idx: number) => {
       cbs.onSegmentChange?.(idx, '跳转段落。');
     }),
-    setSpeed: vi.fn(),
+    setPlaybackRate: vi.fn(),
+    setSynthesisRate: vi.fn(),
     state: 'idle',
     currentSegmentIndex: 0,
     totalSegments: 3,
@@ -127,9 +128,14 @@ describe('DefaultTtsController', () => {
     expect(segCb).toHaveBeenCalledWith(2, '跳转段落。');
   });
 
-  it('setSpeed 不抛错', async () => {
+  it('setPlaybackRate 不抛错', async () => {
     await controller.startFromPosition(makePos());
-    expect(() => controller.setSpeed(1.5)).not.toThrow();
+    expect(() => controller.setPlaybackRate(1.5)).not.toThrow();
+  });
+
+  it('setSynthesisRate 不抛错', async () => {
+    await controller.startFromPosition(makePos());
+    expect(() => controller.setSynthesisRate(1.25)).not.toThrow();
   });
 
   it('setVoice 不抛错', () => {

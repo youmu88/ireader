@@ -61,6 +61,10 @@ export const readingProgress = sqliteTable('reading_progress', {
   textOffset: integer('text_offset'),
   percentage: real('percentage'),
   pageIndex: integer('page_index'),
+  /** 单调递增版本号，每次写入 +1，用于多设备冲突合并 */
+  progressVersion: integer('progress_version').notNull().default(1),
+  /** 写入来源设备标识（前端生成并持久化） */
+  deviceId: text('device_id'),
   updatedAt: text('updated_at').notNull(),
 });
 

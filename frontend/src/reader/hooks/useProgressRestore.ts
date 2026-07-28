@@ -19,6 +19,12 @@ export interface ProgressRestoreResult {
   cfi: string | null;
   /** TTS 分段索引（供 TTS 恢复） */
   ttsSegmentIndex: number | null;
+  /** 服务端进度版本号（用于冲突合并） */
+  progressVersion: number;
+  /** 最后写入设备标识 */
+  deviceId: string | null;
+  /** 服务端最后更新时间（ISO string） */
+  updatedAt: string | null;
   /** 原始进度数据 */
   rawProgress: any;
 }
@@ -45,7 +51,7 @@ export function useProgressRestore(): UseProgressRestoreResult {
     } catch { /* 无保存的进度 */ }
 
     if (!savedProgress) {
-      return { targetChapter: chapters[0], restoreRatio: 0, cfi: null, ttsSegmentIndex: null, rawProgress: null };
+      return { targetChapter: chapters[0], restoreRatio: 0, cfi: null, ttsSegmentIndex: null, progressVersion: 0, deviceId: null, updatedAt: null, rawProgress: null };
     }
 
     // 确定目标章节
@@ -79,6 +85,9 @@ export function useProgressRestore(): UseProgressRestoreResult {
       restoreRatio,
       cfi: savedProgress.cfi || null,
       ttsSegmentIndex,
+      progressVersion: savedProgress.progressVersion ?? 0,
+      deviceId: savedProgress.deviceId ?? null,
+      updatedAt: savedProgress.updatedAt ?? null,
       rawProgress: savedProgress,
     };
   }, []);

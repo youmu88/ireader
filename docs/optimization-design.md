@@ -530,11 +530,11 @@ OfflineBookPackage {
 
 | Phase | 状态 | 说明 |
 |-------|------|------|
-| Phase 0：止血与安全 | ⚠️ 部分完成 | P0-1 ✅ 鉴权+路径校验已修复；P0-2 ❌ 分段模型未统一；P0-3 ❌ 部分预合成范围未限制；P0-4 ⚠️ 未采用事务函数；P0-5 ⚠️ 离线包不完整 |
-| Phase 1：统一内容模型 | ⚠️ 部分完成 | epub.ts 已有 normalizedText/contentHash，但无统一 ChapterManifest 供全模块消费 |
-| Phase 2：重构 TTS 任务 | ❌ 未开始 | 无 SegmentManifest、逐段任务表、断点续跑 |
-| Phase 3：离线包 | ⚠️ 部分完成 | OfflineBookPackageMeta 基础结构存在，无 downloadSession/续传/完整资源包 |
-| Phase 4：阅读器拆分与视觉收敛 | ✅ 主体完成 | hooks 8个 + 组件 4个已提取，TTS 播放器重构完成，ReaderPage 3700→1987行；❌ design tokens/无障碍/MiniPlayer 未做 |
+| Phase 0：止血与安全 | ✅ 全部完成 | P0-1 ✅ 鉴权+路径校验；P0-2 ✅ 分段模型统一（R55）；P0-3 ✅ 范围限制+章节ID快照（R56）；P0-4 ✅ 事务封装+级联删除（R57）；P0-5 ✅ OfflineBookPackage 完整离线包（R63） |
+| Phase 1：统一内容模型 | ✅ 全部完成 | ChapterManifest 统一模型 + normalizedText/contentHash 后端产出 + 缓存锚点修复（R59）；遗留书籍批量回填 270 本 17408 章节（R60） |
+| Phase 2：重构 TTS 任务 | ✅ 全部完成 | P1-4~P1-8 逐段任务表、断点续跑、source 维度、并发去重、downloadSession 基础（R58） |
+| Phase 3：离线包 | ⚠️ 主体完成 | OfflineBookPackage 完整结构+资源清单+续传会话+校验+失效检测（R63）；书架 stale 检测已集成（R64）；❌ downloadSession 未集成到批量下载流程；❌ 在线/离线统一 Repository 未做；❌ SW 更新机制未做 |
+| Phase 4：阅读器拆分与视觉收敛 | ⚠️ 主体完成 | hooks 8个 + 组件 4个已提取，TTS 播放器重构完成，ReaderPage 3700→1987行；❌ design tokens/无障碍/统一组件库/MiniPlayer 未做 |
 | Phase 5：质量与性能 | ⚠️ 部分完成 | 150 单元测试 + tsc + CI/CD 流水线；❌ 大书性能基准/结构化日志/错误码未做 |
 
 ### P0 缺陷明细
@@ -542,10 +542,10 @@ OfflineBookPackage {
 | ID | 状态 | 验证依据 |
 |----|------|---------|
 | P0-1 EPUB 资源鉴权 | ✅ 已修复 | `GET /:id/file/*` 已加 requireAuth + path.resolve + startsWith(sep) 防穿越 |
-| P0-2 预合成分段模型 | ❌ 未修复 | ttsGenerationService 无 content_segments/tts_generation_segments 表 |
-| P0-3 部分预合成范围 | ❌ 未修复 | 无 scope_type/scope_start_order/scope_end_order 字段 |
-| P0-4 全局 TTS 空引用 | ⚠️ 待确认 | 使用 resource.id 但无 getOrCreate 事务封装 |
-| P0-5 离线 EPUB 完整性 | ⚠️ 部分 | 有 OfflineBookPackageMeta 但无 EPUB 资源/字体/图片完整离线包 |
+| P0-2 预合成分段模型 | ✅ 已修复 | 移除遗留分段路径，净减200行，统一由 content_segments 驱动（R55） |
+| P0-3 部分预合成范围 | ✅ 已修复 | createPartialGenerationJob 持久化章节ID快照，消除范围漂移（R56） |
+| P0-4 全局 TTS 空引用 | ✅ 已修复 | createFullBookGenerationJob 等封装为原子事务，deleteJobs 级联删除（R57） |
+| P0-5 离线 EPUB 完整性 | ✅ 已修复 | OfflineBookPackage 含资源清单/封面/TOC/续传/校验/失效检测，版本 2.25.0（R63） |
 
 ### P2 体验项明细
 
@@ -553,9 +553,9 @@ OfflineBookPackage {
 |----|------|------|
 | P2-1 阅读页面职责过重 | ⚠️ 大幅改善 | 3700→1987行，8 hooks + 4 组件已提取，但仍含大量内联逻辑 |
 | P2-2 WAV 拼接分支 | ✅ 已删除 | concat 模式已移除，保留逐段播放主路径 |
-| P2-3 语速语义不清 | ❌ 未修复 | speed 同时用于合成和 playbackRate，未分离 |
+| P2-3 语速语义不清 | ✅ 已修复 | speed 已拆分为 synthesisRate（影响缓存身份）+ playbackRate（本地倍速），设置页标注“合成语速” |
 | P2-4 跨章预取校验 | ⚠️ 部分 | SequentialPlayer 有基础校验，无完整 session key 匹配 |
-| P2-5 进度同步冲突 | ❌ 未修复 | 无 progressVersion/deviceId/冲突策略 |
+| P2-5 进度同步冲突 | ✅ 已修复 | progressVersion/deviceId/updatedAt 多设备合并（高版本优先 + 服务端单调递增） |
 
 ### Phase 4 已完成子项
 

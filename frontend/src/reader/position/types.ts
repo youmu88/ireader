@@ -23,6 +23,10 @@ export interface ReadingPosition {
   /** 滚动比例 0~1 */
   scrollRatio?: number;
 
+  // ── TTS 字段 ─────────────────────────────────────────
+  /** TTS 当前分段索引（用于恢复朗读位置） */
+  textOffset?: number;
+
   // ── EPUB 专属字段 ────────────────────────────────────
   /** EPUB CFI 定位字符串（精确到段落/字符） */
   cfi?: string;

@@ -36,8 +36,10 @@ export interface TtsController {
   /** 跳转到指定分段 */
   jumpToSegment(index: number): Promise<void>;
 
-  /** 设置语速 */
-  setSpeed(speed: number): void;
+  /** 设置本地播放倍速（即时生效，不影响缓存身份） */
+  setPlaybackRate(rate: number): void;
+  /** 设置合成语速（影响后续 TTS 合成的缓存身份） */
+  setSynthesisRate(rate: number): void;
   /** 设置音色 */
   setVoice(voice: string): void;
 

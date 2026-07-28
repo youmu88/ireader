@@ -18,8 +18,10 @@ export interface SequentialPlayerOptions {
   chapterId: string;
   /** 预取段数（默认 3） */
   prefetchCount?: number;
-  /** 语速 */
-  speed?: number;
+  /** 合成语速（影响 TTS API 参数和缓存身份） */
+  synthesisRate?: number;
+  /** 本地播放倍速（不影响缓存身份，仅改变 audio.playbackRate） */
+  playbackRate?: number;
   /** 音色 */
   voice?: string;
   /** TTS 源 */
@@ -112,10 +114,19 @@ export class SequentialPlayer {
     }
   }
 
-  setSpeed(speed: number): void {
-    this.options.speed = speed;
-    if (this.audio) this.audio.playbackRate = speed;
+  /** 设置本地播放倍速（即时生效，不影响缓存身份） */
+  setPlaybackRate(rate: number): void {
+    this.options.playbackRate = Math.max(0.5, Math.min(3.0, rate));
+    if (this.audio) this.audio.playbackRate = this.options.playbackRate;
   }
+
+  /** 设置合成语速（影响后续合成的缓存身份，已缓存段不受影响） */
+  setSynthesisRate(rate: number): void {
+    this.options.synthesisRate = rate;
+  }
+
+  getPlaybackRate(): number { return this.options.playbackRate ?? 1; }
+  getSynthesisRate(): number { return this.options.synthesisRate ?? 1; }
 
   destroy(): void {
     this.stop();
@@ -162,7 +173,7 @@ export class SequentialPlayer {
 
       if (!this.audio) return;
       this.audio.src = url;
-      this.audio.playbackRate = this.options.speed ?? 1;
+      this.audio.playbackRate = this.options.playbackRate ?? 1;
       await this.audio.play();
       this.setState('playing');
 
@@ -219,7 +230,7 @@ export class SequentialPlayer {
     const token = getToken();
     const source = this.options.source || settings?.source || 'edge-tts';
     const voice = this.options.voice || settings?.voiceId || 'zh-CN-XiaoxiaoNeural';
-    const speed = this.options.speed ?? settings?.speed ?? 1.0;
+    const synthesisRate = this.options.synthesisRate ?? settings?.speed ?? 1.0;
 
     const res = await fetch('/api/tts/synthesize', {
       method: 'POST',
@@ -227,7 +238,7 @@ export class SequentialPlayer {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ text: seg.text, source, voice, speed }),
+      body: JSON.stringify({ text: seg.text, source, voice, speed: synthesisRate }),
     });
 
     if (!res.ok) throw new Error(`TTS 合成失败: ${res.status}`);

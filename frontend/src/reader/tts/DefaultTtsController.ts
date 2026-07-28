@@ -20,7 +20,10 @@ type ChapterEndListener = () => void;
 export interface DefaultTtsControllerOptions {
   bookId: string;
   engine: ReaderEngine;
-  speed?: number;
+  /** 合成语速（影响缓存身份） */
+  synthesisRate?: number;
+  /** 本地播放倍速（不影响缓存） */
+  playbackRate?: number;
   voice?: string;
   source?: string;
   noCache?: boolean;
@@ -68,7 +71,8 @@ export class DefaultTtsController implements TtsController {
       {
         bookId: this.bookId,
         chapterId: pos.chapterId,
-        speed: this.opts.speed,
+        synthesisRate: this.opts.synthesisRate,
+        playbackRate: this.opts.playbackRate,
         voice: this.opts.voice,
         source: this.opts.source,
         noCache: this.opts.noCache,
@@ -97,9 +101,14 @@ export class DefaultTtsController implements TtsController {
     await this.player?.jumpToSegment(index);
   }
 
-  setSpeed(speed: number): void {
-    this.opts.speed = speed;
-    this.player?.setSpeed(speed);
+  setPlaybackRate(rate: number): void {
+    this.opts.playbackRate = rate;
+    this.player?.setPlaybackRate(rate);
+  }
+
+  setSynthesisRate(rate: number): void {
+    this.opts.synthesisRate = rate;
+    this.player?.setSynthesisRate(rate);
   }
 
   setVoice(voice: string): void {

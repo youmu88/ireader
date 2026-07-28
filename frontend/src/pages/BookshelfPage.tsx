@@ -90,9 +90,8 @@ useEffect(() => {
   });
 }, [books, bookStats, loadBookStats]);
 
-  // ── mount 时检测离线包过期 ──
+  // ── mount 时检测离线包过期（比对本地 versionHash 与服务端 fileHash） ──
   useEffect(() => {
-
     (async () => {
       try {
         const ids = await getAllOfflinePackageBookIds();
@@ -103,7 +102,6 @@ useEffect(() => {
         // 静默失败，不影响书架展示
       }
     })();
-
   }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingBook, setEditingBook] = useState<Book | null>(null);
