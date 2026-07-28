@@ -1,5 +1,5 @@
 /**
- * useTtsIntegration —— TTS 集成 hook（Phase 6.2）
+ * useTtsIntegration —— TTS 集成 hook（Phase 6.2, ready for 6.2b integration）
  *
  * 职责：
  *   - 管理 TTS 播放状态（state/progress/activeSegment）

@@ -34,7 +34,7 @@ const defaultOpts = {
   bookTitle: '测试书',
 };
 
-describe('useTtsIntegration', () => {
+describe('useTtsIntegration (Phase 6.2)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPlayer.currentBookId = null;
