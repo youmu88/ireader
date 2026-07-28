@@ -11,25 +11,11 @@ import { ttsGenerationJobs, ttsGenerationSegments, contentSegments, bookChapters
 import { ensureBookSegments } from './contentSegmentService.js';
 import { synthesize } from './ttsProxyService.js';
 import { saveToCache } from './ttsCacheService.js';
-import { parseTxt, getChapterContent } from '../parser/index.js';
+import { parseTxt, getChapterContent, normalizeHtmlText } from '../parser/index.js';
 import path from 'path';
 import fs from 'fs';
 
-/** 去除 HTML 标签，保留文本内容 */
-function stripHtmlTags(html: string): string {
-  return html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#\d+;/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+// P1-3: 文本规范化统一使用 parser 的 normalizeHtmlText，不再维护本地副本
 
 // ===== 类型定义 =====
 
@@ -91,7 +77,14 @@ function createGenerationSegmentRows(db: any, jobId: string, segments: any[], no
   }
 }
 
+/**
+ * 为章节填充 normalizedText。
+ * P1-3 后新上传的书籍已在 DB 持久化 normalizedText，此函数仅作为遗留数据兜底。
+ */
 function hydrateChapterTexts(db: any, bookId: string, chapters: any[]): any[] {
+  const needsHydration = chapters.some((c) => !c.normalizedText);
+  if (!needsHydration) return chapters;
+
   const book = db.select().from(books).where(sql`id = ${bookId}`).get() as any;
   if (!book) return chapters;
   let txtContent: string | null = null;
@@ -112,7 +105,7 @@ function hydrateChapterTexts(db: any, bookId: string, chapters: any[]): any[] {
       const filePath = path.resolve(path.dirname(book.filePath), 'extracted', hrefPath);
       const root = path.resolve(path.dirname(book.filePath), 'extracted');
       if (filePath.startsWith(`${root}${path.sep}`) && fs.existsSync(filePath)) {
-        return { ...chapter, normalizedText: stripHtmlTags(fs.readFileSync(filePath, 'utf-8')) };
+        return { ...chapter, normalizedText: normalizeHtmlText(fs.readFileSync(filePath, 'utf-8')) };
       }
     }
     return chapter;

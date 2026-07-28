@@ -121,7 +121,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     title: string;
     author: string | null;
     coverPath: string | null;
-    chapters: Array<{ title: string; href?: string; startOffset?: number; endOffset?: number; order: number; level: number }>;
+    chapters: import('../parser/index.js').ChapterManifest[];
   }> {
     const parseResult = await parseBook(sourcePath, format, bookDir);
     // 尝试提取封面
@@ -286,15 +286,19 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       };
       db.insert(books).values(bookRecord).run();
 
-      // 写入章节
+      // 写入章节（ChapterManifest 全字段持久化）
       for (const ch of parseInfo.chapters) {
         db.insert(bookChapters).values({
           id: uuidv4(),
           bookId,
           title: ch.title,
-          href: (ch as any).href || null,
-          startOffset: (ch as any).startOffset ?? null,
-          endOffset: (ch as any).endOffset ?? null,
+          href: ch.href,
+          fragment: ch.fragment,
+          spineIndex: ch.spineIndex,
+          normalizedText: ch.normalizedText,
+          contentHash: ch.contentHash,
+          startOffset: ch.startOffset,
+          endOffset: ch.endOffset,
           order: ch.order,
           level: ch.level,
         }).run();
@@ -672,13 +676,15 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       if (!chapter) throw new AppError(404, '章节不存在');
 
       if (book.format === 'txt') {
-        // For TXT, read content from the original file using offsets
-        if (chapter.startOffset == null) {
-          throw new AppError(400, '该章节没有偏移量信息');
+        // P1-2: 优先使用 DB 持久化的 normalizedText，遗留数据兜底从文件读取
+        let content = (chapter as any).normalizedText || '';
+        if (!content) {
+          if (chapter.startOffset == null) {
+            throw new AppError(400, '该章节没有偏移量信息');
+          }
+          const parseResult = parseTxt(book.filePath);
+          content = getChapterContent(parseResult.content, chapter.startOffset, chapter.endOffset || parseResult.content.length);
         }
-
-        const parseResult = parseTxt(book.filePath);
-        const content = getChapterContent(parseResult.content, chapter.startOffset, chapter.endOffset || parseResult.content.length);
         res.json({ success: true, data: { content, normalizedText: content, contentHash: chapter.contentHash, chapter } });
       } else {
         // For EPUB, return the extracted file path for the chapter

@@ -1,12 +1,33 @@
-import { parseEpub, type EpubParseResult } from './epub.js';
+import crypto from 'crypto';
+import { parseEpub, normalizeHtmlText, type EpubParseResult } from './epub.js';
 import { parseTxt, getChapterContent, type TxtParseResult } from './txt.js';
 
-export { parseEpub, parseTxt, getChapterContent };
+export { parseEpub, parseTxt, getChapterContent, normalizeHtmlText };
 export type { EpubParseResult, EpubMeta, EpubChapter } from './epub.js';
 export type { TxtParseResult, TxtMeta, TxtChapter } from './txt.js';
 
 /**
- * Parse a book file based on its format
+ * ChapterManifest — 统一章节模型
+ * 所有模块（阅读渲染、TTS、缓存、离线包）的唯一章节事实来源。
+ * 任何模块不得再自行从原始文件解析章节标题、锚点或文本。
+ */
+export interface ChapterManifest {
+  title: string;
+  href: string | null;
+  fragment: string | null;
+  spineIndex: number | null;
+  normalizedText: string | null;
+  contentHash: string | null;
+  startOffset: number | null;
+  endOffset: number | null;
+  order: number;
+  level: number;
+}
+
+/**
+ * Parse a book file based on its format.
+ * EPUB: 解析器直接产出 normalizedText + contentHash。
+ * TXT:  解析时同步计算 normalizedText + contentHash，上传即持久化。
  */
 export async function parseBook(
   filePath: string,
@@ -15,18 +36,7 @@ export async function parseBook(
 ): Promise<{
   title: string;
   author: string | null;
-  chapters: Array<{
-    title: string;
-    href?: string;
-    fragment?: string | null;
-    spineIndex?: number | null;
-    normalizedText?: string | null;
-    contentHash?: string | null;
-    startOffset?: number;
-    endOffset?: number;
-    order: number;
-    level: number;
-  }>;
+  chapters: ChapterManifest[];
   coverPath?: string;
 }> {
   if (format === 'epub') {
@@ -34,13 +44,15 @@ export async function parseBook(
     return {
       title: result.meta.title,
       author: result.meta.author,
-      chapters: result.chapters.map((ch) => ({
+      chapters: result.chapters.map((ch): ChapterManifest => ({
         title: ch.title,
         href: ch.href,
         fragment: ch.fragment,
         spineIndex: ch.spineIndex,
-        normalizedText: ch.normalizedText,
-        contentHash: ch.contentHash,
+        normalizedText: ch.normalizedText || null,
+        contentHash: ch.contentHash || null,
+        startOffset: null,
+        endOffset: null,
         order: ch.order,
         level: ch.level,
       })),
@@ -51,13 +63,21 @@ export async function parseBook(
     return {
       title: result.meta.title,
       author: result.meta.author,
-      chapters: result.chapters.map((ch) => ({
-        title: ch.title,
-        startOffset: ch.startOffset,
-        endOffset: ch.endOffset,
-        order: ch.order,
-        level: ch.level,
-      })),
+      chapters: result.chapters.map((ch): ChapterManifest => {
+        const text = getChapterContent(result.content, ch.startOffset, ch.endOffset);
+        return {
+          title: ch.title,
+          href: null,
+          fragment: null,
+          spineIndex: null,
+          normalizedText: text,
+          contentHash: crypto.createHash('sha256').update(text, 'utf-8').digest('hex'),
+          startOffset: ch.startOffset,
+          endOffset: ch.endOffset,
+          order: ch.order,
+          level: ch.level,
+        };
+      }),
     };
   }
 }

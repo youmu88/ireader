@@ -6,7 +6,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { sql } from 'drizzle-orm';
 import { bookContentCache, bookChapters, books } from '../db/schema.js';
-import { parseTxt, getChapterContent } from '../parser/index.js';
+import { parseTxt, getChapterContent, normalizeHtmlText } from '../parser/index.js';
 import path from 'path';
 import fs from 'fs';
 
@@ -49,21 +49,23 @@ export async function cacheFullBook(
 
   for (const chapter of chapters) {
     try {
-      let content = '';
-      if (book.format === 'txt') {
-        if (chapter.startOffset != null) {
-          const parseResult = parseTxt(book.filePath);
-          content = getChapterContent(parseResult.content, chapter.startOffset, chapter.endOffset || parseResult.content.length);
-        }
-      } else {
-        // EPUB
-        if (chapter.href) {
+      // P1-2: 优先消费 DB 中的 normalizedText（ChapterManifest 统一产出）
+      let content = (chapter as any).normalizedText || '';
+
+      // 遗留数据兜底：normalizedText 为空时从文件读取
+      if (!content) {
+        if (book.format === 'txt') {
+          if (chapter.startOffset != null) {
+            const parseResult = parseTxt(book.filePath);
+            content = getChapterContent(parseResult.content, chapter.startOffset, chapter.endOffset || parseResult.content.length);
+          }
+        } else if (chapter.href) {
           const extractedDir = path.resolve(path.dirname(book.filePath), 'extracted');
           const hrefPath = chapter.href.split('#')[0];
           const extractedPath = path.resolve(extractedDir, hrefPath);
           const isInsideExtractedDir = extractedPath.startsWith(`${extractedDir}${path.sep}`);
           if (isInsideExtractedDir && fs.existsSync(extractedPath)) {
-            content = fs.readFileSync(extractedPath, 'utf-8');
+            content = normalizeHtmlText(fs.readFileSync(extractedPath, 'utf-8'));
           }
         }
       }
@@ -132,20 +134,23 @@ export async function cacheNChapters(
 
   for (const chapter of chapters) {
     try {
-      let content = '';
-      if (book.format === 'txt') {
-        if (chapter.startOffset != null) {
-          const parseResult = parseTxt(book.filePath);
-          content = getChapterContent(parseResult.content, chapter.startOffset, chapter.endOffset || parseResult.content.length);
-        }
-      } else {
-        if (chapter.href) {
+      // P1-2: 优先消费 DB 中的 normalizedText（ChapterManifest 统一产出）
+      let content = (chapter as any).normalizedText || '';
+
+      // 遗留数据兜底
+      if (!content) {
+        if (book.format === 'txt') {
+          if (chapter.startOffset != null) {
+            const parseResult = parseTxt(book.filePath);
+            content = getChapterContent(parseResult.content, chapter.startOffset, chapter.endOffset || parseResult.content.length);
+          }
+        } else if (chapter.href) {
           const extractedDir = path.resolve(path.dirname(book.filePath), 'extracted');
           const hrefPath = chapter.href.split('#')[0];
           const extractedPath = path.resolve(extractedDir, hrefPath);
           const isInsideExtractedDir = extractedPath.startsWith(`${extractedDir}${path.sep}`);
           if (isInsideExtractedDir && fs.existsSync(extractedPath)) {
-            content = fs.readFileSync(extractedPath, 'utf-8');
+            content = normalizeHtmlText(fs.readFileSync(extractedPath, 'utf-8'));
           }
         }
       }

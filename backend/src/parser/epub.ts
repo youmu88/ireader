@@ -7,7 +7,7 @@ import crypto from 'crypto';
 
 const TEXT_ENCODING = 'utf-8';
 
-function normalizeHtmlText(html: string): string {
+export function normalizeHtmlText(html: string): string {
   return html
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
