@@ -96,7 +96,17 @@
  *   3) 验证：tsc --noEmit 全绿。
  */
 
-export const APP_VERSION = '2.16.3';
+/**
+ * 2.17.0 (2026-07-28): [REFACTOR] Phase 1 基础抽象层 — ReaderEngine 接口 + ReadingPosition 类型 + useReadingPosition hook
+ *   1) 新增 frontend/src/reader/types.ts：共享 BookFormat / Chapter 类型
+ *   2) 新增 frontend/src/reader/engine/types.ts：ReaderEngine 策略接口（TXT/EPUB 统一抽象）
+ *   3) 新增 frontend/src/reader/position/types.ts：ReadingPosition 唯一进度模型 + Input/Update 类型
+ *   4) 新增 frontend/src/reader/position/useReadingPosition.ts：阅读位置单一数据源 hook
+ *   5) 新增 frontend/src/reader/index.ts：模块 barrel export
+ *   6) 新增 useReadingPosition.test.ts：10 个单元测试全绿
+ *   7) 验收：tsc --noEmit 通过，vitest 10/10 通过
+ */
+export const APP_VERSION = '2.17.0';
 /**
  * 2.16.3 (2026-07-16): [BUGFIX] 移除有缺陷的 EPUB 滚动监听自动加载，替换为常驻上下章按钮
  *   1) 根因：epub.js scrolled-doc 模式的 iframe 内 scroll 事件监听不可靠（容器/内容尺寸变化等
