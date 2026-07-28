@@ -240,7 +240,8 @@ export function createFullBookGenerationJob(
   const chapterIds = rawChapters.map((c: any) => c.id);
   const chapters = hydrateChapterTexts(db, bookId, rawChapters);
 
-  const totalChunks = ensureBookSegments(db, bookId, chapters).length;
+  const segments = ensureBookSegments(db, bookId, chapters);
+  const totalChunks = segments.length;
 
   // 去重检查：如果已存在相同书+音色+速度的未完成任务，不再重复创建
   const existingJob = db.select().from(ttsGenerationJobs)
@@ -268,8 +269,11 @@ export function createFullBookGenerationJob(
     updatedAt: now,
   };
 
-  db.insert(ttsGenerationJobs).values(job).run();
-  createGenerationSegmentRows(db, jobId, ensureBookSegments(db, bookId, chapters), now);
+  // 事务封装：job + segment rows 原子写入，消除孤立资源风险
+  db.transaction((tx: any) => {
+    tx.insert(ttsGenerationJobs).values(job).run();
+    createGenerationSegmentRows(tx, jobId, segments, now);
+  });
 
   // 尝试立即处理队列
   tryProcessQueue(db, dataDir);
@@ -300,7 +304,8 @@ export function createPartialGenerationJob(
   const chapterIds = rawChapters.map((c: any) => c.id);
   const chapters = hydrateChapterTexts(db, bookId, rawChapters);
 
-  const totalChunks = ensureBookSegments(db, bookId, chapters).length;
+  const segments = ensureBookSegments(db, bookId, chapters);
+  const totalChunks = segments.length;
 
   const job: GenerationJob = {
     id: jobId,
@@ -320,8 +325,11 @@ export function createPartialGenerationJob(
     updatedAt: now,
   };
 
-  db.insert(ttsGenerationJobs).values(job).run();
-  createGenerationSegmentRows(db, jobId, ensureBookSegments(db, bookId, chapters), now);
+  // 事务封装：job + segment rows 原子写入，消除孤立资源风险
+  db.transaction((tx: any) => {
+    tx.insert(ttsGenerationJobs).values(job).run();
+    createGenerationSegmentRows(tx, jobId, segments, now);
+  });
   tryProcessQueue(db, dataDir);
   return job;
 }
@@ -540,9 +548,11 @@ export function deleteJobs(db: any, jobIds: string[]): number {
     if (!job) continue;
     // 如果任务正在运行，先从 activeJobs 移除
     activeJobs.delete(id);
-    db.delete(ttsGenerationJobs)
-      .where(sql`id = ${id}`)
-      .run();
+    // 事务封装：级联删除 segment rows + job，避免孤立 segments
+    db.transaction((tx: any) => {
+      tx.delete(ttsGenerationSegments).where(sql`job_id = ${id}`).run();
+      tx.delete(ttsGenerationJobs).where(sql`id = ${id}`).run();
+    });
     count++;
   }
   return count;
@@ -557,9 +567,11 @@ export function clearTerminatedJobs(db: any, userId: string): number {
     .all();
 
   for (const job of jobs) {
-    db.delete(ttsGenerationJobs)
-      .where(sql`id = ${job.id}`)
-      .run();
+    // 事务封装：级联删除 segment rows + job，避免孤立 segments
+    db.transaction((tx: any) => {
+      tx.delete(ttsGenerationSegments).where(sql`job_id = ${job.id}`).run();
+      tx.delete(ttsGenerationJobs).where(sql`id = ${job.id}`).run();
+    });
   }
   return jobs.length;
 }
