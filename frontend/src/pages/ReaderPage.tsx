@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   cacheBookChapters,
@@ -22,6 +22,7 @@ import {
 } from '../services/ttsPlayer';
 import type { BookCacheDetailedStats } from '../services/offlineCacheService';
 import EpubViewer from '../components/EpubViewer';
+import TxtReaderView, { type TxtReaderViewHandle } from '../components/TxtReaderView';
 import { useReaderInteraction } from '../interaction/useReaderInteraction';
 import { useAuth } from '../contexts/AuthContext';
 import { getToken } from '../services/authService';
@@ -63,7 +64,7 @@ function ReaderPage() {
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
   const [txtContent, setTxtContent] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const [chapterLoading, setChapterLoading] = useState(false);
+  const [, setChapterLoading] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // ── 阅读偏好持久化（localStorage） ──
@@ -161,8 +162,9 @@ function ReaderPage() {
   /** TTS 自动进入下一章 — ref 包装避免闭包过期 */
   const advanceToNextChapterTTSRef = useRef<((player: any) => Promise<void>) | null>(null);
   const txtScrollRef = useRef<HTMLDivElement>(null);
+  const txtReaderViewRef = useRef<TxtReaderViewHandle>(null);
   const savedTtsProgressRef = useRef<{chapterId: string; segmentIndex: number; progress: number} | null>(null);
-  const pageContainerRef = useRef<HTMLDivElement>(null);
+
   /** 当前书籍 ID 的 ref（用于异步操作的书籍切换守卫） */
   const currentBookIdRef = useRef<string | undefined>(bookId);
   /** 进度条容器 ref（用于拖拽 seek） */
@@ -234,31 +236,11 @@ useEffect(() => {
   const showTocRef = useRef(false);
   useEffect(() => { showTocRef.current = showToc; }, [showToc]);
 
-  /** TXT 统一分页出口：优先移动一页，只在当前章节分页边界时跨章。 */
+  /** TXT 统一分页出口：委托 TxtReaderView 组件处理翻页逻辑。 */
   const performPageTurnRef = useRef<(direction: 'prev' | 'next') => Promise<void>>(async (direction) => {
-    setIsPageTurning(true);
-    try {
-      const container = paginatedScrollRef.current;
-      if (!container) return;
-      const pageWidth = Math.max(1, container.clientWidth);
-      const pages = Math.max(1, Math.ceil(container.scrollWidth / pageWidth));
-      const current = Math.max(0, Math.min(pages - 1, Math.round(container.scrollLeft / pageWidth)));
-      const target = direction === 'next' ? current + 1 : current - 1;
-
-      if (target >= 0 && target < pages) {
-        container.scrollTo({ left: target * pageWidth, behavior: 'smooth' });
-        setPageIndex(target);
-        charOffsetRatioRef.current = pages > 1 ? target / (pages - 1) : 0;
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 280));
-        return;
-      }
-      if (direction === 'next') await goToNextChapterRef.current?.();
-      else await goToPrevChapterRef.current?.();
-    } finally {
-      setIsPageTurning(false);
-    }
+    await txtReaderViewRef.current?.performPageTurn(direction);
   });
-  const [isPageTurning, setIsPageTurning] = useState(false);
+  const [isPageTurning] = useState(false);
   /** ── ref 同步最新状态（供 useCallback([]) 内部闭包读取） ── */
   const readingModeRef = useRef(readingMode);
   const ttsStateRef = useRef(ttsState);
@@ -2001,43 +1983,7 @@ function stripHtml(html: string): string {
     }, 1000);
   }, [handleStopTTS]);
 
-  /** 渲染带 TTS 高亮的文本内容 */
-  const renderHighlightedContent = useCallback((content: string): React.ReactNode => {
-    if (ttsState === 'idle' || activeSegmentIndex < 0 || !content) {
-      return content;
-    }
-    const segments = splitText(content);
-    if (activeSegmentIndex >= segments.length) return content;
 
-    const target = segments[activeSegmentIndex];
-    if (!target) return content;
-
-    // 按分段顺序找到当前段落在原始内容中的位置（处理重复文本）
-    let searchPos = 0;
-    let foundPos = -1;
-    for (let i = 0; i <= activeSegmentIndex && i < segments.length; i++) {
-      const seg = segments[i];
-      const pos = content.indexOf(seg, searchPos);
-      if (pos === -1) break;
-      foundPos = pos;
-      searchPos = pos + seg.length;
-    }
-    if (foundPos === -1) return content;
-
-    return (
-      <>
-        {content.slice(0, foundPos)}
-        <span
-          data-tts-segment="active"
-          className="bg-yellow-200 dark:bg-yellow-700/70 rounded px-0.5 transition-colors duration-300"
-          aria-live="polite"
-        >
-          {target}
-        </span>
-        {content.slice(foundPos + target.length)}
-      </>
-    );
-  }, [ttsState, activeSegmentIndex]);
 
   // After book loads, check for saved TTS progress and offer resume
   // ⭐ 全局鼠标/触摸拖拽进度条 seek
@@ -2438,72 +2384,29 @@ function stripHtml(html: string): string {
           </>
         )}
 
-        {/* TXT Reader */}
+        {/* TXT Reader — 由 TxtReaderView 组件托管（Phase 2.6 剥离） */}
         {book?.format === 'txt' && (
-          <div
-            ref={(el) => {
-              (txtScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
-              (pageContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+          <TxtReaderView
+            ref={txtReaderViewRef}
+            content={txtContent}
+            chapterTitle={(displayChapter || currentChapter)?.title || ''}
+            readingMode={readingMode}
+            fontSize={fontSize}
+            lineHeight={lineHeight}
+            letterSpacing={letterSpacing}
+            fontFamily={fontFamily}
+            ttsSegments={null}
+            activeSegmentIndex={activeSegmentIndex}
+            searchResults={searchResults}
+            onProgress={(ratio) => { charOffsetRatioRef.current = ratio; }}
+            onBoundary={(dir) => {
+              if (dir === 'next') goToNextChapterRef.current?.();
+              else goToPrevChapterRef.current?.();
             }}
-            className={`flex-1 px-3 sm:px-6 py-3 sm:py-4 max-w-3xl mx-auto ${readingMode === 'scroll' ? 'overflow-y-auto' : 'overflow-hidden flex flex-col'}`}
-            data-l-spacing={letterSpacing}
-            style={readingMode === 'paginated' ? { overscrollBehavior: 'none' } : undefined}
-          >
-            {(displayChapter || currentChapter) && (
-              <div className="mb-4">
-                <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">
-                  {(displayChapter || currentChapter)!.title}
-                </h2>
-              </div>
-            )}
-            {/* ── 翻页动画已集成到 column 容器（CSS multi-column + scroll-behavior smooth） ── */}
-            <div
-              ref={txtPageRef}
-              className={`text-gray-800 dark:text-gray-200 whitespace-pre-wrap ${
-                readingMode === 'paginated' ? 'flex-1 overflow-hidden' : ''
-              }`}
-              style={{
-                fontSize: `${fontSize}px`,
-                fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
-                lineHeight,
-                letterSpacing: `${letterSpacing}em`,
-                ...(readingMode === 'paginated' ? { overscrollBehavior: 'none' } : {}),
-              }}
-            >
-              {chapterLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <span className="text-gray-400 animate-pulse">加载中...</span>
-                </div>
-              ) : (
-                readingMode === 'paginated'
-                  ? (
-                    <div
-                      ref={paginatedScrollRef}
-                      className="paginated-scroll"
-                      style={{
-                        height: '100%',
-                        overflowX: 'auto',
-                        overflowY: 'hidden',
-                        columnFill: 'auto',
-                        columnCount: 1,
-                        columnGap: '2rem',
-                        fontSize: `${fontSize}px`,
-                        fontFamily: fontFamily === 'sans' ? '-apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif' : fontFamily === 'serif' ? '"PingFang SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif' : '"JetBrains Mono", "Fira Code", monospace',
-                        lineHeight,
-                        letterSpacing: `${letterSpacing}em`,
-                        padding: '0 1.5rem',
-                        scrollBehavior: 'smooth',
-                      }}
-                    />
-                  )
-                  : ttsState !== 'idle' && activeSegmentIndex >= 0
-                    ? renderHighlightedContent(txtContent)
-                    : txtContent
-              )}
-            </div>
-            {/* 底部哨兵元素：用于 IntersectionObserver 检测滚动到末尾 */}
-            <div ref={bottomSentinelRef} className="h-4" />
-          </div>
+            onPageInfo={(page, total) => { setPageIndex(page); setTotalPages(total); }}
+            initialScrollRatio={pendingScrollRestorePct}
+            isPageTurning={isPageTurning}
+          />
         )}
 
         {/* ── 搜索浮层 ── */}
