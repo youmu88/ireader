@@ -8,6 +8,10 @@ export type { BookFormat, Chapter } from './types';
 // 引擎接口
 export type { ReaderEngine } from './engine/types';
 
+// TXT 引擎
+export { TxtEngine } from './engine/TxtEngine';
+export type { TxtEngineOptions, TxtReadingMode } from './engine/TxtEngine';
+
 // 进度模型
 export type {
   ReadingPosition,
