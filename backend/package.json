@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "migrate:refs": "tsx src/scripts/migrate-global-refs.ts",
+    "migrate:backfill-text": "tsx src/scripts/backfill-normalized-text.ts",
     "lint": "eslint src/"
   },
   "dependencies": {
