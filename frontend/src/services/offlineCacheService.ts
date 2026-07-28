@@ -459,6 +459,16 @@ export async function getOfflinePackage(bookId: string): Promise<OfflineBookPack
   }
 }
 
+/** 获取所有已缓存离线包的 bookId 列表 */
+export async function getAllOfflinePackageBookIds(): Promise<string[]> {
+  try {
+    const db = await getDB();
+    return await db.getAllKeys('offlinePackages') as string[];
+  } catch {
+    return [];
+  }
+}
+
 /** 保存完整离线包 */
 async function saveOfflinePackage(pkg: OfflineBookPackage): Promise<void> {
   const db = await getDB();

@@ -7,6 +7,8 @@ import { APP_VERSION } from '../version';
 import {
   cacheShelfBooksMeta,
   getOfflineShelfBooks,
+  checkPackageStaleness,
+  getAllOfflinePackageBookIds,
 } from '../services/offlineCacheService';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -87,6 +89,22 @@ useEffect(() => {
     }
   });
 }, [books, bookStats, loadBookStats]);
+
+  // ── mount 时检测离线包过期 ──
+  useEffect(() => {
+
+    (async () => {
+      try {
+        const ids = await getAllOfflinePackageBookIds();
+        await Promise.allSettled(
+          ids.map(id => checkPackageStaleness(id)),
+        );
+      } catch {
+        // 静默失败，不影响书架展示
+      }
+    })();
+
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingBook, setEditingBook] = useState<Book | null>(null);
   const [editTitle, setEditTitle] = useState('');
