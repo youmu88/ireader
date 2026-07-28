@@ -6,7 +6,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
-import { sql } from 'drizzle-orm';
+import { sql, inArray, and, eq } from 'drizzle-orm';
 import { ttsGenerationJobs, ttsGenerationSegments, contentSegments, bookChapters, ttsSettings, books } from '../db/schema.js';
 import { ensureBookSegments } from './contentSegmentService.js';
 import { synthesize } from './ttsProxyService.js';
@@ -39,6 +39,7 @@ export interface GenerationJob {
   bookId: string;
   chapterId: string | null;
   chapterCount: number | null;
+  chapterIds: string | null;
   voice: string;
   speed: number;
   status: 'pending' | 'running' | 'completed' | 'failed';
@@ -102,6 +103,29 @@ function hydrateChapterTexts(db: any, bookId: string, chapters: any[]): any[] {
 }
 
 /**
+ * 从章节 ID 快照恢复章节列表（按快照顺序）
+ * 旧任务无快照时回退到 chapterCount limit 查询
+ */
+function resolveChaptersFromSnapshot(db: any, bookId: string, chapterIdsJson: string | null, chapterCount: number | null): any[] {
+  if (chapterIdsJson) {
+    try {
+      const ids: string[] = JSON.parse(chapterIdsJson);
+      if (ids.length > 0) {
+        const rows = db.select().from(bookChapters)
+          .where(and(eq(bookChapters.bookId, bookId), inArray(bookChapters.id, ids)))
+          .all() as any[];
+        const byId = new Map(rows.map((r: any) => [r.id, r]));
+        return ids.map(id => byId.get(id)).filter(Boolean) as any[];
+      }
+    } catch { /* JSON 解析失败，回退到 limit 查询 */ }
+  }
+  const query = db.select().from(bookChapters)
+    .where(sql`book_id = ${bookId}`)
+    .orderBy(bookChapters.order);
+  return (chapterCount == null ? query.all() : query.limit(chapterCount).all()) as any[];
+}
+
+/**
  * 恢复卡住的任务：检查长时间 running 无进展的任务，重置为 pending
  * 每次恢复时重新计算 totalChunks（章节可能已变动），并限制最大恢复次数
  */
@@ -129,13 +153,8 @@ function recoverStuckJobs(db: any): number {
       continue;
     }
 
-    // 保持任务创建时的章节范围，不能在恢复时意外扩展为全书。
-    const chapterQuery = db.select().from(bookChapters)
-      .where(sql`book_id = ${job.bookId}`)
-      .orderBy(bookChapters.order);
-    const chapters = (job.chapterCount == null
-      ? chapterQuery.all()
-      : chapterQuery.limit(job.chapterCount).all()) as any[];
+    // 使用创建时持久化的章节 ID 快照，确保恢复时处理范围不变
+    const chapters = resolveChaptersFromSnapshot(db, job.bookId, job.chapterIds, job.chapterCount);
     const hydratedChapters = hydrateChapterTexts(db, job.bookId, chapters);
     const newTotalChunks = ensureBookSegments(db, job.bookId, hydratedChapters).length;
     const completedSegments = db.select({ count: sql<number>`count(*)` }).from(ttsGenerationSegments)
@@ -214,10 +233,12 @@ export function createFullBookGenerationJob(
   const now = new Date().toISOString();
   const jobId = uuidv4();
 
-  const chapters = hydrateChapterTexts(db, bookId, db.select().from(bookChapters)
+  const rawChapters = db.select().from(bookChapters)
     .where(sql`book_id = ${bookId}`)
     .orderBy(bookChapters.order)
-    .all());
+    .all() as any[];
+  const chapterIds = rawChapters.map((c: any) => c.id);
+  const chapters = hydrateChapterTexts(db, bookId, rawChapters);
 
   const totalChunks = ensureBookSegments(db, bookId, chapters).length;
 
@@ -235,6 +256,7 @@ export function createFullBookGenerationJob(
     bookId,
     chapterId: null,
     chapterCount: null,
+    chapterIds: JSON.stringify(chapterIds),
     voice,
     speed,
     status: 'pending',
@@ -270,11 +292,13 @@ export function createPartialGenerationJob(
   const now = new Date().toISOString();
   const jobId = uuidv4();
 
-  const chapters = hydrateChapterTexts(db, bookId, db.select().from(bookChapters)
+  const rawChapters = db.select().from(bookChapters)
     .where(sql`book_id = ${bookId}`)
     .orderBy(bookChapters.order)
     .limit(chapterCount)
-    .all());
+    .all() as any[];
+  const chapterIds = rawChapters.map((c: any) => c.id);
+  const chapters = hydrateChapterTexts(db, bookId, rawChapters);
 
   const totalChunks = ensureBookSegments(db, bookId, chapters).length;
 
@@ -284,6 +308,7 @@ export function createPartialGenerationJob(
     bookId,
     chapterId: null,
     chapterCount,
+    chapterIds: JSON.stringify(chapterIds),
     voice,
     speed,
     status: 'pending',

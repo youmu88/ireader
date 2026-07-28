@@ -128,6 +128,7 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
       chapter_id TEXT,
       chapter_count INTEGER,
+      chapter_ids TEXT,
       voice TEXT NOT NULL,
       speed REAL NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'completed', 'failed')),
@@ -344,6 +345,16 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
     }
   } catch (err) {
     console.error('[迁移] tts_generation_jobs chapter_count 列补充失败:', (err as Error).message);
+  }
+
+  // ── 迁移：TTS 任务增加章节 ID 快照字段 ──
+  try {
+    const jobCols2 = sqlite.prepare("PRAGMA table_info('tts_generation_jobs')").all() as { name: string }[];
+    if (!jobCols2.some(c => c.name === 'chapter_ids')) {
+      sqlite.exec(`ALTER TABLE tts_generation_jobs ADD COLUMN chapter_ids TEXT;`);
+    }
+  } catch (err) {
+    console.error('[迁移] tts_generation_jobs chapter_ids 列补充失败:', (err as Error).message);
   }
 
   // ── 迁移：books 表增加 file_hash 列 ──

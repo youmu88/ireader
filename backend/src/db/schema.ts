@@ -115,6 +115,7 @@ export const ttsGenerationJobs = sqliteTable('tts_generation_jobs', {
   bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
   chapterId: text('chapter_id'),
   chapterCount: integer('chapter_count'),
+  chapterIds: text('chapter_ids'),
   voice: text('voice').notNull(),
   speed: real('speed').notNull(),
   status: text('status', { enum: ['pending', 'running', 'completed', 'failed'] }).notNull().default('pending'),
