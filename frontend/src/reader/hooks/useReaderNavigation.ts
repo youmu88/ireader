@@ -1,5 +1,5 @@
 /**
- * useReaderNavigation —— 章节导航 hook（Phase 5.4）
+ * useReaderNavigation —— 章节导航 hook（Phase 5.4, integrated in Phase 5.5）
  *
  * 职责：
  *   - 管理当前章节索引

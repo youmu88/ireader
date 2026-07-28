@@ -1,5 +1,5 @@
 /**
- * ReaderTopBar —— 阅读器顶栏组件（Phase 5.5 从 ReaderPage 剥离）
+ * ReaderTopBar —— 阅读器顶栏组件（Phase 5.5 从 ReaderPage 剥离，独立文件）
  */
 import type { PlayerState } from '../services/ttsPlayer';
 

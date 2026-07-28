@@ -1,5 +1,5 @@
 /**
- * useGestures —— 手势集成 hook（Phase 5.3）
+ * useGestures —— 手势集成 hook（Phase 5.3, integrated in Phase 5.5）
  *
  * 职责：
  *   - 将 useReaderInteraction 的导航事件映射到引擎操作

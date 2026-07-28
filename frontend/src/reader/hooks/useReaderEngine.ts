@@ -1,5 +1,5 @@
 /**
- * useReaderEngine —— 阅读器引擎生命周期管理 hook（Phase 5.1）
+ * useReaderEngine —— 阅读器引擎生命周期管理 hook（Phase 5.1, integrated in Phase 5.5）
  *
  * 职责：
  *   - 根据 book.format 创建 TxtEngine 或 EpubEngine

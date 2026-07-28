@@ -69,7 +69,7 @@ function ReaderPage() {
   const [, setChapterLoading] = useState(false);
   const [showToc, setShowToc] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // ── 阅读偏好（useReaderSettings hook 管理 + 自动持久化） ──
+  // ── 阅读偏好（useReaderSettings hook 管理 + 自动持久化，Phase 5.5） ──
   const settings = useReaderSettings();
   const { fontSize, setFontSize, fontFamily, setFontFamily, lineHeight, setLineHeight, letterSpacing, readingMode, setReadingMode } = settings;
 

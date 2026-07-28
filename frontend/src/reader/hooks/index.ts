@@ -1,5 +1,5 @@
 /**
- * reader/hooks 模块公共 API
+ * reader/hooks 模块公共 API（Phase 5.1-5.5）
  */
 export { useReaderSettings } from './useReaderSettings';
 export type { ReaderSettings, UseReaderSettingsResult, FontFamily, ReadingMode } from './useReaderSettings';

@@ -1,5 +1,5 @@
 /**
- * useReaderSettings —— 阅读排版设置 hook（Phase 5.2）
+ * useReaderSettings —— 阅读排版设置 hook（Phase 5.2, integrated in Phase 5.5）
  *
  * 职责：
  *   - 管理 fontSize / fontFamily / lineHeight / letterSpacing / readingMode
