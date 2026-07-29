@@ -4,6 +4,8 @@ import { useTheme } from '../services/themeService';
 import { SafeGlass } from '../services/progressiveComponents';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
+import { Button } from './ui/Button';
+import { IconButton } from './ui/IconButton';
 
 interface TTSJob {
   id: string;
@@ -155,9 +157,11 @@ function Layout() {
                 </Link>
 
                 {/* 语音合成（麦克风图标）—— 双端统一 */}
-                <button
+                <IconButton
                   onClick={openTtsQueue}
-                  className="relative w-9 h-9 flex items-center justify-center rounded-full tap-icon"
+                  variant="ghost"
+                  size="sm"
+                  className="relative"
                   style={{ color: 'var(--color-text-secondary)' }}
                   title="语音合成"
                 >
@@ -168,12 +172,11 @@ function Layout() {
                     <line x1="8" y1="23" x2="16" y2="23" />
                   </svg>
                   {activeJobCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white rounded-full animate-pop-in"
-                      style={{ background: 'var(--color-primary)' }}>
+                    <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white rounded-full animate-pop-in bg-ios-primary">
                       {activeJobCount > 99 ? '99+' : activeJobCount}
                     </span>
                   )}
-                </button>
+                </IconButton>
 
                 {/* 桌面端：用户信息 + 主题切换 + 退出 */}
                 <div className="hidden sm:flex items-center gap-2 ml-1 pl-2"
@@ -183,14 +186,14 @@ function Layout() {
                       {user.displayName || user.username}
                     </span>
                   )}
-                  <button
+                  <IconButton
                     onClick={toggleTheme}
-                    className="w-8 h-8 rounded-full flex items-center justify-center tap-icon"
-                    style={{ background: 'var(--color-bg-alt)' }}
+                    variant="subtle"
+                    size="sm"
                     title={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}
                   >
                     {theme === 'dark' ? (
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#fbbf24' }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-ios-warning">
                         <circle cx="12" cy="12" r="5" />
                         <line x1="12" y1="1" x2="12" y2="3" />
                         <line x1="12" y1="21" x2="12" y2="23" />
@@ -202,19 +205,14 @@ function Layout() {
                         <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
                       </svg>
                     ) : (
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#6366f1' }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-ios-primary">
                         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                       </svg>
                     )}
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    className="px-3 py-1.5 rounded-lg text-sm font-medium tap-active transition-all duration-200"
-                    style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}
-                    title="退出登录"
-                  >
+                  </IconButton>
+                  <Button variant="secondary" size="sm" onClick={handleLogout} title="退出登录">
                     退出
-                  </button>
+                  </Button>
                 </div>
               </nav>
             </div>

@@ -116,18 +116,15 @@ export function TocDrawer({
                   {isActive && (
                     <div className="absolute left-0 top-0 bottom-0 w-1 rounded-r-sm" style={{ background: 'var(--color-primary)' }} />
                   )}
-                  <button
+                  <Button
+                    variant="row"
+                    active={isActive}
+                    justify="start"
+                    size="sm"
+                    fullWidth
                     onClick={() => onNavigate(ch)}
-                    className={`w-full text-left px-3 text-sm transition-all duration-150 truncate ${
-                      isActive
-                        ? 'font-bold text-base'
-                        : 'hover:bg-ios-bg-alt text-ios-text-secondary'
-                    }`}
-                    style={{ height: ITEM_HEIGHT, ...(isActive ? {
-                      background: 'var(--color-primary-subtle)',
-                      color: 'var(--color-primary)',
-                      paddingLeft: '1rem',
-                    } : {}) }}
+                    className={`truncate ${isActive ? 'font-bold text-base' : ''}`}
+                    style={{ height: ITEM_HEIGHT, ...(isActive ? { paddingLeft: '1rem' } : {}) }}
                   >
                     <span className={isActive ? 'flex items-center gap-2' : ''}>
                       {isActive && (
@@ -137,7 +134,7 @@ export function TocDrawer({
                       )}
                       <span>{ch.title}</span>
                     </span>
-                  </button>
+                  </Button>
                 </div>
               );
             })}
@@ -152,18 +149,15 @@ export function TocDrawer({
               {isActive && (
                 <div className="absolute left-0 top-0 bottom-0 w-1 rounded-r-sm" style={{ background: 'var(--color-primary)' }} />
               )}
-              <button
+              <Button
+                variant="row"
+                active={isActive}
+                justify="start"
+                size="sm"
+                fullWidth
                 onClick={() => onNavigate(ch)}
-                className={`w-full text-left px-3 py-2.5 text-sm transition-all duration-150 truncate ${
-                  isActive
-                    ? 'font-bold text-base'
-                    : 'hover:bg-ios-bg-alt text-ios-text-secondary'
-                }`}
-                style={isActive ? {
-                  background: 'var(--color-primary-subtle)',
-                  color: 'var(--color-primary)',
-                  paddingLeft: '1rem',
-                } : {}}
+                className={`h-auto py-2.5 truncate ${isActive ? 'font-bold text-base' : ''}`}
+                style={isActive ? { paddingLeft: '1rem' } : undefined}
               >
                 <span className={isActive ? 'flex items-center gap-2' : ''}>
                   {isActive && (
@@ -173,7 +167,7 @@ export function TocDrawer({
                   )}
                   <span>{ch.title}</span>
                 </span>
-              </button>
+              </Button>
             </div>
           );
         })

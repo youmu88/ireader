@@ -150,7 +150,8 @@ export { Modal, ConfirmProvider, confirm } from './Modal';
 - [x] version 2.32.0 + commit + push + deploy
 
 ### 迭代 B-2（后续）
-- [ ] 页面级按钮批量迁移至 Button
-- [ ] UploadQueue / TocDrawer 迁移至 Modal/Drawer 体系
+- [x] 页面级按钮批量迁移至 Button（B-2~B-8 全量完成：页面级25处 + 动作按钮12处 + 控件45处 + 剩余8文件23处，原生 `<button>` 在业务层清零）
+- [x] UploadQueue / TocDrawer 迁移至 Modal/Drawer 体系（UploadQueue 已迁移；TocDrawer 为阅读器内嵌侧栏，保留原位，其按钮已迁移至 Button row 变体）
+- [x] Button 变体扩展至 10 种（primary/secondary/ghost/danger/warning/text/pill/row/success/accent）+ justify 属性；IconButton 5 变体（subtle/primary/ghost/danger/warning）
 - [ ] 硬编码颜色全量清扫（bg-gray-* / text-blue-*）
 - [ ] Input / Switch / Badge 第二批组件

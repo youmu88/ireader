@@ -1,6 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
-export type IconButtonVariant = 'subtle' | 'primary' | 'ghost' | 'danger';
+export type IconButtonVariant = 'subtle' | 'primary' | 'ghost' | 'danger' | 'warning';
 export type IconButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 
 export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -18,6 +18,7 @@ const VARIANT_CLASSES: Record<IconButtonVariant, string> = {
   primary: 'bg-ios-primary text-white hover:bg-ios-primary-hover active:scale-90',
   ghost: 'bg-transparent text-ios-text-muted hover:bg-ios-bg-alt',
   danger: 'bg-ios-danger text-white hover:bg-ios-danger-hover active:scale-90',
+  warning: 'bg-ios-warning text-white hover:bg-ios-warning-hover active:scale-90',
 };
 
 const SIZE_CLASSES: Record<IconButtonSize, string> = {

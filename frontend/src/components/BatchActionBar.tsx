@@ -3,14 +3,14 @@
  *
  * 数据驱动的 actions 数组，新增批量操作只需在数组中追加一项。
  */
-import { Button } from './ui';
+import { Button, type ButtonVariant } from './ui';
 
 export interface BatchAction {
   id: string;
   label: string;
   icon: string;
-  color: string;
-  hoverColor: string;
+  /** 按钮视觉变体（默认 primary） */
+  variant?: ButtonVariant;
   disabled: boolean;
   loading?: boolean;
   onClick: () => void;
@@ -40,14 +40,16 @@ export function BatchActionBar({ selectedCount, totalCount, onToggleSelectAll, o
         <div className="flex items-center gap-3">
           <Button variant="secondary" size="sm" onClick={onExit}>取消</Button>
           {actions.map(action => (
-            <button
+            <Button
               key={action.id}
-              onClick={action.onClick}
+              variant={action.variant ?? 'primary'}
+              size="sm"
+              loading={action.loading}
               disabled={action.disabled}
-              className={`px-4 py-2 text-sm text-white rounded-lg transition-colors ${action.color} ${action.hoverColor} disabled:opacity-40 disabled:cursor-not-allowed`}
+              onClick={action.onClick}
             >
-              {action.loading ? '⏳ 处理中...' : `${action.icon} ${action.label}`}
-            </button>
+              {action.icon} {action.label}
+            </Button>
           ))}
         </div>
       </div>

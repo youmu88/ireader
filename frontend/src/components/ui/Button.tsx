@@ -1,6 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'warning' | 'text' | 'pill';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'warning' | 'success' | 'accent' | 'text' | 'pill' | 'row';
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -12,8 +12,10 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
   /** 擑满父容器宽度 */
   fullWidth?: boolean;
-  /** 激活态（pill 变体专用，切换为 primary-subtle 高亮） */
+  /** 激活态（pill / row 变体专用，切换为 primary-subtle 高亮） */
   active?: boolean;
+  /** 内容水平对齐，默认 center；row 等全宽场景用 start */
+  justify?: 'center' | 'start';
   children: ReactNode;
 }
 
@@ -23,11 +25,18 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   ghost: 'bg-transparent text-ios-primary hover:bg-ios-primary-subtle',
   danger: 'bg-ios-danger text-white hover:bg-ios-danger-hover active:bg-ios-danger-hover shadow-ios-sm ripple-btn',
   warning: 'bg-ios-warning text-white hover:bg-ios-warning-hover active:bg-ios-warning-hover shadow-ios-sm ripple-btn',
+  success: 'bg-ios-success text-white hover:bg-ios-success-hover active:bg-ios-success-hover shadow-ios-sm ripple-btn',
+  accent: 'bg-ios-accent-1 text-white hover:bg-ios-accent-1-hover active:bg-ios-accent-1-hover shadow-ios-sm ripple-btn',
   text: 'bg-transparent text-ios-primary hover:bg-ios-primary-subtle',
   pill: 'bg-ios-bg-alt text-ios-text-secondary hover:bg-ios-border rounded-full',
+  row: 'bg-transparent text-ios-text-secondary hover:bg-ios-bg-alt',
 };
 
-const PILL_ACTIVE_CLASS = 'bg-ios-primary-subtle text-ios-primary hover:bg-ios-primary-subtle';
+/** pill / row 变体的激活态高亮（active 属性触发） */
+const ACTIVE_CLASSES: Partial<Record<ButtonVariant, string>> = {
+  pill: 'bg-ios-primary-subtle text-ios-primary hover:bg-ios-primary-subtle',
+  row: 'bg-ios-primary-subtle text-ios-primary hover:bg-ios-primary-subtle',
+};
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {
   xs: 'h-7 px-2.5 text-xs gap-1 rounded-full',
@@ -39,7 +48,7 @@ const SIZE_CLASSES: Record<ButtonSize, string> = {
 /**
  * 统一按钮组件 — 全部样式走 design tokens，自动适配 dark 主题。
  * 继承 index.css 全局按压反馈（scale + transition）。
- * 变体：primary / secondary / ghost / danger / warning / text
+ * 变体：primary / secondary / ghost / danger / warning / success / accent / text / pill / row
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   {
@@ -48,6 +57,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     loading = false,
     fullWidth = false,
     active = false,
+    justify = 'center',
     disabled,
     className = '',
     children,
@@ -55,12 +65,12 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   },
   ref,
 ) {
-  const variantCls = variant === 'pill' && active ? PILL_ACTIVE_CLASS : VARIANT_CLASSES[variant];
+  const variantCls = (active && ACTIVE_CLASSES[variant]) || VARIANT_CLASSES[variant];
   return (
     <button
       ref={ref}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center font-medium select-none whitespace-nowrap ${variantCls} ${SIZE_CLASSES[size]}${fullWidth ? ' w-full' : ''}${className ? ` ${className}` : ''}`}
+      className={`inline-flex items-center ${justify === 'start' ? 'justify-start' : 'justify-center'} font-medium select-none whitespace-nowrap ${variantCls} ${SIZE_CLASSES[size]}${fullWidth ? ' w-full' : ''}${className ? ` ${className}` : ''}`}
       {...rest}
     >
       {loading && (

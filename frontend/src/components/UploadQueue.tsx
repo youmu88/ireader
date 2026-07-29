@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHand
 import axios from 'axios';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
+import { IconButton } from './ui/IconButton';
 
 /* ───────── Types ───────── */
 interface UploadTask {
@@ -322,13 +323,15 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
             上传图书
             {total > 0 && <span className="text-sm font-normal text-ios-text-muted ml-2">({total} 本)</span>}
           </h2>
-          <button
+          <IconButton
             onClick={handleMinimize}
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-ios-bg-alt text-ios-text-muted tap-icon"
+            variant="ghost"
+            size="xs"
+            className="w-8 h-8"
             title="最小化（后台继续上传）"
           >
             ⛅
-          </button>
+          </IconButton>
         </div>
 
         {/* ── Drop Zone / 文件选择 ── */}
@@ -466,13 +469,15 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
                 重试
               </Button>
                     )}
-                    <button
+                    <IconButton
                       onClick={() => handleRemove(task.id)}
-                      className="w-6 h-6 flex items-center justify-center text-ios-text-muted hover:text-ios-danger hover:bg-ios-danger-subtle rounded transition-colors tap-icon"
+                      variant="ghost"
+                      size="xs"
+                      className="hover:text-ios-danger hover:bg-ios-danger-subtle"
                       title="移除"
                     >
                       ✕
-                    </button>
+                    </IconButton>
                   </div>
                 </div>
               ))}

@@ -30,5 +30,10 @@
  * 2.33.0 (2026-07-29): [FEAT] 迭代B-2 — 页面级按钮批量迁移至Button组件（BookshelfPage/SettingsPage/LoginPage 共25处）
  * 2.33.1 (2026-07-29): [REFACTOR] 迭代B-3 — 清扫8个组件的硬编码颜色残留(118处)→ios语义色，新增warning-hover token
  * 2.34.0 (2026-07-29): [REFACTOR] 迭代B-4 — UploadQueue自包含弹层迁移至统一Modal体系，Modal新增panelClassName/bodyClassName扩展点
+ * 2.35.0 (2026-07-29): [REFACTOR] 迭代B-5 — 6个文件12处原生动作按钮迁移至Button组件，Button新增warning变体
+ * 2.36.0 (2026-07-29): [REFACTOR] 迭代B-6 — IconButton组件落地（5尺寸×4变体）+ ReaderControlPanel/ReaderTopBar控件迁移 + TtsQueuePanel/BatchActionBar提取
+ * 2.36.1 (2026-07-29): [BUGFIX] 修复TTS朗读状态不同步（useTtsSession双状态源）+ 翻页模式scrollTo目标容器错误
+ * 2.37.0 (2026-07-29): [REFACTOR] 迭代B-7 — TxtReaderView分页进度修复 + useTtsSession死状态移除 + Button新增pill变体/xs尺寸/active属性 + ReaderTopBar/ReaderControlPanel 20处迁移
+ * 2.38.0 (2026-07-29): [REFACTOR] 迭代B-8 — 8个文件23处原生button全量迁移至Button/IconButton；Button新增row/success/accent变体+justify属性，IconButton新增warning变体；BatchAction改用variant语义化；清理Layout硬编码色值
  */
-export const APP_VERSION = '2.37.0';
+export const APP_VERSION = '2.38.0';

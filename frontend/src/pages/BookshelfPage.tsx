@@ -618,13 +618,13 @@ useEffect(() => {
             </span>
             {/* 合成活跃指示器 */}
             {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
-              <button onClick={() => setShowTtsQueue(true)}
-                className="hidden sm:flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full animate-fade-in tap-active"
-                style={{ background: 'var(--color-primary-subtle)', color: 'var(--color-primary)' }}
+              <Button variant="pill" active size="xs"
+                onClick={() => setShowTtsQueue(true)}
+                className="hidden sm:flex animate-fade-in gap-1.5"
                 title="点击查看 TTS 队列">
-                <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--color-primary)' }} />
+                <span className="w-2 h-2 rounded-full animate-pulse bg-ios-primary" />
                 合成中
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -650,16 +650,18 @@ useEffect(() => {
             onBlur={(e) => { e.target.style.boxShadow = 'none'; }}
           />
           {searchQuery && (
-            <button
+            <IconButton
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center tap-icon"
-              style={{ background: 'var(--color-text-muted)' }}
+              variant="subtle"
+              size="xs"
+              className="absolute right-3 top-1/2 -translate-y-1/2 bg-ios-text-muted text-white"
+              aria-label="清除搜索"
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
-            </button>
+            </IconButton>
           )}
         </div>
 
@@ -759,36 +761,30 @@ useEffect(() => {
         {/* Category Sidebar */}
         <div className="w-full sm:w-48 shrink-0 overflow-x-auto scrollbar-hide">
           <div className="flex sm:flex-col gap-1 pb-1 sm:pb-0">
-            <button
+            <Button
+              variant="row"
+              active={selectedCategoryId === null}
+              justify="start"
+              size="sm"
+              fullWidth
               onClick={() => setSelectedCategoryId(null)}
-              className={`w-full text-left px-3 py-2 rounded-xl text-sm transition-all duration-200 ${
-                selectedCategoryId === null
-                  ? 'font-medium'
-                  : ''
-              }`}
-              style={{
-                background: selectedCategoryId === null ? 'var(--color-primary-subtle)' : 'transparent',
-                color: selectedCategoryId === null ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-              }}
+              className="h-auto py-2"
             >
               全部 ({books.length})
-            </button>
+            </Button>
             {categories.map((cat) => (
-              <button
+              <Button
                 key={cat.id}
+                variant="row"
+                active={selectedCategoryId === cat.id}
+                justify="start"
+                size="sm"
+                fullWidth
                 onClick={() => setSelectedCategoryId(cat.id)}
-                className={`w-full text-left px-3 py-2 rounded-xl text-sm transition-all duration-200 ${
-                  selectedCategoryId === cat.id
-                    ? 'font-medium'
-                    : ''
-                }`}
-                style={{
-                  background: selectedCategoryId === cat.id ? 'var(--color-primary-subtle)' : 'transparent',
-                  color: selectedCategoryId === cat.id ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                }}
+                className="h-auto py-2"
               >
                 {cat.name} ({categoryCount.get(cat.id) || 0})
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -923,8 +919,8 @@ useEffect(() => {
                         <span className="bg-ios-success text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">🔊</span>
                       </div>
                     )}
-                    <button onClick={(e) => handleEditBook(book, e)} className="w-7 h-7 bg-ios-primary text-white rounded-full flex items-center justify-center text-sm hover:bg-ios-primary-hover tap-icon" title="编辑信息">✎</button>
-                    <button onClick={(e) => handleDelete(book, e)} className="w-7 h-7 bg-ios-danger text-white rounded-full flex items-center justify-center text-sm hover:bg-ios-danger-hover tap-icon" title="删除图书">✕</button>
+                    <IconButton variant="primary" size="xs" className="w-7 h-7" onClick={(e) => handleEditBook(book, e)} title="编辑信息">✎</IconButton>
+                    <IconButton variant="danger" size="xs" className="w-7 h-7" onClick={(e) => handleDelete(book, e)} title="删除图书">✕</IconButton>
                   </div>
                 </div>
               ))}
@@ -1042,9 +1038,9 @@ useEffect(() => {
                           <span className="bg-ios-success text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">🔊</span>
                         </div>
                       )}
-                      <button onClick={(e) => handleTogglePin(book, e)} className="w-7 h-7 bg-ios-warning text-white rounded-full flex items-center justify-center text-sm hover:bg-ios-warning-hover tap-icon" title={book.pinned ? '取消置顶' : '置顶'}>{book.pinned ? '📌' : '📍'}</button>
-                      <button onClick={(e) => handleEditBook(book, e)} className="w-7 h-7 bg-ios-primary text-white rounded-full flex items-center justify-center text-sm hover:bg-ios-primary-hover tap-icon" title="编辑信息">✎</button>
-                      <button onClick={(e) => handleDelete(book, e)} className="w-7 h-7 bg-ios-danger text-white rounded-full flex items-center justify-center text-sm hover:bg-ios-danger-hover tap-icon" title="删除图书">✕</button>
+                      <IconButton variant="warning" size="xs" className="w-7 h-7" onClick={(e) => handleTogglePin(book, e)} title={book.pinned ? '取消置顶' : '置顶'}>{book.pinned ? '📌' : '📍'}</IconButton>
+                      <IconButton variant="primary" size="xs" className="w-7 h-7" onClick={(e) => handleEditBook(book, e)} title="编辑信息">✎</IconButton>
+                      <IconButton variant="danger" size="xs" className="w-7 h-7" onClick={(e) => handleDelete(book, e)} title="删除图书">✕</IconButton>
                     </div>
                   </div>
                 ))}
@@ -1068,9 +1064,9 @@ useEffect(() => {
           }}
           onExit={exitSelectionMode}
           actions={[
-            { id: 'delete', label: '删除选中', icon: '🗑', color: 'bg-ios-danger', hoverColor: 'hover:bg-ios-danger-hover', disabled: selectedIds.size === 0, onClick: handleBatchDelete },
-            { id: 'voice', label: '预生成语音', icon: '🎙', color: 'bg-ios-success', hoverColor: 'hover:bg-ios-success-hover', disabled: selectedIds.size === 0 || batchActionLoading === 'voice', loading: batchActionLoading === 'voice', onClick: handleBatchGenerateVoice },
-            { id: 'dedup', label: '去重', icon: '🔄', color: 'bg-ios-accent-1', hoverColor: 'hover:bg-ios-accent-1-hover', disabled: deduping, loading: deduping, onClick: handleDedup },
+            { id: 'delete', label: '删除选中', icon: '🗑', variant: 'danger', disabled: selectedIds.size === 0, onClick: handleBatchDelete },
+            { id: 'voice', label: '预生成语音', icon: '🎙', variant: 'success', disabled: selectedIds.size === 0 || batchActionLoading === 'voice', loading: batchActionLoading === 'voice', onClick: handleBatchGenerateVoice },
+            { id: 'dedup', label: '去重', icon: '🔄', variant: 'accent', disabled: deduping, loading: deduping, onClick: handleDedup },
           ]}
         />
       )}

@@ -4,7 +4,7 @@
  * 职责：展示语音生成任务列表、批量选择、取消/删除/清除操作
  * 获得 Modal 基础设施：portal 渲染、ESC 关闭、body scroll-lock、z-modal 层级、入场动画
  */
-import { Modal, Button } from './ui';
+import { Modal, Button, IconButton } from './ui';
 
 export interface TTSJob {
   id: string;
@@ -75,7 +75,7 @@ export function TtsQueuePanel({
         </h3>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" onClick={onRefresh}>🔄 刷新</Button>
-          <button onClick={onClose} className="text-xl leading-none tap-icon text-ios-text-muted" aria-label="关闭">&times;</button>
+          <IconButton onClick={onClose} variant="ghost" size="sm" className="text-xl" aria-label="关闭">&times;</IconButton>
         </div>
       </div>
 

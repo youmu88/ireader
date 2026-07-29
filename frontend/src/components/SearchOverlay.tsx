@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import axios from 'axios';
 import type { Chapter } from '../reader/types';
 import { stripHtml } from '../reader/utils/stripHtml';
+import { Button } from './ui/Button';
+import { IconButton } from './ui/IconButton';
 
 export interface SearchResult {
   index: number;
@@ -169,9 +171,9 @@ export function SearchOverlay({ visible, onClose, chapters, bookId, bookFormat, 
             className="flex-1 bg-transparent outline-none text-sm py-1.5 text-ios-text placeholder-ios-text-muted"
             autoFocus
           />
-          <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-ios-bg-alt text-ios-text-muted">
+          <IconButton onClick={onClose} variant="ghost" size="xs" className="w-7 h-7" aria-label="关闭">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
+          </IconButton>
         </div>
         {/* 搜索结果列表 */}
         <div className="max-h-64 overflow-y-auto">
@@ -185,10 +187,15 @@ export function SearchOverlay({ visible, onClose, chapters, bookId, bookFormat, 
             <div className="px-3 py-1.5 text-xs font-semibold text-ios-primary bg-ios-primary-subtle border-b border-ios-primary">📖 章节匹配（最高优先级）</div>
           )}
           {searchResults.map((result, i) => (
-            <button
+            <Button
               key={i}
+              variant="row"
+              active={searchActiveIdx === i}
+              justify="start"
+              size="sm"
+              fullWidth
               onClick={() => onJump(result)}
-              className={`w-full text-left px-4 py-2.5 text-sm border-b border-ios-border last:border-b-0 hover:bg-ios-primary-subtle transition-colors duration-150 ${searchActiveIdx === i ? 'bg-ios-primary-subtle' : ''}`}
+              className="h-auto px-4 py-2.5 border-b border-ios-border last:border-b-0"
             >
               <span className="block text-xs text-ios-text-muted mb-0.5">
                 {result.isChapterMatch ? (
@@ -211,7 +218,7 @@ export function SearchOverlay({ visible, onClose, chapters, bookId, bookFormat, 
                   )
                 }} />
               )}
-            </button>
+            </Button>
           ))}
           {searchQuery && isSearchingFullBook && searchResults.length > 0 && (
             <div className="px-3 py-2 text-xs text-center text-ios-text-muted border-t border-ios-border"><span className="animate-pulse">正在深入搜索全文内容…</span></div>

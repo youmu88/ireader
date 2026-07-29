@@ -20,7 +20,7 @@ import { useTtsSession } from '../reader/hooks/useTtsSession';
 import { getDefaultPlayer } from '../services/ttsPlayer';
 import { useAuth } from '../contexts/AuthContext';
 import { stripHtml } from '../reader/utils/stripHtml';
-import { toast, confirm, Button } from '../components/ui';
+import { toast, confirm, Button, IconButton } from '../components/ui';
 import type { Chapter } from '../reader/types';
 
 interface Book {
@@ -455,18 +455,20 @@ function ReaderPage() {
 
             {book?.format === 'epub' && (
               <>
-                <button onClick={() => { const idx = chapters.findIndex((c) => c.id === currentChapter?.id); if (idx > 0) navigateToChapter(chapters[idx - 1]); }}
+                <IconButton onClick={() => { const idx = chapters.findIndex((c) => c.id === currentChapter?.id); if (idx > 0) navigateToChapter(chapters[idx - 1]); }}
                   disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter?.id) <= 0}
-                  className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 opacity-40 hover:opacity-100 disabled:opacity-10 disabled:pointer-events-none"
-                  style={{background: 'var(--color-bg-alt)', color: 'var(--color-text)'}} title="上一章">
+                  variant="subtle" size="md"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 z-10 opacity-40 hover:opacity-100"
+                  title="上一章">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                </button>
-                <button onClick={() => { const idx = chapters.findIndex((c) => c.id === currentChapter?.id); if (idx >= 0 && idx < chapters.length - 1) navigateToChapter(chapters[idx + 1]); }}
+                </IconButton>
+                <IconButton onClick={() => { const idx = chapters.findIndex((c) => c.id === currentChapter?.id); if (idx >= 0 && idx < chapters.length - 1) navigateToChapter(chapters[idx + 1]); }}
                   disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter?.id) >= chapters.length - 1}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 opacity-40 hover:opacity-100 disabled:opacity-10 disabled:pointer-events-none"
-                  style={{background: 'var(--color-bg-alt)', color: 'var(--color-text)'}} title="下一章">
+                  variant="subtle" size="md"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 z-10 opacity-40 hover:opacity-100"
+                  title="下一章">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                </button>
+                </IconButton>
               </>
             )}
 
@@ -518,13 +520,14 @@ function ReaderPage() {
           </div>
         </div>
 
-        <button onClick={(e) => { e.stopPropagation(); toggleFloatMenu(); }}
-          className="absolute bottom-6 left-6 z-35 w-11 h-11 rounded-full flex items-center justify-center transition-opacity duration-200 hover:opacity-80 active:scale-90"
-          style={{ background: 'rgba(128,128,128,0.5)', opacity: 0.5 }} aria-label="菜单" title="菜单">
+        <IconButton onClick={(e) => { e.stopPropagation(); toggleFloatMenu(); }}
+          variant="ghost" size="lg"
+          className="absolute bottom-6 left-6 z-35 opacity-50 hover:opacity-80"
+          style={{ background: 'rgba(128,128,128,0.5)' }} aria-label="菜单" title="菜单">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
           </svg>
-        </button>
+        </IconButton>
 
         {showUi && (
           <ReaderControlPanel
