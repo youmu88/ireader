@@ -1370,7 +1370,7 @@ useEffect(() => {
                     const isHtml = typeof contentText === 'string' && /<[a-z][\s\S]*?>/i.test(contentText);
                     await player.load(contentText, isHtml, targetChapter.id);
                     if (lastPlayback.currentIndex > 0) {
-                      player['currentIndex'] = lastPlayback.currentIndex;
+                      await player.jumpToSegment(lastPlayback.currentIndex);
                     }
                     await player.play();
                   } catch { /* 恢复播放失败时静默处理 */ }
