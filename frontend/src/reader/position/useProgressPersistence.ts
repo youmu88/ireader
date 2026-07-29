@@ -66,8 +66,6 @@ export interface UseProgressPersistenceOptions {
 }
 
 export interface UseProgressPersistenceResult {
-  /** 命令式保存（走 debounce 管道，供外部事件处理器调用） */
-  save: (pos: ReadingPosition) => void;
   /** 立即保存（跳过 debounce，用于页面卸载等必须同步写入的场景） */
   saveImmediate: (pos: ReadingPosition) => void;
   /** 立即刷新待保存的位置（跳过 debounce，用于页面卸载前） */
@@ -171,19 +169,6 @@ export function useProgressPersistence(
       .catch(() => { /* 静默 */ });
   }, []);
 
-  /** 命令式保存（走 debounce 管道） */
-  const save = useCallback((pos: ReadingPosition) => {
-    persistToLocal(pos);
-    pendingRef.current = pos;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null;
-      if (pendingRef.current) {
-        doSave(pendingRef.current);
-        pendingRef.current = null;
-      }
-    }, SAVE_DEBOUNCE_MS);
-  }, [doSave]);
 
   /** 立即保存（跳过 debounce） */
   const saveImmediate = useCallback((pos: ReadingPosition) => {
@@ -249,5 +234,5 @@ export function useProgressPersistence(
     };
   }, [flush]);
 
-  return { save, saveImmediate, flush, syncVersion };
+  return { saveImmediate, flush, syncVersion };
 }

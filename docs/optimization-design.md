@@ -581,11 +581,11 @@ OfflineBookPackage {
 - ❌ SelectionMenu 统一（EPUB iframe + TXT DOM 统一 SelectionContext）
 - ❌ ReaderPage 进一步瘦身（目标 <800 行，当前 1987 行）
 
-### 🔜 推荐下一步迭代
+### ✅ 推荐下一步迭代（已完成，更新于 2026-07-29）
 
-**Phase 0 剩余 P0 项（P0-2 + P0-3）**：预合成分段模型统一 + 部分预合成范围限制。
+**Phase 0~2 全部完成**。P0-2（R55）、P0-3（R56）、P0-4（R57）、P0-5（R63）、P1-4~P1-8（R58）、P2-3 语速拆分（R66）、P2-5 进度冲突（R67）均已上线。
 
-理由：设计文档明确优先级为「安全边界和数据正确性 → 内容模型统一 → TTS 逐段任务」。P0-1 已修复，P0-2/P0-3 是当前最高优先级的未完成数据正确性问题，直接影响 TTS 预合成的进度准确性和任务可靠性。
+当前剩余工作集中在 Phase 3~5 尾巴项：downloadSession 集成、playbackRate UI、离线包过期提示、ReaderPage 进一步瘦身。
 
 ## 11. 实施计划
 

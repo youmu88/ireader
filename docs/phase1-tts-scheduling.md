@@ -84,23 +84,23 @@
 ## 4. 开发执行计划
 
 ### 迭代 1：后端 P1-4 + P1-5 + P1-6
-- [ ] 1.1 修复 recoverStuckJobs 进度计算
-- [ ] 1.2 schema.ts 增加 source + engine_config_hash 列
-- [ ] 1.3 init.ts 增加迁移 SQL
-- [ ] 1.4 createFullBook/createPartial 持久化 source + engineConfigHash
-- [ ] 1.5 processJob 使用 job.source
-- [ ] 1.6 tts_cache 唯一索引 + saveToCache 占位竞争
-- [ ] 1.7 tsc --noEmit 验证
+- [x] 1.1 修复 recoverStuckJobs 进度计算
+- [x] 1.2 schema.ts 增加 source + engine_config_hash 列
+- [x] 1.3 init.ts 增加迁移 SQL
+- [x] 1.4 createFullBook/createPartial 持久化 source + engineConfigHash
+- [x] 1.5 processJob 使用 job.source
+- [x] 1.6 tts_cache 唯一索引 + saveToCache 占位竞争
+- [x] 1.7 tsc --noEmit 验证
 
 ### 迭代 2：前端 P1-7 + P1-8
-- [ ] 2.1 offlineCacheService DB_VERSION 4→5，新增 downloadSessions store
-- [ ] 2.2 getBookCacheStatus 增加 profile 过滤
-- [ ] 2.3 实现 downloadSession 创建/更新/续传/完成
-- [ ] 2.4 downloadBatchCachedAudio 集成 session
-- [ ] 2.5 tsc --noEmit 验证
+- [x] 2.1 offlineCacheService DB_VERSION 4→5，新增 downloadSessions store
+- [x] 2.2 getBookCacheStatus 增加 profile 过滤
+- [x] 2.3 实现 downloadSession 创建/更新/续传/完成
+- [x] 2.4 downloadBatchCachedAudio 集成 session
+- [x] 2.5 tsc --noEmit 验证
 
 ### 迭代 3：集成验证 + 归档
-- [ ] 3.1 全量 tsc 检查
-- [ ] 3.2 版本号更新
-- [ ] 3.3 git commit + push
-- [ ] 3.4 deploy.sh
+- [x] 3.1 全量 tsc 检查
+- [x] 3.2 版本号更新
+- [x] 3.3 git commit + push
+- [x] 3.4 deploy.sh

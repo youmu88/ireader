@@ -229,7 +229,7 @@ InputSurface + InteractionController + useReaderInteraction 是一套设计良�
 
 ## 第三部分：迭代计划（TODO List）
 
-### Phase 1：基础设施（预计 3-4 天）
+### Phase 1：基础设施（预计 3-4 天）✅ 已完成
 
 | # | 任务 | 优先级 | 复杂度 | 验收标准 |
 |---|------|--------|--------|----------|
@@ -239,7 +239,7 @@ InputSurface + InteractionController + useReaderInteraction 是一套设计良�
 | 1.4 | 删除 PageTurnCanvas.tsx 空文件 | P2 | 低 | 文件不存在 |
 | 1.5 | 定义 TtsController 接口（不含实现） | P0 | 低 | 类型文件通过 tsc |
 
-### Phase 2：TXT 翻页重构（预计 4-5 天）
+### Phase 2：TXT 翻页重构（预计 4-5 天）✅ 已完成
 
 | # | 任务 | 优先级 | 复杂度 | 验收标准 |
 |---|------|--------|--------|----------|
@@ -250,7 +250,7 @@ InputSurface + InteractionController + useReaderInteraction 是一套设计良�
 | 2.5 | 章节边界事件（末尾自动提示加载下章） | P1 | 低 | 到最后一页触发回调 |
 | 2.6 | 从 ReaderPage 中剥离 TXT 渲染逻辑到 TxtEngine | P0 | 高 | ReaderPage 减少 800+ 行 |
 
-### Phase 3：EPUB 引擎封装（预计 3-4 天）
+### Phase 3：EPUB 引擎封装（预计 3-4 天）✅ 已完成
 
 | # | 任务 | 优先级 | 复杂度 | 验收标准 |
 |---|------|--------|--------|----------|
@@ -259,7 +259,7 @@ InputSurface + InteractionController + useReaderInteraction 是一套设计良�
 | 3.3 | EpubEngine 章节跳转通过 engine 接口暴露 | P1 | 低 | 目录点击正常 |
 | 3.4 | EPUB 上下章按钮逻辑移入 EpubEngine | P1 | 低 | 按钮行为不变 |
 
-### Phase 4：TTS 重构（预计 4-5 天）
+### Phase 4：TTS 重构（预计 4-5 天）✅ 已完成
 
 | # | 任务 | 优先级 | 复杂度 | 验收标准 |
 |---|------|--------|--------|----------|
@@ -270,7 +270,7 @@ InputSurface + InteractionController + useReaderInteraction 是一套设计良�
 | 4.5 | 删除 ttsPlayer.ts 中拼接模式代码（约400 行） | P0 | 中 | 代码量减少 |
 | 4.6 | 删除 ReaderPage 中 TTS 启发式进度同步（约120 行） | P0 | 低 | 只用 position.ratio |
 
-### Phase 5：ReaderPage 瘦身（预计 3-4 天）
+### Phase 5：ReaderPage 瘦身（预计 3-4 天）🔶 部分完成（1983行，目标<800）
 
 | # | 任务 | 优先级 | 复杂度 | 验收标准 |
 |---|------|--------|--------|----------|
@@ -281,7 +281,7 @@ InputSurface + InteractionController + useReaderInteraction 是一套设计良�
 | 5.5 | 手势统一：删除 ReaderPage 中独立 keydown/onClick | P0 | 中 | 所有输入走 Controller |
 | 5.6 | 最终验证：ReaderPage < 400 行 | P0 | — | wc -l 验证 |
 
-### Phase 6：集成测试 + 清理（预计 2-3 天）
+### Phase 6：集成测试 + 清理（预计 2-3 天）🔶 部分完成（152测试通过，E2E待补）
 
 | # | 任务 | 优先级 | 复杂度 | 验收标准 |
 |---|------|--------|--------|----------|

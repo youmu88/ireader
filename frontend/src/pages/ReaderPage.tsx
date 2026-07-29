@@ -1754,12 +1754,21 @@ function stripHtml(html: string): string {
             ttsSegments={null}
             activeSegmentIndex={activeSegmentIndex}
             searchResults={searchResults}
-            onProgress={(ratio) => { charOffsetRatioRef.current = ratio; }}
+            onProgress={(ratio) => {
+              charOffsetRatioRef.current = ratio;
+              updatePosition(readingMode === 'scroll'
+                ? { ratio, scrollRatio: ratio }
+                : { ratio });
+            }}
             onBoundary={(dir) => {
               if (dir === 'next') goToNextChapterRef.current?.();
               else goToPrevChapterRef.current?.();
             }}
-            onPageInfo={(page, total) => { setPageIndex(page); setTotalPages(total); }}
+            onPageInfo={(page, total) => {
+              setPageIndex(page);
+              setTotalPages(total);
+              updatePosition({ page, pageCount: total });
+            }}
             initialScrollRatio={pendingScrollRestorePct}
             isPageTurning={isPageTurning}
           />
@@ -1938,7 +1947,9 @@ function stripHtml(html: string): string {
               if (goingToPaginated) {
                 const scrollEl = txtPageRef.current;
                 if (scrollEl && scrollEl.scrollHeight > 0) {
-                  charOffsetRatioRef.current = Math.min(1, Math.max(0, scrollEl.scrollTop / scrollEl.scrollHeight));
+                  const r = Math.min(1, Math.max(0, scrollEl.scrollTop / scrollEl.scrollHeight));
+                  charOffsetRatioRef.current = r;
+                  updatePosition({ ratio: r, scrollRatio: r });
                 }
                 setReadingMode('paginated');
               } else {

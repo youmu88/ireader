@@ -373,24 +373,6 @@ export class TTSPlayer {
     return this.synthesisRate;
   }
 
-  /** @deprecated 使用 setPlaybackRate 代替 */
-  setSpeed(speed: number): void {
-    this.setPlaybackRate(speed);
-  }
-
-  /** @deprecated 使用 getPlaybackRate 代替 */
-  getSpeed(): number {
-    return this.playbackRate;
-  }
-
-  // ── 设置音量 ──
-
-  setVolume(volume: number): void {
-    this.volume = Math.max(0, Math.min(1.0, volume));
-    if (this.audioElement) {
-      this.audioElement.volume = this.volume;
-    }
-  }
 
   getVolume(): number {
     return this.volume;
