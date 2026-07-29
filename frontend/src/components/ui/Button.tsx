@@ -1,7 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'warning' | 'text';
-export type ButtonSize = 'sm' | 'md' | 'lg';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'warning' | 'text' | 'pill';
+export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** 视觉变体，默认 primary */
@@ -12,6 +12,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
   /** 擑满父容器宽度 */
   fullWidth?: boolean;
+  /** 激活态（pill 变体专用，切换为 primary-subtle 高亮） */
+  active?: boolean;
   children: ReactNode;
 }
 
@@ -22,9 +24,13 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   danger: 'bg-ios-danger text-white hover:bg-ios-danger-hover active:bg-ios-danger-hover shadow-ios-sm ripple-btn',
   warning: 'bg-ios-warning text-white hover:bg-ios-warning-hover active:bg-ios-warning-hover shadow-ios-sm ripple-btn',
   text: 'bg-transparent text-ios-primary hover:bg-ios-primary-subtle',
+  pill: 'bg-ios-bg-alt text-ios-text-secondary hover:bg-ios-border rounded-full',
 };
 
+const PILL_ACTIVE_CLASS = 'bg-ios-primary-subtle text-ios-primary hover:bg-ios-primary-subtle';
+
 const SIZE_CLASSES: Record<ButtonSize, string> = {
+  xs: 'h-7 px-2.5 text-xs gap-1 rounded-full',
   sm: 'h-8 px-3 text-[13px] gap-1.5 rounded-ios-md',
   md: 'h-10 px-4 text-[15px] gap-2 rounded-ios-lg',
   lg: 'h-12 px-5 text-[17px] gap-2 rounded-ios-xl',
@@ -41,6 +47,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     size = 'md',
     loading = false,
     fullWidth = false,
+    active = false,
     disabled,
     className = '',
     children,
@@ -48,11 +55,12 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   },
   ref,
 ) {
+  const variantCls = variant === 'pill' && active ? PILL_ACTIVE_CLASS : VARIANT_CLASSES[variant];
   return (
     <button
       ref={ref}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center font-medium select-none whitespace-nowrap ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]}${fullWidth ? ' w-full' : ''}${className ? ` ${className}` : ''}`}
+      className={`inline-flex items-center justify-center font-medium select-none whitespace-nowrap ${variantCls} ${SIZE_CLASSES[size]}${fullWidth ? ' w-full' : ''}${className ? ` ${className}` : ''}`}
       {...rest}
     >
       {loading && (

@@ -2,6 +2,7 @@
  * ReaderTopBar —— 阅读器顶栏组件（Phase 5.5 从 ReaderPage 剥离，独立文件）
  */
 import type { PlayerState } from '../services/ttsPlayer';
+import { Button } from './ui/Button';
 import { IconButton } from './ui/IconButton';
 
 export interface ReaderTopBarProps {
@@ -53,13 +54,12 @@ export function ReaderTopBar({
     <div className="glass flex items-center justify-between px-2 sm:px-4 py-1 sm:py-2 overflow-x-auto scrollbar-hide"
       style={{ borderBottom: '0.5px solid var(--color-border)' }}>
       <div className="flex items-center gap-2 shrink-0">
-        <button onClick={onBack} className="flex items-center gap-1 text-sm tap-active px-2 py-1 rounded-lg transition-all duration-200"
-          style={{ color: 'var(--color-primary)' }}>
+        <Button onClick={onBack} variant="ghost" size="xs">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="15 18 9 12 15 6" />
           </svg>
           <span className="hidden sm:inline">返回</span>
-        </button>
+        </Button>
         <h1 className="text-sm font-medium truncate max-w-[120px] sm:max-w-xs"
           style={{ color: 'var(--color-text)' }}>
           {title}
@@ -69,14 +69,12 @@ export function ReaderTopBar({
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         {/* TTS 朗读按钮 */}
         {onStartTTS && (
-          <button
+          <Button
             onClick={ttsActive ? onStopTTS : onStartTTS}
             disabled={ttsState === 'loading'}
-            className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-full transition-all duration-200 tap-active"
-            style={{
-              background: ttsActive ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)',
-              color: ttsActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            }}
+            variant="pill"
+            size="xs"
+            active={!!ttsActive}
             title={ttsActive ? '停止朗读' : '朗读本章'}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -87,19 +85,17 @@ export function ReaderTopBar({
               )}
             </svg>
             <span className="hidden sm:inline">{ttsState === 'playing' ? '朗读中' : ttsState === 'paused' ? '已暂停' : ttsState === 'loading' ? '加载中' : '朗读'}</span>
-          </button>
+          </Button>
         )}
         {/* 离线缓存按钮 */}
         {onCacheChapter && (
           <>
-            <button
+            <Button
               onClick={onCacheChapter}
               disabled={cachingInProgress}
-              className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-full transition-all duration-200 tap-active"
-              style={{
-                background: cacheStatus?.chapterCount ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)',
-                color: cacheStatus?.chapterCount ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-              }}
+              variant="pill"
+              size="xs"
+              active={!!cacheStatus?.chapterCount}
               title="缓存当前章节到本地（离线可用）"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -108,12 +104,12 @@ export function ReaderTopBar({
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
               <span className="hidden sm:inline">{cachingInProgress ? '缓存中' : '缓存'}</span>
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={onCacheFullBook}
               disabled={cachingInProgress}
-              className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-full transition-all duration-200 tap-active"
-              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+              variant="pill"
+              size="xs"
               title="缓存全书到本地（离线可用）"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -122,7 +118,7 @@ export function ReaderTopBar({
                 <line x1="12" y1="22.08" x2="12" y2="12" />
               </svg>
               <span className="hidden sm:inline">全书</span>
-            </button>
+            </Button>
             {cacheStatus && cacheStatus.chapterCount > 0 && (
               <>
                 <span className="text-xs" style={{ color: 'var(--color-primary)' }} title="已缓存章节数">
@@ -144,16 +140,12 @@ export function ReaderTopBar({
           </>
         )}
         {onToggleToc && (
-          <button
-            onClick={onToggleToc}
-            className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-full transition-all duration-200 tap-active"
-            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-          >
+          <Button onClick={onToggleToc} variant="pill" size="xs">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
             </svg>
             <span className="hidden sm:inline">目录</span>
-          </button>
+          </Button>
         )}
         {/* 字体族选择 */}
         {onFontFamilyChange && (
@@ -169,13 +161,11 @@ export function ReaderTopBar({
           </select>
         )}
         {/* 阅读模式切换 */}
-        <button
+        <Button
           onClick={onToggleReadingMode}
-          className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-full transition-all duration-200 tap-active"
-          style={{
-            background: readingMode === 'paginated' ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)',
-            color: readingMode === 'paginated' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-          }}
+          variant="pill"
+          size="xs"
+          active={readingMode === 'paginated'}
           title="切换阅读模式"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -186,47 +176,21 @@ export function ReaderTopBar({
             )}
           </svg>
           <span className="hidden sm:inline">{readingMode === 'paginated' ? '翻页' : '滚动'}</span>
-        </button>
+        </Button>
         {/* 字号控制 */}
         {onFontSizeChange && (
           <div className="flex items-center gap-0.5">
-            <button
-              onClick={() => onFontSizeChange(Math.max(12, (fontSize || 18) - 2))}
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-xs tap-icon transition-all duration-150"
-              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-            >
-              A-
-            </button>
+            <Button onClick={() => onFontSizeChange(Math.max(12, (fontSize || 18) - 2))} variant="pill" size="xs" className="w-7 px-0">A-</Button>
             <span className="text-xs w-5 text-center" style={{ color: 'var(--color-text-secondary)' }}>{fontSize || 18}</span>
-            <button
-              onClick={() => onFontSizeChange(Math.min(36, (fontSize || 18) + 2))}
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-xs tap-icon transition-all duration-150"
-              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-            >
-              A+
-            </button>
+            <Button onClick={() => onFontSizeChange(Math.min(36, (fontSize || 18) + 2))} variant="pill" size="xs" className="w-7 px-0">A+</Button>
           </div>
         )}
         {/* 行高控制 */}
         {onLineHeightChange && (
           <div className="flex items-center gap-0.5">
-            <button
-              onClick={() => onLineHeightChange(Math.max(1.2, (lineHeight || 1.8) - 0.2))}
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-xs tap-icon transition-all duration-150"
-              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-              disabled={(lineHeight || 1.8) <= 1.2}
-            >
-              行-
-            </button>
+            <Button onClick={() => onLineHeightChange(Math.max(1.2, (lineHeight || 1.8) - 0.2))} variant="pill" size="xs" className="w-7 px-0" disabled={(lineHeight || 1.8) <= 1.2}>行-</Button>
             <span className="text-xs w-5 text-center" style={{ color: 'var(--color-text-secondary)' }}>{(lineHeight || 1.8).toFixed(1)}</span>
-            <button
-              onClick={() => onLineHeightChange(Math.min(3.0, (lineHeight || 1.8) + 0.2))}
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-xs tap-icon transition-all duration-150"
-              style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-              disabled={(lineHeight || 1.8) >= 3.0}
-            >
-              行+
-            </button>
+            <Button onClick={() => onLineHeightChange(Math.min(3.0, (lineHeight || 1.8) + 0.2))} variant="pill" size="xs" className="w-7 px-0" disabled={(lineHeight || 1.8) >= 3.0}>行+</Button>
           </div>
         )}
       </div>

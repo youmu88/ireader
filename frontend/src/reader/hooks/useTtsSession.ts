@@ -93,8 +93,6 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
   const paramsRef = useRef(params);
   paramsRef.current = params;
 
-  const [, setTtsState] = useState<PlayerState>('idle');
-  const [, setTtsProgress] = useState(0);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
   const [ttsError, setTtsError] = useState<string | null>(null);
   const [ttsSpeed] = useState(() => {
@@ -103,7 +101,6 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
       return raw ? parseFloat(raw) : 1.0;
     } catch { return 1.0; }
   });
-  const [, setActiveSegmentIndex] = useState(-1);
   const [ttsVoice] = useState(() => {
     try { return localStorage.getItem('ireader_tts_voice') || 'zh-CN-XiaoxiaoNeural'; } catch { return 'zh-CN-XiaoxiaoNeural'; }
   });
@@ -195,9 +192,6 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
     const ci = p.chapters.findIndex((c) => c.id === curCh.id);
     if (ci < 0 || ci >= p.chapters.length - 1) {
       player.stop();
-      setTtsState('idle');
-      setTtsProgress(0);
-      setActiveSegmentIndex(-1);
       setTtsSegmentText('');
       clearPlaybackFromLocalStorage();
       return;
@@ -224,13 +218,10 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
       if (!loadedFromPrefetch) {
         await player.load(content, false, nextCh.id);
       }
-      setActiveSegmentIndex(0);
-      setTtsProgress(0);
       await player.play();
       p.preloadNextChapters(nextCh.id);
     } catch {
       player.stop();
-      setTtsState('idle');
     }
   }, []);
   advanceToNextChapterTTSRef.current = advanceToNextChapterTTS;
@@ -259,16 +250,12 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
     const state = player.getState();
     if (state === 'idle' || player.currentBookId !== bookId) return;
     ttsPlayerRef.current = player;
-    setTtsState(state);
     const idx = player.getCurrentIndex();
     if (idx >= 0) {
-      setActiveSegmentIndex(idx);
-      setTtsProgress(player.getTotalChunks() > 0 ? (idx + 1) / player.getTotalChunks() : 0);
       setTtsSegmentText(player.getCurrentSegmentText());
     }
     player.setCallbacks({
       onStateChange: (s) => {
-        setTtsState(s);
         if (s !== 'playing' && sleepTimerIntervalRef.current) {
           clearInterval(sleepTimerIntervalRef.current);
           sleepTimerIntervalRef.current = null;
@@ -276,7 +263,6 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
       },
       onSegmentPlay: (i, total) => {
         setTtsSegmentText(player.getCurrentSegmentText());
-        setActiveSegmentIndex(i);
         requestAnimationFrame(() => {
           const container = paramsRef.current.txtScrollRef.current;
           if (!container) return;
@@ -292,7 +278,7 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
           }
         }
       },
-      onProgress: (p) => setTtsProgress(p),
+      onProgress: () => {},
       onError: (err) => {
         console.warn('TTS 朗读错误:', err);
         if ((err.includes('合成失败') || err.includes('无可用音频')) && !err.includes('当前离线且该段语音未缓存')) return;
@@ -309,7 +295,6 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
         setTimeout(() => setTtsError(null), 8000);
       },
       onEnd: () => {
-        setTtsProgress(1);
         if (sleepTimerIntervalRef.current) {
           clearInterval(sleepTimerIntervalRef.current);
           sleepTimerIntervalRef.current = null;
@@ -337,8 +322,7 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
     currentChapterId: currentChapter?.id,
     currentChapterTitle: currentChapter?.title,
     bookTitle: book?.title,
-    onSegmentChange: (idx, _total) => {
-      setActiveSegmentIndex(idx);
+    onSegmentChange: (_idx, _total) => {
       requestAnimationFrame(() => {
         const container = paramsRef.current.txtScrollRef.current;
         if (!container) return;

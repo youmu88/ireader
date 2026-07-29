@@ -31,4 +31,4 @@
  * 2.33.1 (2026-07-29): [REFACTOR] 迭代B-3 — 清扫8个组件的硬编码颜色残留(118处)→ios语义色，新增warning-hover token
  * 2.34.0 (2026-07-29): [REFACTOR] 迭代B-4 — UploadQueue自包含弹层迁移至统一Modal体系，Modal新增panelClassName/bodyClassName扩展点
  */
-export const APP_VERSION = '2.36.1';
+export const APP_VERSION = '2.37.0';

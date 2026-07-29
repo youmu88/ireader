@@ -162,11 +162,16 @@ const TxtReaderView = forwardRef<TxtReaderViewHandle, TxtReaderViewProps>(functi
     getContentContainer: () => contentRef.current,
     performPageTurn,
     getScrollRatio: () => {
+      if (readingMode === 'paginated') {
+        const el = contentRef.current;
+        if (!el || el.scrollWidth <= el.clientWidth) return 0;
+        return el.scrollLeft / (el.scrollWidth - el.clientWidth);
+      }
       const el = scrollRef.current;
       if (!el || el.scrollHeight <= el.clientHeight) return 0;
       return el.scrollTop / (el.scrollHeight - el.clientHeight);
     },
-  }), [performPageTurn]);
+  }), [performPageTurn, readingMode]);
 
   // ── 分页模式：测量页数 ─────────────────────────────────
 
