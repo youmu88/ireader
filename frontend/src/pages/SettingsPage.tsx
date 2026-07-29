@@ -18,6 +18,7 @@ import {
 
 import { APP_VERSION } from '../version';
 import axios from 'axios';
+import { Button } from '../components/ui';
 
 export default function SettingsPage() {
   // @ts-ignore
@@ -306,11 +307,10 @@ export default function SettingsPage() {
                     color: 'var(--color-text)',
                     borderColor: 'var(--color-border)',
                   }} />
-                <button onClick={handleTestConnection} disabled={testing}
-                  className="px-3 py-2 rounded-xl text-xs font-medium tap-icon whitespace-nowrap"
-                  style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>
-                  {testing ? '测试中…' : '测试'}
-                </button>
+                <Button onClick={handleTestConnection} loading={testing}
+                  variant="secondary" size="sm">
+                  测试
+                </Button>
               </div>
               {connectionStatus && (
                 <div className="mt-2 text-xs px-2 py-1 rounded-lg"
@@ -330,11 +330,10 @@ export default function SettingsPage() {
               style={{ borderBottom: '0.5px solid var(--color-border)' }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>模型</span>
-                <button onClick={handleFetchModels} disabled={fetchingModels}
-                  className="px-2.5 py-1 rounded-lg text-xs font-medium tap-icon"
-                  style={{ background: 'var(--color-bg-alt)', color: 'var(--color-primary)' }}>
-                  {fetchingModels ? '加载中…' : '刷新'}
-                </button>
+                <Button onClick={handleFetchModels} loading={fetchingModels}
+                  variant="ghost" size="sm">
+                  刷新
+                </Button>
               </div>
               <input type="text" list="tts-model-list" value={model}
                 onChange={e => setModel(e.target.value)}
@@ -378,11 +377,10 @@ export default function SettingsPage() {
             <div className="px-4 py-3.5">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>缺省音色</span>
-                <button onClick={handleFetchVoices} disabled={fetchingVoices}
-                  className="px-2.5 py-1 rounded-lg text-xs font-medium tap-icon"
-                  style={{ background: 'var(--color-bg-alt)', color: 'var(--color-primary)' }}>
-                  {fetchingVoices ? '加载中…' : '刷新'}
-                </button>
+                <Button onClick={handleFetchVoices} loading={fetchingVoices}
+                  variant="ghost" size="sm">
+                  刷新
+                </Button>
               </div>
               {voices.length > 0 ? (
                 <><select value={selectedVoice} onChange={e => setSelectedVoice(e.target.value)}
@@ -400,18 +398,10 @@ export default function SettingsPage() {
                 </select>
                 {/* 试听按钮 */}
                 <div className="flex items-center gap-2 mt-2" style={{ display: 'flex' }}>
-                  <button onClick={handlePreviewVoice} disabled={previewing}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all tap-icon"
-                    style={{
-                      background: previewing ? 'var(--color-bg-alt)' : 'var(--color-primary)',
-                      color: previewing ? 'var(--color-text-muted)' : '#fff',
-                    }}>
-                    {previewing ? (
-                      <><span className="inline-block w-3 h-3 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--color-border)', borderTopColor: 'var(--color-primary)' }} /> 播放中…</>
-                    ) : (
-                      <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3" /></svg> 试听</>
-                    )}
-                  </button>
+                  <Button onClick={handlePreviewVoice} loading={previewing} size="sm">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                    {previewing ? '播放中…' : '试听'}
+                  </Button>
                   <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>约3秒</span>
                 </div>
                 </>) : (
@@ -507,14 +497,9 @@ export default function SettingsPage() {
         )}
 
         {/* ── 保存按钮 ── */}
-        <button onClick={handleSave} disabled={saving}
-          className="w-full py-3.5 rounded-2xl text-sm font-semibold text-center tap-active transition-all duration-200 shadow-ios-sm"
-          style={{
-            background: saving ? 'var(--color-bg-alt)' : 'var(--color-primary)',
-            color: saving ? 'var(--color-text-muted)' : '#fff',
-          }}>
-          {saving ? '保存中…' : '保存设置'}
-        </button>
+        <Button onClick={handleSave} loading={saving} fullWidth size="lg">
+          保存设置
+        </Button>
 
         <div className="h-12" />
       </div>
@@ -694,13 +679,10 @@ export default function SettingsPage() {
       </div>
 
       {/* ── 退出登录 ── */}
-      <button
-        onClick={handleLogout}
-        className="w-full py-3.5 rounded-2xl text-sm font-semibold text-center tap-active transition-all duration-200 shadow-ios-sm"
-        style={{ background: 'var(--color-bg-card)', color: '#ff3b30' }}
-      >
+      <Button onClick={handleLogout} variant="secondary" fullWidth size="lg"
+        className="!bg-ios-bg-card !text-ios-danger shadow-ios-sm">
         退出登录
-      </button>
+      </Button>
 
       <div className="h-12" />
     </div>

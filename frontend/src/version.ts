@@ -27,5 +27,6 @@
  * 2.30.0 (2026-07-29): [REFACTOR] 提取 Media Session + heartbeat 为 ttsMediaSession.ts，ttsPlayer.ts 738→669 行
  * 2.31.0 (2026-07-29): [FEAT] 迭代A — downloadSession集成批量下载(续传) + 离线包stale UI提示 + playbackRate倍速控件
  * 2.32.0 (2026-07-29): [FEAT] 迭代B — Design tokens CSS变量体系(7大类) + 统一组件库Button/Toast/Modal，替换全部原生alert/confirm
+ * 2.33.0 (2026-07-29): [FEAT] 迭代B-2 — 页面级按钮批量迁移至Button组件（BookshelfPage/SettingsPage/LoginPage 共25处）
  */
-export const APP_VERSION = '2.32.0';
+export const APP_VERSION = '2.33.0';

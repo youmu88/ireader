@@ -588,26 +588,19 @@ useEffect(() => {
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <p className="text-red-700 dark:text-red-300">{error}</p>
           <div className="flex flex-wrap gap-2 mt-3">
-            <button
-              onClick={loadData}
-              className="px-4 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 text-sm font-medium"
-            >
+            <Button variant="danger" size="sm" onClick={loadData}>
               重试
-            </button>
+            </Button>
             {isOfflineMode && (
-              <button
-                onClick={() => navigate('/login', { replace: true })}
-                className="px-4 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium"
-              >
+              <Button variant="secondary" size="sm"
+                onClick={() => navigate('/login', { replace: true })}>
                 返回登录页
-              </button>
+              </Button>
             )}
-            <button
-              onClick={exitOfflineMode}
-              className="px-4 py-1.5 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-sm font-medium"
-            >
+            <Button variant="ghost" size="sm" className="!text-ios-danger"
+              onClick={exitOfflineMode}>
               退出离线模式
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -679,52 +672,40 @@ useEffect(() => {
 
         {/* 操作按钮行 */}
         <div className="flex items-center gap-2 mt-3 overflow-x-auto scrollbar-hide">
-          <button
-            onClick={() => { setSelectionMode(true); setSelectedIds(new Set()); }}
-            className="flex items-center gap-1.5 px-3.5 h-9 rounded-xl text-sm font-medium whitespace-nowrap shrink-0 tap-active transition-all duration-200"
-            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-          >
+          <Button variant="secondary" size="sm" className="shrink-0"
+            onClick={() => { setSelectionMode(true); setSelectedIds(new Set()); }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
               <polyline points="9 11 12 14 22 4" />
             </svg>
             批量选择
-          </button>
-          <button
-            onClick={() => uploadQueueRef.current?.show()}
-            className="flex items-center gap-1.5 px-4 h-9 rounded-xl text-sm font-medium whitespace-nowrap shrink-0 ripple-btn transition-all duration-200 shadow-sm"
-            style={{ background: 'var(--color-primary)', color: 'white' }}
-          >
+          </Button>
+          <Button size="sm" className="shrink-0"
+            onClick={() => uploadQueueRef.current?.show()}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
             上传图书
-          </button>
-          <button
-            onClick={handleDedup}
-            className="flex items-center gap-1.5 px-3.5 h-9 rounded-xl text-sm font-medium whitespace-nowrap shrink-0 tap-active transition-all duration-200"
-            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
-            title="扫描并删除书架上的重复书籍"
-          >
+          </Button>
+          <Button variant="secondary" size="sm" className="shrink-0"
+            onClick={handleDedup} title="扫描并删除书架上的重复书籍">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
             </svg>
             去重
-          </button>
+          </Button>
           {/* 上传队列状态 */}
           {uploadStats.total > 0 && (
-            <button
+            <Button variant="ghost" size="sm" className="shrink-0 animate-fade-in"
               onClick={() => uploadQueueRef.current?.show()}
-              className="flex items-center gap-1.5 px-3 h-9 rounded-xl text-sm font-medium whitespace-nowrap shrink-0 tap-active transition-all duration-200 animate-fade-in"
-              style={{ background: 'var(--color-primary-subtle)', color: 'var(--color-primary)' }}
               title={`上传队列：${uploadStats.active} 个进行中，${uploadStats.completed} 个完成`}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
               </svg>
               上传中 {uploadStats.active > 0 && `(${uploadStats.active})`}
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -1096,7 +1077,7 @@ useEffect(() => {
                 已选择 <strong style={{ color: 'var(--color-primary)' }}>{selectedIds.size}</strong> 本
               </span>
               <span style={{ color: 'var(--color-border)' }}>|</span>
-              <button
+              <Button variant="text" size="sm"
                 onClick={() => {
                   const allFilteredIds = new Set(filteredBooks.map(b => b.id));
                   if (allFilteredIds.size === selectedIds.size) {
@@ -1107,20 +1088,14 @@ useEffect(() => {
                     setSelectedIds(allFilteredIds);
                   }
                 }}
-                className="text-sm font-medium transition-colors"
-                style={{ color: 'var(--color-primary)' }}
               >
                 {selectedIds.size > 0 && selectedIds.size >= filteredBooks.length ? '☐ 全不选' : '☑ 全选'}
-              </button>
+              </Button>
             </div>
             <div className="flex items-center gap-3">
-              <button
-                onClick={exitSelectionMode}
-                className="px-4 py-2 text-sm rounded-xl transition-colors"
-                style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}
-              >
+              <Button variant="secondary" size="sm" onClick={exitSelectionMode}>
                 取消
-              </button>
+              </Button>
               {/* ⭐ 可扩展操作列表：在此数组中添加新项即可扩展批量操作 */}
               {([
                 {
@@ -1188,8 +1163,7 @@ useEffect(() => {
                 )}
               </h3>
               <div className="flex items-center gap-2">
-                <button onClick={fetchTTSJobs} className="text-xs px-2 py-1 rounded-xl tap-active"
-                  style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}>🔄 刷新</button>
+                <Button variant="secondary" size="sm" onClick={fetchTTSJobs}>🔄 刷新</Button>
                 <button onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }} className="text-xl leading-none tap-icon"
                   style={{ color: 'var(--color-text-muted)' }}>&times;</button>
               </div>
@@ -1199,14 +1173,12 @@ useEffect(() => {
               <div className="flex items-center justify-between px-4 py-2"
                 style={{ borderBottom: '0.5px solid var(--color-border)', background: 'var(--color-bg-alt)' }}>
                 <div className="flex items-center gap-2">
-                  <button onClick={selectAllJobs} className="text-xs px-2 py-1 rounded-lg transition-all duration-150 tap-active font-medium"
-                    style={{ background: 'var(--color-primary-subtle)', color: 'var(--color-primary)' }}>
+                  <Button variant="ghost" size="sm" onClick={selectAllJobs}>
                     ☑ 全选
-                  </button>
-                  <button onClick={deselectAllJobs} className="text-xs px-2 py-1 rounded-lg transition-all duration-150 tap-active"
-                    style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-card)' }}>
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={deselectAllJobs}>
                     □ 取消全选
-                  </button>
+                  </Button>
                 </div>
                 {selectedJobIds.size > 0 && (
                   <div className="flex items-center gap-1.5">
@@ -1214,10 +1186,10 @@ useEffect(() => {
                       style={{ background: '#FF9500' }} title="取消选中的排队/运行中任务">
                       ⏹ 取消选中
                     </button>
-                    <button onClick={handleBatchDeleteSelected} className="text-xs px-2 py-1 rounded-lg transition-all duration-150 tap-active text-white"
-                      style={{ background: '#FF3B30' }} title="删除选中的任务（不限状态）">
+                    <Button variant="danger" size="sm" onClick={handleBatchDeleteSelected}
+                      title="删除选中的任务（不限状态）">
                       🗑 删除选中
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>
@@ -1313,32 +1285,23 @@ useEffect(() => {
                 <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                   共 {ttsJobs.length} 个任务 · {ttsJobs.filter(j => j.status === 'running').length} 个运行中 · {ttsJobs.filter(j => j.status === 'pending').length} 个排队中
                 </span>
-                <button onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}
-                  className="text-sm px-3 py-1 rounded-xl"
-                  style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}>
+                <Button variant="secondary" size="sm"
+                  onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}>
                   关闭
-                </button>
+                </Button>
               </div>
               {/* 操作按钮组 */}
               <div className="flex items-center justify-end gap-2 flex-wrap">
                 {/* 清除已完成/失败任务 */}
                 {ttsJobs.some(j => j.status === 'completed' || j.status === 'failed') && (
-                  <button
-                    onClick={handleClearTerminated}
-                    className="text-xs px-3 py-1.5 rounded-lg transition-all duration-150 tap-active text-white"
-                    style={{ background: 'var(--color-text-muted)' }}
-                  >
+                  <Button variant="secondary" size="sm" onClick={handleClearTerminated}>
                     🧹 清除已完成/失败
-                  </button>
+                  </Button>
                 )}
                 {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
-                  <button
-                    onClick={handleClearAllJobs}
-                    className="text-xs px-3 py-1.5 rounded-lg transition-all duration-150 tap-active text-white"
-                    style={{ background: '#FF3B30' }}
-                  >
+                  <Button variant="danger" size="sm" onClick={handleClearAllJobs}>
                     🗑 清除全部排队任务
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>

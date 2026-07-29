@@ -4,6 +4,7 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { Button } from '../components/ui';
 
 export default function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
@@ -156,25 +157,9 @@ export default function LoginPage() {
             )}
 
             {/* 提交按钮 */}
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full py-3 rounded-xl text-sm font-semibold text-center transition-all duration-200 active:scale-[0.97]"
-              style={{
-                background: submitting ? 'var(--color-bg-alt)' : 'var(--color-primary)',
-                color: submitting ? 'var(--color-text-muted)' : '#fff',
-              }}
-            >
-              {submitting ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <circle cx="12" cy="12" r="10" opacity="0.3" />
-                    <path d="M12 2a10 10 0 0 1 10 10" />
-                  </svg>
-                  处理中...
-                </span>
-              ) : isRegister ? '注册' : '登录'}
-            </button>
+            <Button type="submit" fullWidth size="lg" loading={submitting}>
+              {isRegister ? '注册' : '登录'}
+            </Button>
           </form>
 
           {/* ── 离线使用按钮 ── */}
@@ -184,8 +169,11 @@ export default function LoginPage() {
               <span className="text-[10px] uppercase tracking-wider font-medium" style={{ color: 'var(--color-text-muted)' }}>或</span>
               <div className="flex-1 h-px" style={{ background: 'var(--color-border)' }} />
             </div>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              fullWidth
+              size="lg"
               onClick={() => {
                 // 先设置离线标志（localStorage + isOfflineMode 状态），再导航。
                 // 这样 BookshelfPage 挂载时 AuthProvider 已处于离线态，ProtectedRoute
@@ -193,28 +181,19 @@ export default function LoginPage() {
                 enterOfflineMode();
                 navigate('/', { replace: true });
               }}
-              className="w-full py-3 rounded-xl text-sm font-semibold text-center
-                transition-all duration-200 active:scale-[0.97]
-                border border-dashed"
-              style={{
-                borderColor: 'var(--color-primary)',
-                color: 'var(--color-primary)',
-                background: 'transparent',
-              }}
+              className="border border-dashed !border-ios-primary"
             >
-              <span className="flex items-center justify-center gap-2">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 2a10 10 0 0 1 10 10" opacity="0.3" />
-                  <path d="M12 2a10 10 0 0 0-10 10" />
-                  <path d="M2 12h10V2" />
-                  <path d="M12 12 2 18" opacity="0.3" />
-                  <path d="M12 12 22 18" opacity="0.3" />
-                  <path d="M12 22V12" />
-                  <path d="M2 12h20" opacity="0.15" />
-                </svg>
-                离线使用
-              </span>
-            </button>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a10 10 0 0 1 10 10" opacity="0.3" />
+                <path d="M12 2a10 10 0 0 0-10 10" />
+                <path d="M2 12h10V2" />
+                <path d="M12 12 2 18" opacity="0.3" />
+                <path d="M12 12 22 18" opacity="0.3" />
+                <path d="M12 22V12" />
+                <path d="M2 12h20" opacity="0.15" />
+              </svg>
+              离线使用
+            </Button>
             <p className="text-[10px] text-center mt-2" style={{ color: 'var(--color-text-muted)' }}>
               跳过登录，访问本地缓存的书籍
             </p>
@@ -222,14 +201,9 @@ export default function LoginPage() {
 
           {/* 切换登录/注册 */}
           <div className="mt-6 text-center">
-            <button
-              type="button"
-              onClick={toggleMode}
-              className="text-sm font-medium tap-active transition-all duration-200"
-              style={{ color: 'var(--color-primary)' }}
-            >
+            <Button type="button" variant="text" size="sm" onClick={toggleMode}>
               {isRegister ? '已有账号？去登录' : '没有账号？去注册'}
-            </button>
+            </Button>
           </div>
 
           {/* 底部提示（分割线 + 默认账号） */}
