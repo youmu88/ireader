@@ -5,6 +5,7 @@
  */
 import type { PlayerState } from '../services/ttsPlayer';
 import type { FontFamily, ReadingMode } from '../reader/hooks/useReaderSettings';
+import { IconButton } from './ui/IconButton';
 
 export interface ReaderControlPanelProps {
   // 导航
@@ -91,9 +92,9 @@ export function ReaderControlPanel(props: ReaderControlPanelProps) {
                   style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><polyline points="15 18 9 12 15 6"/></svg> 返回
                 </button>
-                <button onClick={onSearch} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'var(--color-bg-alt)' }} title="搜索">
+                <IconButton onClick={onSearch} aria-label="搜索" title="搜索">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                </button>
+                </IconButton>
               </div>
               <h2 className="text-base font-medium truncate max-w-[45%] text-center" style={{ color: 'var(--color-text-secondary)' }}>
                 {chapterTitle}
@@ -109,28 +110,28 @@ export function ReaderControlPanel(props: ReaderControlPanelProps) {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
-                  <button onClick={(e) => { e.stopPropagation(); onPrevChapter(); }} className="w-9 h-9 rounded-full flex items-center justify-center tap-icon active:scale-85 transition-transform" style={{background: 'var(--color-bg-alt)'}} title="上一章">
+                  <IconButton onClick={(e) => { e.stopPropagation(); onPrevChapter(); }} aria-label="上一章" title="上一章">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                  </button>
+                  </IconButton>
                   {ttsState === 'playing' ? (
-                    <button onClick={(e) => { e.stopPropagation(); onPauseTTS(); }} className="w-11 h-11 rounded-full flex items-center justify-center tap-icon active:scale-90 transition-transform" style={{background: 'var(--color-primary)'}} title="暂停">
+                    <IconButton onClick={(e) => { e.stopPropagation(); onPauseTTS(); }} variant="primary" size="lg" aria-label="暂停" title="暂停">
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                    </button>
+                    </IconButton>
                   ) : ttsState === 'loading' ? (
-                    <button disabled className="w-11 h-11 rounded-full flex items-center justify-center cursor-wait" style={{background: 'var(--color-primary)'}} title="准备中…">
+                    <IconButton disabled variant="primary" size="lg" aria-label="准备中" title="准备中…" className="cursor-wait">
                       <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="9" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9" strokeLinecap="round"/></svg>
-                    </button>
+                    </IconButton>
                   ) : (
-                    <button onClick={(e) => { e.stopPropagation(); if (ttsState === 'paused') onResumeTTS(); else onStartTTS(); }} className="w-11 h-11 rounded-full flex items-center justify-center tap-icon active:scale-90 transition-transform" style={{background: 'var(--color-primary)'}} title={ttsState === 'paused' ? '继续' : '播放'}>
+                    <IconButton onClick={(e) => { e.stopPropagation(); if (ttsState === 'paused') onResumeTTS(); else onStartTTS(); }} variant="primary" size="lg" aria-label={ttsState === 'paused' ? '继续' : '播放'} title={ttsState === 'paused' ? '继续' : '播放'}>
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                    </button>
+                    </IconButton>
                   )}
-                  <button onClick={(e) => { e.stopPropagation(); onNextChapter(); }} className="w-9 h-9 rounded-full flex items-center justify-center tap-icon active:scale-85 transition-transform" style={{background: 'var(--color-bg-alt)'}} title="下一章">
+                  <IconButton onClick={(e) => { e.stopPropagation(); onNextChapter(); }} aria-label="下一章" title="下一章">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                  </button>
-                  <button onClick={(e) => { e.stopPropagation(); onStopTTS(); }} className="w-9 h-9 rounded-full flex items-center justify-center tap-icon active:scale-85 transition-transform" style={{background: 'var(--color-bg-alt)'}} title="停止">
+                  </IconButton>
+                  <IconButton onClick={(e) => { e.stopPropagation(); onStopTTS(); }} aria-label="停止" title="停止">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
-                  </button>
+                  </IconButton>
                 </div>
                 {/* 倍速按钮 */}
                 <button
@@ -180,17 +181,17 @@ export function ReaderControlPanel(props: ReaderControlPanelProps) {
               <div className="flex items-center justify-between">
                 <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>字号</span>
                 <div className="flex items-center gap-1.5">
-                  <button onClick={() => setFontSize(Math.max(12, fontSize - 2))} className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all tap-icon" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>A−</button>
+                  <IconButton onClick={() => setFontSize(Math.max(12, fontSize - 2))} size="md" aria-label="缩小字号">A−</IconButton>
                   <span className="text-sm w-8 text-center font-medium" style={{ color: 'var(--color-text)' }}>{fontSize}</span>
-                  <button onClick={() => setFontSize(Math.min(36, fontSize + 2))} className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all tap-icon" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>A+</button>
+                  <IconButton onClick={() => setFontSize(Math.min(36, fontSize + 2))} size="md" aria-label="放大字号">A+</IconButton>
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>行距</span>
                 <div className="flex items-center gap-1.5">
-                  <button onClick={() => setLineHeight(Math.max(1.2, lineHeight - 0.2))} disabled={lineHeight <= 1.2} className="w-10 h-10 rounded-full flex items-center justify-center text-sm disabled:opacity-40 transition-colors" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>−</button>
+                  <IconButton onClick={() => setLineHeight(Math.max(1.2, lineHeight - 0.2))} disabled={lineHeight <= 1.2} size="md" aria-label="减小行距">−</IconButton>
                   <span className="text-sm w-8 text-center" style={{ color: 'var(--color-text-muted)' }}>{lineHeight.toFixed(1)}</span>
-                  <button onClick={() => setLineHeight(Math.min(3.0, lineHeight + 0.2))} disabled={lineHeight >= 3.0} className="w-10 h-10 rounded-full flex items-center justify-center text-sm disabled:opacity-40 transition-colors" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>+</button>
+                  <IconButton onClick={() => setLineHeight(Math.min(3.0, lineHeight + 0.2))} disabled={lineHeight >= 3.0} size="md" aria-label="增大行距">+</IconButton>
                 </div>
               </div>
             </div>
@@ -272,31 +273,31 @@ export function ReaderControlPanel(props: ReaderControlPanelProps) {
             {/* ── 缓存管理 ── */}
             <div className="pt-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
               <div className="flex items-center justify-center gap-3">
-                <button onClick={onCacheChapter} disabled={cachingInProgress} className="w-12 h-12 rounded-full flex items-center justify-center text-[10px] transition-all duration-200 tap-active" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }} title="缓存本章">
+                <IconButton onClick={onCacheChapter} disabled={cachingInProgress} size="xl" aria-label="缓存本章" title="缓存本章">
                   <span className="flex flex-col items-center gap-0.5">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     <span>本章</span>
                   </span>
-                </button>
-                <button onClick={onCacheFullBook} disabled={cachingInProgress} className="w-12 h-12 rounded-full flex items-center justify-center text-[10px] transition-all duration-200 tap-active" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }} title="缓存全书">
+                </IconButton>
+                <IconButton onClick={onCacheFullBook} disabled={cachingInProgress} size="xl" aria-label="缓存全书" title="缓存全书">
                   <span className="flex flex-col items-center gap-0.5">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
                     <span>全书</span>
                   </span>
-                </button>
-                <button onClick={onClearTextCache} className="w-12 h-12 rounded-full flex items-center justify-center text-[10px] transition-all duration-150 tap-active" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }} title="清除文字缓存">
+                </IconButton>
+                <IconButton onClick={onClearTextCache} size="xl" aria-label="清除文字缓存" title="清除文字缓存">
                   <span className="flex flex-col items-center gap-0.5">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                     <span>文字</span>
                   </span>
-                </button>
+                </IconButton>
                 {(cacheStatus?.audioChapterCount ?? 0) > 0 && (
-                  <button onClick={onClearAudioCache} className="w-12 h-12 rounded-full flex items-center justify-center text-[10px] transition-all duration-150 tap-active" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }} title="清除语音缓存">
+                  <IconButton onClick={onClearAudioCache} size="xl" aria-label="清除语音缓存" title="清除语音缓存">
                     <span className="flex flex-col items-center gap-0.5">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                       <span>语音</span>
                     </span>
-                  </button>
+                  </IconButton>
                 )}
               </div>
               {cachingInProgress && cacheProgressText && (

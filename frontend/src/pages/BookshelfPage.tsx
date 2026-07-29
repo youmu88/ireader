@@ -13,6 +13,9 @@ import {
 } from '../services/offlineCacheService';
 import { useAuth } from '../contexts/AuthContext';
 import { toast, confirm, Modal, Button } from '../components/ui';
+import { TtsQueuePanel } from '../components/TtsQueuePanel';
+import { BatchActionBar } from '../components/BatchActionBar';
+import { IconButton } from '../components/ui/IconButton';
 
 interface TTSJob {
   id: string;
@@ -359,17 +362,7 @@ useEffect(() => {
     }
   };
 
-  /** 批量操作项配置（可扩展） */
-  interface BatchAction {
-    id: string;
-    label: string;
-    icon: string;
-    color: string;
-    hoverColor: string;
-    disabled?: boolean;
-    loading?: boolean;
-    onClick: () => void;
-  }
+
   // ── 全局 TTS 播放状态（来自 TTSPlayer 单例，书架页后台听书控制） ──
 
   // ── 从路由 state 自动打开队列（由 Layout 中的 TTS 队列图标触发） ──
@@ -1063,252 +1056,41 @@ useEffect(() => {
       </div>
     </div>
       {/* 迷你播放器 - TTS 后台听书控制 */}
-      {/* 批量选择操作栏 — 可扩展的 actions 数组驱动 */}
+      {/* 批量选择操作栏 */}
       {selectionMode && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 px-4 py-3"
-          style={{
-            background: 'var(--color-bg-card)',
-            borderTop: '0.5px solid var(--color-border)',
-            boxShadow: '0 -2px 12px rgba(0,0,0,0.06)',
-          }}>
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                已选择 <strong style={{ color: 'var(--color-primary)' }}>{selectedIds.size}</strong> 本
-              </span>
-              <span style={{ color: 'var(--color-border)' }}>|</span>
-              <Button variant="text" size="sm"
-                onClick={() => {
-                  const allFilteredIds = new Set(filteredBooks.map(b => b.id));
-                  if (allFilteredIds.size === selectedIds.size) {
-                    // 已全选 → 全不选
-                    setSelectedIds(new Set());
-                  } else {
-                    // 未全选 → 全选
-                    setSelectedIds(allFilteredIds);
-                  }
-                }}
-              >
-                {selectedIds.size > 0 && selectedIds.size >= filteredBooks.length ? '☐ 全不选' : '☑ 全选'}
-              </Button>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button variant="secondary" size="sm" onClick={exitSelectionMode}>
-                取消
-              </Button>
-              {/* ⭐ 可扩展操作列表：在此数组中添加新项即可扩展批量操作 */}
-              {([
-                {
-                  id: 'delete',
-                  label: '删除选中',
-                  icon: '🗑',
-                  color: 'bg-ios-danger',
-                  hoverColor: 'hover:bg-ios-danger-hover',
-                  disabled: selectedIds.size === 0,
-                  onClick: handleBatchDelete,
-                },
-                {
-                  id: 'voice',
-                  label: '预生成语音',
-                  icon: '🎙',
-                  color: 'bg-ios-success',
-                  hoverColor: 'hover:bg-ios-success-hover',
-                  disabled: selectedIds.size === 0 || batchActionLoading === 'voice',
-                  loading: batchActionLoading === 'voice',
-                  onClick: handleBatchGenerateVoice,
-                },
-                {
-                  id: 'dedup',
-                  label: '去重',
-                  icon: '🔄',
-                  color: 'bg-ios-accent-1',
-                  hoverColor: 'hover:bg-ios-accent-1-hover',
-                  disabled: deduping,
-                  loading: deduping,
-                  onClick: handleDedup,
-                },
-              ] as BatchAction[]).map(action => (
-                <button
-                  key={action.id}
-                  onClick={action.onClick}
-                  disabled={action.disabled}
-                  className={`px-4 py-2 text-sm text-white rounded-lg transition-colors ${action.color} ${action.hoverColor} disabled:opacity-40 disabled:cursor-not-allowed`}
-                >
-                  {action.loading ? '⏳ 处理中...' : `${action.icon} ${action.label}`}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+        <BatchActionBar
+          selectedCount={selectedIds.size}
+          totalCount={filteredBooks.length}
+          onToggleSelectAll={() => {
+            const allFilteredIds = new Set(filteredBooks.map(b => b.id));
+            if (allFilteredIds.size === selectedIds.size) setSelectedIds(new Set());
+            else setSelectedIds(allFilteredIds);
+          }}
+          onExit={exitSelectionMode}
+          actions={[
+            { id: 'delete', label: '删除选中', icon: '🗑', color: 'bg-ios-danger', hoverColor: 'hover:bg-ios-danger-hover', disabled: selectedIds.size === 0, onClick: handleBatchDelete },
+            { id: 'voice', label: '预生成语音', icon: '🎙', color: 'bg-ios-success', hoverColor: 'hover:bg-ios-success-hover', disabled: selectedIds.size === 0 || batchActionLoading === 'voice', loading: batchActionLoading === 'voice', onClick: handleBatchGenerateVoice },
+            { id: 'dedup', label: '去重', icon: '🔄', color: 'bg-ios-accent-1', hoverColor: 'hover:bg-ios-accent-1-hover', disabled: deduping, loading: deduping, onClick: handleDedup },
+          ]}
+        />
       )}
 
-      {/* ── TTS 预生成队列可视化面板（支持批量选择） ── */}
-      {showTtsQueue && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ios-overlay" onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}>
-                           <div className="rounded-2xl shadow-ios-lg max-w-lg w-full mx-4 max-h-[70vh] overflow-hidden flex flex-col animate-pop-in"
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--color-bg-card)' }}>
-            {/* 标题栏 */}
-            <div className="flex items-center justify-between px-5 py-4"
-              style={{ borderBottom: '0.5px solid var(--color-border)' }}>
-              <h3 className="text-base font-semibold flex items-center gap-1.5"
-                style={{ color: 'var(--color-text)' }}>
-                🎙 语音生成队列
-                {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
-                  <span className="ml-2 inline-flex items-center gap-1 text-xs"
-                    style={{ color: 'var(--color-primary)' }}>
-                    <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--color-primary)' }} />
-                    任务进行中
-                  </span>
-                )}
-              </h3>
-              <div className="flex items-center gap-2">
-                <Button variant="secondary" size="sm" onClick={fetchTTSJobs}>🔄 刷新</Button>
-                <button onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }} className="text-xl leading-none tap-icon"
-                  style={{ color: 'var(--color-text-muted)' }}>&times;</button>
-              </div>
-            </div>
-            {/* 批量选择工具栏 */}
-            {ttsJobs.length > 0 && (
-              <div className="flex items-center justify-between px-4 py-2"
-                style={{ borderBottom: '0.5px solid var(--color-border)', background: 'var(--color-bg-alt)' }}>
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="sm" onClick={selectAllJobs}>
-                    ☑ 全选
-                  </Button>
-                  <Button variant="secondary" size="sm" onClick={deselectAllJobs}>
-                    □ 取消全选
-                  </Button>
-                </div>
-                {selectedJobIds.size > 0 && (
-                  <div className="flex items-center gap-1.5">
-                    <Button variant="warning" size="sm" onClick={handleBatchCancelSelected}
-                      title="取消选中的排队/运行中任务">
-                      ⏹ 取消选中
-                    </Button>
-                    <Button variant="danger" size="sm" onClick={handleBatchDeleteSelected}
-                      title="删除选中的任务（不限状态）">
-                      🗑 删除选中
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-            {/* 列表 */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {ttsJobs.length === 0 ? (
-                <p className="text-center py-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>暂无语音生成任务</p>
-              ) : (
-                ttsJobs.slice(0, 30).map(job => {
-                  const pct = job.totalChunks > 0 ? Math.min(job.completedChunks / job.totalChunks, 1) : 0;
-                  const statusLabel: Record<string, string> = { pending: '排队中', running: '生成中', completed: '已完成', failed: '失败' };
-                  const statusColor: Record<string, string> = {
-                    pending: 'bg-ios-warning-subtle text-ios-warning',
-                    running: 'bg-ios-primary-subtle text-ios-primary',
-                    completed: 'bg-ios-success-subtle text-ios-success',
-                    failed: 'bg-ios-danger-subtle text-ios-danger',
-                  };
-                  const isSelected = selectedJobIds.has(job.id);
-                  return (
-                    <div
-                      key={job.id}
-                      className={`border rounded-xl p-3 cursor-pointer transition-all duration-200 ${
-                        isSelected
-                          ? ''
-                          : ''
-                      }`}
-                      style={{
-                        borderColor: isSelected ? 'var(--color-primary)' : 'var(--color-border)',
-                        background: isSelected ? 'var(--color-primary-subtle)' : 'var(--color-bg-card)',
-                      }}
-                      onClick={() => toggleJobSelection(job.id)}
-                    >
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          {/* 多选框 */}
-                          <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0`}
-                            style={{
-                              background: isSelected ? 'var(--color-primary)' : 'transparent',
-                              borderColor: isSelected ? 'var(--color-primary)' : 'var(--color-border)',
-                            }}>
-                            {isSelected && <span className="text-white text-[10px] font-bold">✓</span>}
-                          </div>
-                          <span className="text-sm font-medium truncate" style={{ color: 'var(--color-text)' }}>
-                            {job.bookTitle}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                          {(job.status === 'pending' || job.status === 'running') && (
-                            <Button
-                              onClick={(e) => { e.stopPropagation(); handleCancelJob(job.id); }}
-                              variant="danger"
-                              size="sm"
-                              title="取消此任务"
-                            >
-                              ✕ 取消
-                            </Button>
-                          )}
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[job.status] || ''}`}>
-                            {statusLabel[job.status] || job.status}
-                          </span>
-                        </div>
-                      </div>
-                      {(job.status === 'running' || job.status === 'pending') && (
-                        <div className="mt-2 ml-6">
-                          <div className="flex items-center justify-between text-xs text-ios-text-muted mb-1">
-                            <span>{job.completedChunks || 0} / {job.totalChunks || '?'} 段</span>
-                            <span>{Math.round(pct * 100)}%</span>
-                          </div>
-                          <div className="w-full h-1.5 rounded-full overflow-hidden"
-                            style={{ background: 'var(--color-border)' }}>
-                            <div className="h-full rounded-full transition-all duration-500"
-                              style={{ width: `${Math.round(pct * 100)}%`, background: 'var(--color-primary)' }} />
-                          </div>
-                        </div>
-                      )}
-                      {job.status === 'completed' && (
-                        <div className="text-xs text-ios-success mt-1 ml-6">
-                          ✅ 已生成 {job.completedChunks || job.totalChunks || '全部'} 段语音
-                        </div>
-                      )}
-                      {job.status === 'failed' && (
-                        <div className="text-xs text-ios-danger mt-1 ml-6">{job.error || '生成失败'}</div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-            {/* 底部按钮 */}
-            <div className="px-4 py-3 flex flex-col gap-2"
-              style={{ borderTop: '0.5px solid var(--color-border)' }}>
-              <div className="flex justify-between items-center">
-                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                  共 {ttsJobs.length} 个任务 · {ttsJobs.filter(j => j.status === 'running').length} 个运行中 · {ttsJobs.filter(j => j.status === 'pending').length} 个排队中
-                </span>
-                <Button variant="secondary" size="sm"
-                  onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}>
-                  关闭
-                </Button>
-              </div>
-              {/* 操作按钮组 */}
-              <div className="flex items-center justify-end gap-2 flex-wrap">
-                {/* 清除已完成/失败任务 */}
-                {ttsJobs.some(j => j.status === 'completed' || j.status === 'failed') && (
-                  <Button variant="secondary" size="sm" onClick={handleClearTerminated}>
-                    🧹 清除已完成/失败
-                  </Button>
-                )}
-                {ttsJobs.some(j => j.status === 'pending' || j.status === 'running') && (
-                  <Button variant="danger" size="sm" onClick={handleClearAllJobs}>
-                    🗑 清除全部排队任务
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── TTS 预生成队列可视化面板（统一 Modal 体系） ── */}
+      <TtsQueuePanel
+        open={showTtsQueue}
+        ttsJobs={ttsJobs}
+        selectedJobIds={selectedJobIds}
+        onToggleJobSelection={toggleJobSelection}
+        onSelectAllJobs={selectAllJobs}
+        onDeselectAllJobs={deselectAllJobs}
+        onBatchCancelSelected={handleBatchCancelSelected}
+        onBatchDeleteSelected={handleBatchDeleteSelected}
+        onCancelJob={handleCancelJob}
+        onClearTerminated={handleClearTerminated}
+        onClearAllJobs={handleClearAllJobs}
+        onRefresh={fetchTTSJobs}
+        onClose={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}
+      />
 
       {globalTtsInfo?.bookId && (
         <div className="fixed bottom-0 left-0 right-0 z-40 glass-bar">
@@ -1341,7 +1123,7 @@ useEffect(() => {
                 </span>
               </div>
             </div>
-            <button
+            <IconButton
               onClick={async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1380,8 +1162,10 @@ useEffect(() => {
                   } catch { /* 恢复播放失败时静默处理 */ }
                 }
               }}
-              className="w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 active:scale-90 shadow-lg ripple-btn shrink-0"
-              style={{ background: 'var(--color-primary)', color: 'white' }}
+              variant="primary"
+              size="lg"
+              className="shadow-lg"
+              aria-label={globalTtsInfo.state === 'playing' ? '暂停' : '播放'}
             >
               {globalTtsInfo.state === 'playing' ? (
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -1393,7 +1177,7 @@ useEffect(() => {
                   <polygon points="5 3 19 12 5 21 5 3" />
                 </svg>
               )}
-            </button>
+            </IconButton>
           </div>
         </div>
       )}

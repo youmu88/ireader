@@ -2,6 +2,7 @@
  * ReaderTopBar —— 阅读器顶栏组件（Phase 5.5 从 ReaderPage 剥离，独立文件）
  */
 import type { PlayerState } from '../services/ttsPlayer';
+import { IconButton } from './ui/IconButton';
 
 export interface ReaderTopBarProps {
   title: string;
@@ -127,16 +128,17 @@ export function ReaderTopBar({
                 <span className="text-xs" style={{ color: 'var(--color-primary)' }} title="已缓存章节数">
                   {cacheStatus.chapterCount}/{cacheStatus.totalChapters}
                 </span>
-                <button
+                <IconButton
                   onClick={onClearCache}
-                  className="w-6 h-6 flex items-center justify-center rounded-full tap-icon"
-                  style={{ color: 'var(--color-text-muted)' }}
+                  size="xs"
+                  variant="ghost"
                   title="清除本地缓存"
+                  aria-label="清除本地缓存"
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
-                </button>
+                </IconButton>
               </>
             )}
           </>
