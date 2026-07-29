@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { ThemeProvider } from './services/themeService';
+import { ToastProvider, ConfirmProvider } from './components/ui';
 import { registerSW } from './sw';
 import './index.css';
 
@@ -13,6 +14,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ThemeProvider>
+        <ToastProvider />
+        <ConfirmProvider />
         <App />
       </ThemeProvider>
     </BrowserRouter>

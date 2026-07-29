@@ -22,7 +22,23 @@ export default {
           'border-hover': 'var(--color-border-hover)',
           'accent-1': 'var(--color-accent-1)',
           'accent-2': 'var(--color-accent-2)',
+          success: 'var(--color-success)',
+          'success-subtle': 'var(--color-success-subtle)',
+          warning: 'var(--color-warning)',
+          'warning-subtle': 'var(--color-warning-subtle)',
+          danger: 'var(--color-danger)',
+          'danger-hover': 'var(--color-danger-hover)',
+          'danger-subtle': 'var(--color-danger-subtle)',
+          overlay: 'var(--color-overlay)',
         },
+      },
+      // Design tokens z-index 层级
+      zIndex: {
+        dropdown: 'var(--z-dropdown)',
+        sticky: 'var(--z-sticky)',
+        drawer: 'var(--z-drawer)',
+        modal: 'var(--z-modal)',
+        toast: 'var(--z-toast)',
       },
       // iOS 风格毛玻璃
       backdropBlur: {

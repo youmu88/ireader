@@ -20,6 +20,7 @@ import { useTtsSession } from '../reader/hooks/useTtsSession';
 import { getDefaultPlayer } from '../services/ttsPlayer';
 import { useAuth } from '../contexts/AuthContext';
 import { stripHtml } from '../reader/utils/stripHtml';
+import { toast, confirm } from '../components/ui';
 import type { Chapter } from '../reader/types';
 
 interface Book {
@@ -62,7 +63,6 @@ function ReaderPage() {
   const showUiRef = useRef(false);
   useEffect(() => { showUiRef.current = showUi; }, [showUi]);
   const [selectedText, setSelectedText] = useState('');
-  const [copiedToast, setCopiedToast] = useState(false);
   const txtPageRef = useRef<HTMLDivElement>(null);
 
   const chaptersRef = useRef(chapters);
@@ -223,7 +223,12 @@ function ReaderPage() {
   const [isReparsing, setIsReparsing] = useState(false);
   const handleReparse = useCallback(async () => {
     if (!bookId || !book || book.format !== 'epub' || isReparsing) return;
-    if (!window.confirm('重新解析将刷新全部章节信息，确定继续？')) return;
+    const ok = await confirm({
+      title: '重新解析确认',
+      message: '重新解析将刷新全部章节信息，确定继续？',
+      confirmText: '重新解析',
+    });
+    if (!ok) return;
     setIsReparsing(true);
     try {
       await axios.post(`/api/books/${bookId}/reparse`);
@@ -240,7 +245,7 @@ function ReaderPage() {
         if (!stillExists && currentChapter) await loadChapterContent(newChapters[0], undefined, newBookData?.format === 'epub');
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || '章节刷新失败，请稍后重试');
+      toast.error(err.response?.data?.error || '章节刷新失败，请稍后重试');
     } finally {
       setIsReparsing(false);
     }
@@ -513,15 +518,6 @@ function ReaderPage() {
           </div>
         </div>
 
-        {copiedToast && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-40 animate-slide-up pointer-events-none">
-            <div className="rounded-full px-5 py-2 flex items-center gap-2 shadow-lg" style={{ background: 'var(--color-primary)', color: '#fff' }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              已复制到剪贴板
-            </div>
-          </div>
-        )}
-
         <button onClick={(e) => { e.stopPropagation(); toggleFloatMenu(); }}
           className="absolute bottom-6 left-6 z-35 w-11 h-11 rounded-full flex items-center justify-center transition-opacity duration-200 hover:opacity-80 active:scale-90"
           style={{ background: 'rgba(128,128,128,0.5)', opacity: 0.5 }} aria-label="菜单" title="菜单">
@@ -568,8 +564,7 @@ function ReaderPage() {
               if (!text) return;
               try {
                 await navigator.clipboard.writeText(text);
-                setCopiedToast(true); setSelectedText(''); window.getSelection()?.removeAllRanges(); closeMenu();
-                setTimeout(() => setCopiedToast(false), 2000);
+                toast.success('已复制到剪贴板'); setSelectedText(''); window.getSelection()?.removeAllRanges(); closeMenu();
               } catch { /* Clipboard API unavailable */ }
             }}
             cachingInProgress={cache.cachingInProgress} cacheProgressText={cache.cacheProgressText} cacheStatus={cache.cacheStatus}

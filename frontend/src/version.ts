@@ -26,5 +26,6 @@
  * 2.29.0 (2026-07-29): [REFACTOR] ttsPlayer.ts 拆分 1391→737 行，分离调度器(ttsScheduler)/文本处理(ttsTextProcessor)/全局状态(ttsGlobalState)
  * 2.30.0 (2026-07-29): [REFACTOR] 提取 Media Session + heartbeat 为 ttsMediaSession.ts，ttsPlayer.ts 738→669 行
  * 2.31.0 (2026-07-29): [FEAT] 迭代A — downloadSession集成批量下载(续传) + 离线包stale UI提示 + playbackRate倍速控件
+ * 2.32.0 (2026-07-29): [FEAT] 迭代B — Design tokens CSS变量体系(7大类) + 统一组件库Button/Toast/Modal，替换全部原生alert/confirm
  */
-export const APP_VERSION = '2.31.0';
+export const APP_VERSION = '2.32.0';

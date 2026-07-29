@@ -12,6 +12,7 @@ import {
   getStalePackageBookIds,
 } from '../services/offlineCacheService';
 import { useAuth } from '../contexts/AuthContext';
+import { toast, confirm, Modal, Button } from '../components/ui';
 
 interface TTSJob {
   id: string;
@@ -134,13 +135,19 @@ useEffect(() => {
   // ── Batch Delete ──
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (!window.confirm(`确定删除选中的 ${selectedIds.size} 本书？此操作不可恢复。`)) return;
+    const ok = await confirm({
+      title: '删除确认',
+      message: `确定删除选中的 ${selectedIds.size} 本书？此操作不可恢复。`,
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await Promise.all([...selectedIds].map(id => axios.delete(`/api/books/${id}`)));
       exitSelectionMode();
       await loadData();
     } catch (err: any) {
-      alert(err.response?.data?.error || '批量删除失败');
+      toast.error(err.response?.data?.error || '批量删除失败');
     }
   };
 
@@ -171,7 +178,7 @@ useEffect(() => {
       await axios.delete(`/api/tts/jobs/${jobId}`);
       await fetchTTSJobs();
     } catch (err: any) {
-      alert(err.response?.data?.error || '取消失败');
+      toast.error(err.response?.data?.error || '取消失败');
     }
   }, [fetchTTSJobs]);
 
@@ -203,29 +210,41 @@ useEffect(() => {
       return job && (job.status === 'pending' || job.status === 'running');
     });
     if (cancelIds.length === 0) {
-      alert('选中的任务中没有可取消的（仅 pending/running 可取消）');
+      toast.warning('选中的任务中没有可取消的（仅 pending/running 可取消）');
       return;
     }
-    if (!window.confirm(`确定取消 ${cancelIds.length} 个语音生成任务？`)) return;
+    const okCancel = await confirm({
+      title: '取消任务',
+      message: `确定取消 ${cancelIds.length} 个语音生成任务？`,
+      confirmText: '取消任务',
+      danger: true,
+    });
+    if (!okCancel) return;
     try {
       await axios.post('/api/tts/jobs/batch-cancel', { jobIds: cancelIds });
       setSelectedJobIds(new Set());
       await fetchTTSJobs();
     } catch (err: any) {
-      alert(err.response?.data?.error || '批量取消失败');
+      toast.error(err.response?.data?.error || '批量取消失败');
     }
   };
 
   // ── 批量删除选中的任务（不限状态） ──
   const handleBatchDeleteSelected = async () => {
     if (selectedJobIds.size === 0) return;
-    if (!window.confirm(`确定删除选中的 ${selectedJobIds.size} 个任务？此操作不可恢复。`)) return;
+    const okDelJobs = await confirm({
+      title: '删除任务',
+      message: `确定删除选中的 ${selectedJobIds.size} 个任务？此操作不可恢复。`,
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!okDelJobs) return;
     try {
       await axios.post('/api/tts/jobs/delete', { jobIds: [...selectedJobIds] });
       setSelectedJobIds(new Set());
       await fetchTTSJobs();
     } catch (err: any) {
-      alert(err.response?.data?.error || '批量删除失败');
+      toast.error(err.response?.data?.error || '批量删除失败');
     }
   };
 
@@ -233,26 +252,38 @@ useEffect(() => {
   const handleClearTerminated = async () => {
     const terminatedCount = ttsJobs.filter(j => j.status === 'completed' || j.status === 'failed').length;
     if (terminatedCount === 0) {
-      alert('没有已完成或失败的任务');
+      toast.warning('没有已完成或失败的任务');
       return;
     }
-    if (!window.confirm(`确定清除 ${terminatedCount} 个已完成/失败的任务？`)) return;
+    const okClear = await confirm({
+      title: '清除任务',
+      message: `确定清除 ${terminatedCount} 个已完成/失败的任务？`,
+      confirmText: '清除',
+      danger: true,
+    });
+    if (!okClear) return;
     try {
       await axios.post('/api/tts/jobs/clear-terminated');
       await fetchTTSJobs();
     } catch (err: any) {
-      alert(err.response?.data?.error || '清除失败');
+      toast.error(err.response?.data?.error || '清除失败');
     }
   };
 
   // ── 清除全部排队任务 ──
   const handleClearAllJobs = useCallback(async () => {
-    if (!window.confirm('确定取消所有排队中的语音生成任务？')) return;
+    const okClearAll = await confirm({
+      title: '清除全部',
+      message: '确定取消所有排队中的语音生成任务？',
+      confirmText: '全部取消',
+      danger: true,
+    });
+    if (!okClearAll) return;
     try {
       await axios.post('/api/tts/jobs/clear-all');
       await fetchTTSJobs();
     } catch (err: any) {
-      alert(err.response?.data?.error || '清除失败');
+      toast.error(err.response?.data?.error || '清除失败');
     }
   }, [fetchTTSJobs]);
 
@@ -260,16 +291,22 @@ useEffect(() => {
   const [deduping, setDeduping] = useState(false);
   const handleDedup = useCallback(async () => {
     if (deduping) return;
-    if (!window.confirm('确定要扫描并删除书架上的重复书籍吗？仅保留每本书最早上传的副本。')) return;
+    const okDedup = await confirm({
+      title: '书籍去重',
+      message: '确定要扫描并删除书架上的重复书籍吗？仅保留每本书最早上传的副本。',
+      confirmText: '开始去重',
+      danger: true,
+    });
+    if (!okDedup) return;
     setDeduping(true);
     try {
       const res = await axios.post('/api/books/dedup');
-      alert(res.data.message);
+      toast.success(res.data.message);
       if (res.data.data.removed > 0) {
         await loadData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || '去重操作失败');
+      toast.error(err.response?.data?.error || '去重操作失败');
     } finally {
       setDeduping(false);
     }
@@ -316,7 +353,7 @@ useEffect(() => {
       exitSelectionMode();
       await loadData();
     } catch (err: any) {
-      alert(err.response?.data?.error || '提交语音预生成失败');
+      toast.error(err.response?.data?.error || '提交语音预生成失败');
     } finally {
       setBatchActionLoading(null);
     }
@@ -460,13 +497,19 @@ useEffect(() => {
     e.preventDefault();
     e.stopPropagation();
 
-    if (!window.confirm(`确定删除《${book.title}》？此操作不可恢复。`)) return;
+    const okDel = await confirm({
+      title: '删除书籍',
+      message: `确定删除《${book.title}》？此操作不可恢复。`,
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!okDel) return;
 
     try {
       await axios.delete(`/api/books/${book.id}`);
       await loadData();
     } catch (err: any) {
-      alert(err.response?.data?.error || '删除失败');
+      toast.error(err.response?.data?.error || '删除失败');
     }
   };
 
@@ -488,7 +531,7 @@ useEffect(() => {
       await axios.put(`/api/books/${book.id}`, { pinned: newPinned });
       setBooks(prev => prev.map(b => b.id === book.id ? { ...b, pinned: newPinned } : b));
     } catch (err: any) {
-      alert('操作失败：' + (err.response?.data?.error || err.message));
+      toast.error('操作失败：' + (err.response?.data?.error || err.message));
     }
   }, []);
 
@@ -502,7 +545,7 @@ useEffect(() => {
       setEditingBook(null);
       await loadData();
     } catch (err: any) {
-      alert(err.response?.data?.error || '保存失败');
+      toast.error(err.response?.data?.error || '保存失败');
     }
   };
 
@@ -695,63 +738,49 @@ useEffect(() => {
 
       {/* Sidebar + Content */}
       {/* Edit Modal */}
-      {editingBook && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setEditingBook(null)}>
-          <div className="rounded-2xl p-6 w-full max-w-md mx-4 shadow-ios-lg animate-pop-in" onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--color-bg-card)' }}>
-            <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text)' }}>编辑图书信息</h2>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>书名</label>
-                <input
-                  type="text"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl text-sm outline-none transition-all duration-200"
-                  style={{
-                    background: 'var(--color-bg-alt)',
-                    color: 'var(--color-text)',
-                    border: '0.5px solid var(--color-border)',
-                  }}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>作者</label>
-                <input
-                  type="text"
-                  value={editAuthor}
-                  onChange={(e) => setEditAuthor(e.target.value)}
-                  placeholder="可选"
-                  className="w-full px-3 py-2 rounded-xl text-sm outline-none transition-all duration-200"
-                  style={{
-                    background: 'var(--color-bg-alt)',
-                    color: 'var(--color-text)',
-                    border: '0.5px solid var(--color-border)',
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                onClick={() => setEditingBook(null)}
-                className="px-4 py-2 rounded-xl text-sm font-medium tap-active"
-                style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-alt)' }}
-              >
-                取消
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                className="px-4 py-2 rounded-xl text-sm font-medium text-white ripple-btn"
-                style={{ background: 'var(--color-primary)' }}
-              >
-                保存
-              </button>
-            </div>
+      <Modal
+        open={!!editingBook}
+        onClose={() => setEditingBook(null)}
+        title="编辑图书信息"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditingBook(null)}>取消</Button>
+            <Button onClick={handleSaveEdit}>保存</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1 text-ios-text-secondary">书名</label>
+            <input
+              type="text"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl text-sm outline-none transition-all duration-200"
+              style={{
+                background: 'var(--color-bg-alt)',
+                color: 'var(--color-text)',
+                border: '0.5px solid var(--color-border)',
+              }}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1 text-ios-text-secondary">作者</label>
+            <input
+              type="text"
+              value={editAuthor}
+              onChange={(e) => setEditAuthor(e.target.value)}
+              placeholder="可选"
+              className="w-full px-3 py-2 rounded-xl text-sm outline-none transition-all duration-200"
+              style={{
+                background: 'var(--color-bg-alt)',
+                color: 'var(--color-text)',
+                border: '0.5px solid var(--color-border)',
+              }}
+            />
           </div>
         </div>
-      )}
+      </Modal>
       <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
         {/* Category Sidebar */}
         <div className="w-full sm:w-48 shrink-0 overflow-x-auto scrollbar-hide">
