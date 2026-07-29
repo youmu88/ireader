@@ -126,7 +126,7 @@ export function TocDrawer({
                     className={`w-full text-left px-3 text-sm transition-all duration-150 truncate ${
                       isActive
                         ? 'font-bold text-base'
-                        : 'hover:bg-gray-100 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300'
+                        : 'hover:bg-ios-bg-alt text-ios-text-secondary'
                     }`}
                     style={{ height: ITEM_HEIGHT, ...(isActive ? {
                       background: 'var(--color-primary-subtle)',
@@ -162,7 +162,7 @@ export function TocDrawer({
                 className={`w-full text-left px-3 py-2.5 text-sm transition-all duration-150 truncate ${
                   isActive
                     ? 'font-bold text-base'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300'
+                    : 'hover:bg-ios-bg-alt text-ios-text-secondary'
                 }`}
                 style={isActive ? {
                   background: 'var(--color-primary-subtle)',

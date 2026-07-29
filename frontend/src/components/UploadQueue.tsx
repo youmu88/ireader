@@ -310,20 +310,20 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
   
   /* ═════════════════════════ Render ═════════════════════════ */
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-ios-overlay flex items-center justify-center z-50">
       <div
-        className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col"
+        className="bg-ios-bg-card rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* ── Header ── */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between p-4 border-b border-ios-border">
           <h2 className="text-lg font-semibold">
             上传图书
-            {total > 0 && <span className="text-sm font-normal text-gray-500 ml-2">({total} 本)</span>}
+            {total > 0 && <span className="text-sm font-normal text-ios-text-muted ml-2">({total} 本)</span>}
           </h2>
           <button
             onClick={handleMinimize}
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 tap-icon"
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-ios-bg-alt text-ios-text-muted tap-icon"
             title="最小化（后台继续上传）"
           >
             ⛅
@@ -335,8 +335,8 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
           <div
             className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
               dragging
-                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                : 'border-gray-300 dark:border-gray-600 hover:border-blue-400'
+                ? 'border-ios-primary bg-ios-primary-subtle'
+                : 'border-ios-border hover:border-ios-primary-hover'
             }`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -352,10 +352,10 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
               onChange={handleInputChange}
             />
             <p className="text-4xl mb-2">{dragging ? '📥' : '📁'}</p>
-            <p className="text-gray-600 dark:text-gray-300 font-medium">
+            <p className="text-ios-text-secondary font-medium">
               {dragging ? '松开鼠标添加文件' : '点击或拖拽 EPUB / TXT 文件到这里'}
             </p>
-            <p className="text-sm text-gray-400 mt-1">支持批量选择，最大 500MB/个（兼容 .epub.zip 格式）</p>
+            <p className="text-sm text-ios-text-muted mt-1">支持批量选择，最大 500MB/个（兼容 .epub.zip 格式）</p>
           </div>
         </div>
 
@@ -363,16 +363,16 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
         {total > 0 && (
           <div className="px-4 pb-2">
             <div className="flex items-center justify-between text-sm mb-1">
-              <span className="text-gray-600 dark:text-gray-400">
+              <span className="text-ios-text-secondary">
                 总体进度
               </span>
-              <span className="text-gray-700 dark:text-gray-300 font-medium">
+              <span className="text-ios-text-secondary font-medium">
                 {overallProgress}%
               </span>
             </div>
-            <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+            <div className="w-full h-2 bg-ios-bg-alt rounded-full overflow-hidden">
               <div
-                className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                className="h-full bg-ios-primary rounded-full transition-all duration-300"
                 style={{ width: `${overallProgress}%` }}
               />
             </div>
@@ -382,21 +382,21 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
         {/* ── Stats Bar ── */}
         {hasCompleted && (
           <div className="px-4 pb-2 flex items-center gap-4 text-sm">
-            <span className="text-green-600 dark:text-green-400">✅ 成功 {successCount}</span>
+            <span className="text-ios-success">✅ 成功 {successCount}</span>
             {failedCount > 0 && (
-              <span className="text-red-600 dark:text-red-400">❌ 失败 {failedCount}</span>
+              <span className="text-ios-danger">❌ 失败 {failedCount}</span>
             )}
             {pendingCount > 0 && (
-              <span className="text-yellow-600 dark:text-yellow-400">⏳ 待上传 {pendingCount}</span>
+              <span className="text-ios-warning">⏳ 待上传 {pendingCount}</span>
             )}
-            <span className="text-gray-500">📊 {total} 本</span>
+            <span className="text-ios-text-muted">📊 {total} 本</span>
           </div>
         )}
 
         {/* ── Queue List ── */}
         <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 max-h-80">
           {total === 0 ? (
-            <div className="text-center py-10 text-gray-400 dark:text-gray-500">
+            <div className="text-center py-10 text-ios-text-muted">
               <p className="text-5xl mb-3">📚</p>
               <p>还没有选择文件</p>
             </div>
@@ -407,12 +407,12 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
                   key={task.id}
                   className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
                     task.status === 'success'
-                      ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10'
+                      ? 'border-ios-success bg-ios-success-subtle'
                       : task.status === 'failed'
-                      ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10'
+                      ? 'border-ios-danger bg-ios-danger-subtle'
                       : task.status === 'uploading'
-                      ? 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/10'
-                      : 'border-gray-200 dark:border-gray-700'
+                      ? 'border-ios-primary bg-ios-primary-subtle'
+                      : 'border-ios-border'
                   }`}
                 >
                   {/* Status Icon */}
@@ -429,15 +429,15 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
                       {task.fileName}
                     </p>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-gray-500">{formatSize(task.fileSize)}</span>
+                      <span className="text-xs text-ios-text-muted">{formatSize(task.fileSize)}</span>
                       {task.status === 'uploading' && (
-                        <span className="text-xs text-blue-600">{task.progress}%</span>
+                        <span className="text-xs text-ios-primary">{task.progress}%</span>
                       )}
                       {task.status === 'success' && (
-                        <span className="text-xs text-green-600">上传完成</span>
+                        <span className="text-xs text-ios-success">上传完成</span>
                       )}
                       {task.status === 'failed' && task.error && (
-                        <span className="text-xs text-red-600 truncate" title={task.error}>
+                        <span className="text-xs text-ios-danger truncate" title={task.error}>
                           {task.error}
                         </span>
                       )}
@@ -445,9 +445,9 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
 
                     {/* Per-file progress bar (uploading only) */}
                     {task.status === 'uploading' && (
-                      <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1.5 overflow-hidden">
+                      <div className="w-full h-1.5 bg-ios-bg-alt rounded-full mt-1.5 overflow-hidden">
                         <div
-                          className="h-full bg-blue-500 rounded-full transition-all duration-200"
+                          className="h-full bg-ios-primary rounded-full transition-all duration-200"
                           style={{ width: `${task.progress}%` }}
                         />
                       </div>
@@ -459,7 +459,7 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
                     {task.status === 'failed' && (
               <button
                 onClick={() => handleRetry(task.id)}
-                className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors tap-active"
+                className="px-2 py-1 text-xs bg-ios-primary text-white rounded hover:bg-ios-primary-hover transition-colors tap-active"
                 title="重试"
               >
                 重试
@@ -467,7 +467,7 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
                     )}
                     <button
                       onClick={() => handleRemove(task.id)}
-                      className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors tap-icon"
+                      className="w-6 h-6 flex items-center justify-center text-ios-text-muted hover:text-ios-danger hover:bg-ios-danger-subtle rounded transition-colors tap-icon"
                       title="移除"
                     >
                       ✕
@@ -480,12 +480,12 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
         </div>
 
         {/* ── Footer Actions ── */}
-        <div className="flex items-center justify-between p-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between p-4 border-t border-ios-border">
           <div className="flex gap-2">
             {failedCount > 0 && (
               <button
                 onClick={handleRetryAll}
-                className="px-3 py-1.5 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors tap-active"
+                className="px-3 py-1.5 text-sm bg-ios-warning text-white rounded-lg hover:bg-ios-warning-hover transition-colors tap-active"
               >
                 重试全部失败 ({failedCount})
               </button>
@@ -493,7 +493,7 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
             {successCount > 0 && (
               <button
                 onClick={handleClearCompleted}
-                className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors tap-active"
+                className="px-3 py-1.5 text-sm text-ios-text-secondary hover:bg-ios-bg-alt rounded-lg transition-colors tap-active"
               >
                 清除已完成
               </button>
@@ -502,13 +502,13 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
           <div className="flex gap-2">
             <button
               onClick={handleMinimize}
-              className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors tap-active"
+              className="px-4 py-2 text-sm text-ios-text-secondary hover:bg-ios-bg-alt rounded-lg transition-colors tap-active"
             >
               后台运行
             </button>
             <button
               onClick={handleFinish}
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors ripple-btn"
+              className="px-4 py-2 text-sm bg-ios-primary text-white rounded-lg hover:bg-ios-primary-hover transition-colors ripple-btn"
             >
               完成并刷新
             </button>

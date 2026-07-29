@@ -75,7 +75,7 @@ function renderHighlightedContent(
       if (r.offset < lastIdx) continue;
       if (r.offset > lastIdx) parts.push(content.slice(lastIdx, r.offset));
       parts.push(
-        <mark key={r.index} className="bg-yellow-200 dark:bg-yellow-700 rounded px-0.5">
+        <mark key={r.index} className="bg-ios-warning-subtle rounded px-0.5">
           {content.slice(r.offset, r.offset + r.text.length)}
         </mark>,
       );
@@ -90,7 +90,7 @@ function renderHighlightedContent(
     <span
       key={idx}
       data-tts-segment={idx === activeSegmentIndex ? 'active' : undefined}
-      className={idx === activeSegmentIndex ? 'bg-blue-100 dark:bg-blue-900/40 rounded' : undefined}
+      className={idx === activeSegmentIndex ? 'bg-ios-primary-subtle rounded' : undefined}
     >
       {seg}
     </span>
@@ -261,13 +261,13 @@ const TxtReaderView = forwardRef<TxtReaderViewHandle, TxtReaderViewProps>(functi
     >
       {chapterTitle && (
         <div className="mb-4">
-          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">{chapterTitle}</h2>
+          <h2 className="text-xl font-bold text-ios-text">{chapterTitle}</h2>
         </div>
       )}
 
       <div
         ref={contentRef}
-        className={`text-gray-800 dark:text-gray-200 whitespace-pre-wrap ${
+        className={`text-ios-text whitespace-pre-wrap ${
           readingMode === 'paginated' ? 'flex-1 overflow-hidden' : ''
         }`}
         style={{

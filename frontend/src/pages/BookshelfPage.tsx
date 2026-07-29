@@ -577,7 +577,7 @@ useEffect(() => {
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
-        <p className="text-gray-500 dark:text-gray-400">加载中...</p>
+        <p className="text-ios-text-muted">加载中...</p>
       </div>
     );
   }
@@ -585,8 +585,8 @@ useEffect(() => {
   if (error) {
     return (
       <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-          <p className="text-red-700 dark:text-red-300">{error}</p>
+        <div className="bg-ios-danger-subtle border border-ios-danger rounded-lg p-4">
+          <p className="text-ios-danger">{error}</p>
           <div className="flex flex-wrap gap-2 mt-3">
             <Button variant="danger" size="sm" onClick={loadData}>
               重试
@@ -860,7 +860,7 @@ useEffect(() => {
                       {selectionMode && (
                         <div className="absolute top-1 left-1 z-20">
                           <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shadow-sm ${
-                            selectedIds.has(book.id) ? 'bg-blue-500 border-blue-500' : 'bg-white/90 dark:bg-gray-700/90 border-gray-400'
+                            selectedIds.has(book.id) ? 'bg-ios-primary border-ios-primary' : 'bg-white/90 dark:bg-gray-700/90 border-ios-border-hover'
                           }`}>
                             {selectedIds.has(book.id) && <span className="text-white text-[11px] font-bold">✓</span>}
                           </div>
@@ -880,26 +880,26 @@ useEffect(() => {
                     </div>
                     <h3 className="font-medium text-sm truncate" title={book.title}>{book.title}</h3>
                     {book.author && (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{book.author}</p>
+                      <p className="text-xs text-ios-text-muted truncate">{book.author}</p>
                     )}
                     <div className="mt-1 flex items-center gap-1 flex-wrap">
-                      <span className="text-xs text-gray-400 uppercase">{book.format}</span>
+                      <span className="text-xs text-ios-text-muted uppercase">{book.format}</span>
                       {book.status === 'processing' && (
-                        <span className="text-xs text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 px-1.5 py-0.5 rounded">解析中</span>
+                        <span className="text-xs text-ios-warning bg-ios-warning-subtle px-1.5 py-0.5 rounded">解析中</span>
                       )}
                       {book.status === 'failed' && (
-                        <span className="text-xs text-red-600 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded" title={book.parseError || ''}>解析失败</span>
+                        <span className="text-xs text-ios-danger bg-ios-danger-subtle px-1.5 py-0.5 rounded" title={book.parseError || ''}>解析失败</span>
                       )}
                       {staleBookIds.has(book.id) && (
-                        <span className="text-xs text-orange-600 bg-orange-100 dark:bg-orange-900/30 px-1.5 py-0.5 rounded" title="离线包已过期，进入阅读器可重新下载">离线包过期</span>
+                        <span className="text-xs text-ios-warning bg-ios-warning-subtle px-1.5 py-0.5 rounded" title="离线包已过期，进入阅读器可重新下载">离线包过期</span>
                       )}
                     </div>
                     {/* 阅读百分比 + 语音生成率 */}
                     {book.status === 'ready' && bookStats[book.id] && (
                       <div className="mt-2 space-y-1">
                         <div className="flex items-center justify-between text-xs">
-                          <span className="text-gray-500 dark:text-gray-400">阅读</span>
-                          <span className="text-gray-700 dark:text-gray-300 font-medium">
+                          <span className="text-ios-text-muted">阅读</span>
+                          <span className="text-ios-text-secondary font-medium">
                             {Math.round(bookStats[book.id].readingPercentage * 100)}%
                           </span>
                         </div>
@@ -910,7 +910,7 @@ useEffect(() => {
                         </div>
                         <div className="flex items-center justify-between text-xs">
                           <span style={{ color: 'var(--color-text-muted)' }}>语音</span>
-                          <span className="text-gray-700 dark:text-gray-300 font-medium">
+                          <span className="text-ios-text-secondary font-medium">
                             ${Math.round((bookStats[book.id].voiceGenerationRate || 0) * bookStats[book.id].totalChapters)}/${bookStats[book.id].totalChapters}章
                           </span>
                         </div>
@@ -927,11 +927,11 @@ useEffect(() => {
                     {/* 正在播放指示器 */}
                     {globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId === book.id && (
                       <div className="absolute top-2 left-2 z-10">
-                        <span className="bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">🔊</span>
+                        <span className="bg-ios-success text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">🔊</span>
                       </div>
                     )}
-                    <button onClick={(e) => handleEditBook(book, e)} className="w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-blue-600 tap-icon" title="编辑信息">✎</button>
-                    <button onClick={(e) => handleDelete(book, e)} className="w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-red-600 tap-icon" title="删除图书">✕</button>
+                    <button onClick={(e) => handleEditBook(book, e)} className="w-7 h-7 bg-ios-primary text-white rounded-full flex items-center justify-center text-sm hover:bg-ios-primary-hover tap-icon" title="编辑信息">✎</button>
+                    <button onClick={(e) => handleDelete(book, e)} className="w-7 h-7 bg-ios-danger text-white rounded-full flex items-center justify-center text-sm hover:bg-ios-danger-hover tap-icon" title="删除图书">✕</button>
                   </div>
                 </div>
               ))}
@@ -984,7 +984,7 @@ useEffect(() => {
                         {selectionMode && (
                           <div className="absolute top-1 left-1 z-20">
                             <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shadow-sm ${
-                              selectedIds.has(book.id) ? 'bg-blue-500 border-blue-500' : 'bg-white/90 dark:bg-gray-700/90 border-gray-400'
+                              selectedIds.has(book.id) ? 'bg-ios-primary border-ios-primary' : 'bg-white/90 dark:bg-gray-700/90 border-ios-border-hover'
                             }`}>
                               {selectedIds.has(book.id) && <span className="text-white text-[11px] font-bold">✓</span>}
                             </div>
@@ -1009,13 +1009,13 @@ useEffect(() => {
                       <div className="mt-1 flex items-center gap-1 flex-wrap">
                         <span className="text-xs uppercase" style={{ color: 'var(--color-text-muted)' }}>{book.format}</span>
                         {book.status === 'processing' && (
-                          <span className="text-xs text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 px-1.5 py-0.5 rounded">解析中</span>
+                          <span className="text-xs text-ios-warning bg-ios-warning-subtle px-1.5 py-0.5 rounded">解析中</span>
                         )}
                         {book.status === 'failed' && (
-                          <span className="text-xs text-red-600 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded" title={book.parseError || ''}>解析失败</span>
+                          <span className="text-xs text-ios-danger bg-ios-danger-subtle px-1.5 py-0.5 rounded" title={book.parseError || ''}>解析失败</span>
                         )}
                         {staleBookIds.has(book.id) && (
-                          <span className="text-xs text-orange-600 bg-orange-100 dark:bg-orange-900/30 px-1.5 py-0.5 rounded" title="离线包已过期，进入阅读器可重新下载">离线包过期</span>
+                          <span className="text-xs text-ios-warning bg-ios-warning-subtle px-1.5 py-0.5 rounded" title="离线包已过期，进入阅读器可重新下载">离线包过期</span>
                         )}
                       </div>
                       {book.status === 'ready' && bookStats[book.id] && (
@@ -1026,8 +1026,8 @@ useEffect(() => {
                               {Math.round(bookStats[book.id].readingPercentage * 100)}%
                             </span>
                           </div>
-                          <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${Math.round(bookStats[book.id].readingPercentage * 100)}%` }} />
+                          <div className="w-full h-1.5 bg-ios-bg-alt rounded-full overflow-hidden">
+                            <div className="h-full bg-ios-primary rounded-full transition-all duration-500" style={{ width: `${Math.round(bookStats[book.id].readingPercentage * 100)}%` }} />
                           </div>
                           <div className="flex items-center justify-between text-xs">
                             <span style={{ color: 'var(--color-text-muted)' }}>语音</span>
@@ -1046,12 +1046,12 @@ useEffect(() => {
                     <div className="hidden sm:flex absolute top-2 right-2 gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       {globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId === book.id && (
                         <div className="absolute top-2 left-2 z-10">
-                          <span className="bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">🔊</span>
+                          <span className="bg-ios-success text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">🔊</span>
                         </div>
                       )}
-                      <button onClick={(e) => handleTogglePin(book, e)} className="w-7 h-7 bg-amber-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-amber-600 tap-icon" title={book.pinned ? '取消置顶' : '置顶'}>{book.pinned ? '📌' : '📍'}</button>
-                      <button onClick={(e) => handleEditBook(book, e)} className="w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-blue-600 tap-icon" title="编辑信息">✎</button>
-                      <button onClick={(e) => handleDelete(book, e)} className="w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-sm hover:bg-red-600 tap-icon" title="删除图书">✕</button>
+                      <button onClick={(e) => handleTogglePin(book, e)} className="w-7 h-7 bg-ios-warning text-white rounded-full flex items-center justify-center text-sm hover:bg-ios-warning-hover tap-icon" title={book.pinned ? '取消置顶' : '置顶'}>{book.pinned ? '📌' : '📍'}</button>
+                      <button onClick={(e) => handleEditBook(book, e)} className="w-7 h-7 bg-ios-primary text-white rounded-full flex items-center justify-center text-sm hover:bg-ios-primary-hover tap-icon" title="编辑信息">✎</button>
+                      <button onClick={(e) => handleDelete(book, e)} className="w-7 h-7 bg-ios-danger text-white rounded-full flex items-center justify-center text-sm hover:bg-ios-danger-hover tap-icon" title="删除图书">✕</button>
                     </div>
                   </div>
                 ))}
@@ -1102,8 +1102,8 @@ useEffect(() => {
                   id: 'delete',
                   label: '删除选中',
                   icon: '🗑',
-                  color: 'bg-red-600',
-                  hoverColor: 'hover:bg-red-700',
+                  color: 'bg-ios-danger',
+                  hoverColor: 'hover:bg-ios-danger-hover',
                   disabled: selectedIds.size === 0,
                   onClick: handleBatchDelete,
                 },
@@ -1111,8 +1111,8 @@ useEffect(() => {
                   id: 'voice',
                   label: '预生成语音',
                   icon: '🎙',
-                  color: 'bg-green-600',
-                  hoverColor: 'hover:bg-green-700',
+                  color: 'bg-ios-success',
+                  hoverColor: 'hover:bg-ios-success-hover',
                   disabled: selectedIds.size === 0 || batchActionLoading === 'voice',
                   loading: batchActionLoading === 'voice',
                   onClick: handleBatchGenerateVoice,
@@ -1121,8 +1121,8 @@ useEffect(() => {
                   id: 'dedup',
                   label: '去重',
                   icon: '🔄',
-                  color: 'bg-purple-600',
-                  hoverColor: 'hover:bg-purple-700',
+                  color: 'bg-ios-accent-1',
+                  hoverColor: 'hover:bg-ios-accent-1-hover',
                   disabled: deduping,
                   loading: deduping,
                   onClick: handleDedup,
@@ -1144,7 +1144,7 @@ useEffect(() => {
 
       {/* ── TTS 预生成队列可视化面板（支持批量选择） ── */}
       {showTtsQueue && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ios-overlay" onClick={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}>
                            <div className="rounded-2xl shadow-ios-lg max-w-lg w-full mx-4 max-h-[70vh] overflow-hidden flex flex-col animate-pop-in"
             onClick={(e) => e.stopPropagation()}
             style={{ background: 'var(--color-bg-card)' }}>
@@ -1203,10 +1203,10 @@ useEffect(() => {
                   const pct = job.totalChunks > 0 ? Math.min(job.completedChunks / job.totalChunks, 1) : 0;
                   const statusLabel: Record<string, string> = { pending: '排队中', running: '生成中', completed: '已完成', failed: '失败' };
                   const statusColor: Record<string, string> = {
-                    pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-                    running: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-                    completed: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-                    failed: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+                    pending: 'bg-ios-warning-subtle text-ios-warning',
+                    running: 'bg-ios-primary-subtle text-ios-primary',
+                    completed: 'bg-ios-success-subtle text-ios-success',
+                    failed: 'bg-ios-danger-subtle text-ios-danger',
                   };
                   const isSelected = selectedJobIds.has(job.id);
                   return (
@@ -1241,7 +1241,7 @@ useEffect(() => {
                           {(job.status === 'pending' || job.status === 'running') && (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleCancelJob(job.id); }}
-                              className="text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800/40 transition-colors"
+                              className="text-xs px-1.5 py-0.5 rounded bg-ios-danger-subtle text-ios-danger hover:brightness-95 transition-colors"
                               title="取消此任务"
                             >
                               ✕ 取消
@@ -1254,7 +1254,7 @@ useEffect(() => {
                       </div>
                       {(job.status === 'running' || job.status === 'pending') && (
                         <div className="mt-2 ml-6">
-                          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                          <div className="flex items-center justify-between text-xs text-ios-text-muted mb-1">
                             <span>{job.completedChunks || 0} / {job.totalChunks || '?'} 段</span>
                             <span>{Math.round(pct * 100)}%</span>
                           </div>
@@ -1266,12 +1266,12 @@ useEffect(() => {
                         </div>
                       )}
                       {job.status === 'completed' && (
-                        <div className="text-xs text-green-600 dark:text-green-400 mt-1 ml-6">
+                        <div className="text-xs text-ios-success mt-1 ml-6">
                           ✅ 已生成 {job.completedChunks || job.totalChunks || '全部'} 段语音
                         </div>
                       )}
                       {job.status === 'failed' && (
-                        <div className="text-xs text-red-500 mt-1 ml-6">{job.error || '生成失败'}</div>
+                        <div className="text-xs text-ios-danger mt-1 ml-6">{job.error || '生成失败'}</div>
                       )}
                     </div>
                   );

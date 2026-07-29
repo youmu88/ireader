@@ -146,10 +146,10 @@ export function SearchOverlay({ visible, onClose, chapters, bookId, bookFormat, 
 
   return (
     <div className="absolute inset-0 z-40 flex items-start justify-center pt-16" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-lg mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-ios-bg-card rounded-xl shadow-2xl border border-ios-border w-full max-w-lg mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
         {/* 搜索输入框 */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-gray-400"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-ios-border">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-ios-text-muted"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input
             ref={searchInputRef}
             type="text"
@@ -166,59 +166,59 @@ export function SearchOverlay({ visible, onClose, chapters, bookId, bookFormat, 
               if (e.key === 'Escape') onClose();
             }}
             placeholder="搜索全书…"
-            className="flex-1 bg-transparent outline-none text-sm py-1.5 text-gray-800 dark:text-gray-200 placeholder-gray-400"
+            className="flex-1 bg-transparent outline-none text-sm py-1.5 text-ios-text placeholder-ios-text-muted"
             autoFocus
           />
-          <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400">
+          <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-ios-bg-alt text-ios-text-muted">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
         {/* 搜索结果列表 */}
         <div className="max-h-64 overflow-y-auto">
           {searchQuery && isSearchingFullBook && searchResults.length === 0 && (
-            <div className="px-4 py-6 text-center text-sm text-gray-400"><span className="animate-pulse">正在搜索全书…</span></div>
+            <div className="px-4 py-6 text-center text-sm text-ios-text-muted"><span className="animate-pulse">正在搜索全书…</span></div>
           )}
           {searchQuery && !isSearchingFullBook && searchResults.length === 0 && (
-            <div className="px-4 py-6 text-center text-sm text-gray-400">未找到匹配结果</div>
+            <div className="px-4 py-6 text-center text-sm text-ios-text-muted">未找到匹配结果</div>
           )}
           {searchResults.some(r => r.isChapterMatch) && searchResults.some(r => !r.isChapterMatch) && (
-            <div className="px-3 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/10 border-b border-blue-100 dark:border-blue-800/30">📖 章节匹配（最高优先级）</div>
+            <div className="px-3 py-1.5 text-xs font-semibold text-ios-primary bg-ios-primary-subtle border-b border-ios-primary">📖 章节匹配（最高优先级）</div>
           )}
           {searchResults.map((result, i) => (
             <button
               key={i}
               onClick={() => onJump(result)}
-              className={`w-full text-left px-4 py-2.5 text-sm border-b border-gray-100 dark:border-gray-700 last:border-b-0 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors duration-150 ${searchActiveIdx === i ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+              className={`w-full text-left px-4 py-2.5 text-sm border-b border-ios-border last:border-b-0 hover:bg-ios-primary-subtle transition-colors duration-150 ${searchActiveIdx === i ? 'bg-ios-primary-subtle' : ''}`}
             >
-              <span className="block text-xs text-gray-400 mb-0.5">
+              <span className="block text-xs text-ios-text-muted mb-0.5">
                 {result.isChapterMatch ? (
                   <span className="inline-flex items-center gap-1">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-blue-500"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-ios-primary"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
                     章节匹配
                   </span>
                 ) : (<>匹配 {i + 1}</>)}
                 {result.chapterTitle && (
-                  <span className="ml-2 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">{result.chapterTitle}</span>
+                  <span className="ml-2 px-1.5 py-0.5 rounded bg-ios-bg-alt text-ios-text-muted">{result.chapterTitle}</span>
                 )}
               </span>
               {result.isChapterMatch ? (
-                <span className="text-blue-700 dark:text-blue-300 font-medium">{result.chapterTitle}</span>
+                <span className="text-ios-primary font-medium">{result.chapterTitle}</span>
               ) : (
-                <span className="text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{
+                <span className="text-ios-text-secondary leading-relaxed" dangerouslySetInnerHTML={{
                   __html: result.text.replace(
                     new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
-                    '<mark class="bg-yellow-300 dark:bg-yellow-600 text-gray-900 dark:text-gray-100 rounded px-0.5">$1</mark>'
+                    '<mark class="bg-ios-warning-subtle text-ios-text rounded px-0.5">$1</mark>'
                   )
                 }} />
               )}
             </button>
           ))}
           {searchQuery && isSearchingFullBook && searchResults.length > 0 && (
-            <div className="px-3 py-2 text-xs text-center text-gray-400 border-t border-gray-100 dark:border-gray-700"><span className="animate-pulse">正在深入搜索全文内容…</span></div>
+            <div className="px-3 py-2 text-xs text-center text-ios-text-muted border-t border-ios-border"><span className="animate-pulse">正在深入搜索全文内容…</span></div>
           )}
         </div>
         {searchResults.length > 0 && !isSearchingFullBook && (
-          <div className="px-4 py-2 text-xs text-gray-400 border-t border-gray-200 dark:border-gray-700 text-center">共 {searchResults.length} 个匹配结果，点击跳转</div>
+          <div className="px-4 py-2 text-xs text-ios-text-muted border-t border-ios-border text-center">共 {searchResults.length} 个匹配结果，点击跳转</div>
         )}
       </div>
     </div>

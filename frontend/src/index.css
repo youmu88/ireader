@@ -21,12 +21,15 @@
   --color-border: hsl(0, 0%, 88%);
   --color-border-hover: hsl(0, 0%, 75%);
   --color-accent-1: hsl(270, 80%, 57%);
+  --color-accent-1-hover: hsl(270, 80%, 50%);
   --color-accent-2: hsl(150, 83%, 64%);
 
   /* ── 语义状态色 ── */
   --color-success: hsl(150, 60%, 42%);
+  --color-success-hover: hsl(150, 60%, 36%);
   --color-success-subtle: hsl(150, 45%, 92%);
   --color-warning: hsl(38, 92%, 50%);
+  --color-warning-hover: hsl(38, 92%, 44%);
   --color-warning-subtle: hsl(38, 90%, 92%);
   --color-danger: hsl(0, 72%, 51%);
   --color-danger-hover: hsl(0, 72%, 44%);
@@ -99,12 +102,15 @@
   --color-border: hsl(0, 0%, 22%);
   --color-border-hover: hsl(0, 0%, 35%);
   --color-accent-1: hsl(270, 80%, 57%);
+  --color-accent-1-hover: hsl(270, 80%, 64%);
   --color-accent-2: hsl(150, 83%, 64%);
 
   /* ── 语义状态色（dark） ── */
   --color-success: hsl(150, 60%, 50%);
+  --color-success-hover: hsl(150, 60%, 56%);
   --color-success-subtle: hsl(150, 35%, 16%);
   --color-warning: hsl(38, 92%, 55%);
+  --color-warning-hover: hsl(38, 92%, 60%);
   --color-warning-subtle: hsl(38, 45%, 16%);
   --color-danger: hsl(0, 72%, 58%);
   --color-danger-hover: hsl(0, 72%, 65%);

@@ -78,7 +78,7 @@ export function ReaderControlPanel(props: ReaderControlPanelProps) {
   return (
     <>
       {/* 半透明背景 */}
-      <div className="absolute inset-0 z-30 bg-black/30" onClick={onClose} />
+      <div className="absolute inset-0 z-30 bg-ios-overlay" onClick={onClose} />
 
       {/* 底部控制面板 */}
       <div className="absolute bottom-0 left-0 right-0 z-40">
@@ -169,7 +169,7 @@ export function ReaderControlPanel(props: ReaderControlPanelProps) {
                 }}
               >
                 <div className="h-full rounded-full transition-none" style={{ width: `${Math.round(ttsProgress * 100)}%`, background: 'var(--color-primary)' }} />
-                <div className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-blue-500 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: `calc(${Math.round(ttsProgress * 100)}% - 8px)` }} />
+                <div className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-ios-primary rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: `calc(${Math.round(ttsProgress * 100)}% - 8px)` }} />
               </div>
             </div>
 
