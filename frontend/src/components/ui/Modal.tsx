@@ -11,13 +11,17 @@ export interface ModalProps {
   footer?: ReactNode;
   /** panel 最大宽度 tailwind class，默认 max-w-md */
   maxWidth?: string;
+  /** 追加到 panel 容器的额外 class（如 flex 布局、max-h 等） */
+  panelClassName?: string;
+  /** 覆盖 children 容器的 class（默认 "text-sm leading-relaxed text-ios-text-secondary"） */
+  bodyClassName?: string;
 }
 
 /**
  * 统一弹窗组件 — backdrop 点击/ESC 关闭，打开时锁定 body 滚动。
  * z-index 走 --z-modal(400) token，入场 pop-in 动画。
  */
-export function Modal({ open, onClose, title, children, footer, maxWidth = 'max-w-md' }: ModalProps) {
+export function Modal({ open, onClose, title, children, footer, maxWidth = 'max-w-md', panelClassName, bodyClassName }: ModalProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -44,7 +48,7 @@ export function Modal({ open, onClose, title, children, footer, maxWidth = 'max-
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? 'modal-title' : undefined}
-        className={`w-full ${maxWidth} rounded-ios-xl bg-ios-bg-card shadow-overlay animate-pop-in p-6`}
+        className={`w-full ${maxWidth} rounded-ios-xl bg-ios-bg-card shadow-overlay animate-pop-in p-6${panelClassName ? ` ${panelClassName}` : ''}`}
         onClick={(e) => e.stopPropagation()}
       >
         {title && (
@@ -52,7 +56,7 @@ export function Modal({ open, onClose, title, children, footer, maxWidth = 'max-
             {title}
           </h2>
         )}
-        <div className="text-sm leading-relaxed text-ios-text-secondary">{children}</div>
+        <div className={bodyClassName ?? 'text-sm leading-relaxed text-ios-text-secondary'}>{children}</div>
         {footer && <div className="mt-6 flex justify-end gap-2">{footer}</div>}
       </div>
     </div>,

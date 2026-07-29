@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import axios from 'axios';
+import { Modal } from './ui/Modal';
 
 /* ───────── Types ───────── */
 interface UploadTask {
@@ -304,17 +305,16 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
 
   const hasCompleted = successCount > 0 || failedCount > 0;
 
-  /* ── 最小化时不渲染 UI，上传继续 ── */
-  if (minimized) return null;
-
   
   /* ═════════════════════════ Render ═════════════════════════ */
   return (
-    <div className="fixed inset-0 bg-ios-overlay flex items-center justify-center z-50">
-      <div
-        className="bg-ios-bg-card rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal
+      open={!minimized}
+      onClose={handleMinimize}
+      maxWidth="max-w-2xl"
+      panelClassName="!p-0 max-h-[90vh] flex flex-col overflow-hidden"
+      bodyClassName="flex-1 flex flex-col min-h-0 overflow-hidden"
+    >
         {/* ── Header ── */}
         <div className="flex items-center justify-between p-4 border-b border-ios-border">
           <h2 className="text-lg font-semibold">
@@ -514,8 +514,7 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
     );
 });
 
