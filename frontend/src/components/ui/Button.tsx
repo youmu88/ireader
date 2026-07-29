@@ -33,6 +33,7 @@ const SIZE_CLASSES: Record<ButtonSize, string> = {
 /**
  * 统一按钮组件 — 全部样式走 design tokens，自动适配 dark 主题。
  * 继承 index.css 全局按压反馈（scale + transition）。
+ * 变体：primary / secondary / ghost / danger / warning / text
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   {
