@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import axios from 'axios';
 import { Modal } from './ui/Modal';
+import { Button } from './ui/Button';
 
 /* ───────── Types ───────── */
 interface UploadTask {
@@ -457,13 +458,13 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
                   {/* Actions */}
                   <div className="shrink-0 flex gap-1">
                     {task.status === 'failed' && (
-              <button
+              <Button
                 onClick={() => handleRetry(task.id)}
-                className="px-2 py-1 text-xs bg-ios-primary text-white rounded hover:bg-ios-primary-hover transition-colors tap-active"
+                size="sm"
                 title="重试"
               >
                 重试
-              </button>
+              </Button>
                     )}
                     <button
                       onClick={() => handleRemove(task.id)}
@@ -483,35 +484,38 @@ const UploadQueue = forwardRef<UploadQueueHandle, UploadQueueProps>(({ onComplet
         <div className="flex items-center justify-between p-4 border-t border-ios-border">
           <div className="flex gap-2">
             {failedCount > 0 && (
-              <button
+              <Button
                 onClick={handleRetryAll}
-                className="px-3 py-1.5 text-sm bg-ios-warning text-white rounded-lg hover:bg-ios-warning-hover transition-colors tap-active"
+                variant="warning"
+                size="sm"
               >
                 重试全部失败 ({failedCount})
-              </button>
+              </Button>
             )}
             {successCount > 0 && (
-              <button
+              <Button
                 onClick={handleClearCompleted}
-                className="px-3 py-1.5 text-sm text-ios-text-secondary hover:bg-ios-bg-alt rounded-lg transition-colors tap-active"
+                variant="secondary"
+                size="sm"
               >
                 清除已完成
-              </button>
+              </Button>
             )}
           </div>
           <div className="flex gap-2">
-            <button
+            <Button
               onClick={handleMinimize}
-              className="px-4 py-2 text-sm text-ios-text-secondary hover:bg-ios-bg-alt rounded-lg transition-colors tap-active"
+              variant="secondary"
+              size="sm"
             >
               后台运行
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={handleFinish}
-              className="px-4 py-2 text-sm bg-ios-primary text-white rounded-lg hover:bg-ios-primary-hover transition-colors ripple-btn"
+              size="sm"
             >
               完成并刷新
-            </button>
+            </Button>
           </div>
         </div>
     </Modal>
