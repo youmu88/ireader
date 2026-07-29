@@ -9,7 +9,8 @@
  * - ttsTextProcessor.ts — 文本分段 / HTML 去标签（纯函数）
  * - ttsGlobalState.ts   — 全局状态订阅 / localStorage 持久化
  * - ttsScheduler.ts     — 分片调度 / 预生成 / TTS API 调用
- * - ttsPlayer.ts        — 音频播放 / Media Session / 播放控制（本文件）
+ * - ttsMediaSession.ts  — Media Session API / 心跳检测 / 页面可见性
+ * - ttsPlayer.ts        — 音频播放 / 播放控制（本文件）
  */
 
 import { fetchTTSSettings } from './ttsService';
@@ -24,6 +25,7 @@ import {
   saveCachedTTSSettings,
 } from './ttsGlobalState';
 import { TtsScheduler } from './ttsScheduler';
+import { TtsMediaSession } from './ttsMediaSession';
 
 // ===== 向后兼容 re-exports =====
 export type { PlayerState, GlobalPlayerInfo } from './ttsGlobalState';
@@ -91,10 +93,6 @@ export class TTSPlayer {
   private noCache = false;
   private isDestroyed = false;
   private volume = 1.0;
-  /** Bound visibilitychange handler for cleanup */
-  private boundVisibilityHandler: (() => void) | null = null;
-  /** Bound pagehide handler for save state on page unload */
-  private boundPageHideHandler: (() => void) | null = null;
   /** 当前书籍信息（用于 Media Session 锁屏封面） */
   private bookTitle = '';
   private bookCoverUrl = '';
@@ -103,11 +101,11 @@ export class TTSPlayer {
   public chapterTitle: string = '';
   /** 当前章节 ID（由 ReaderPage 设置，供持久化恢复用） */
   public chapterId: string = '';
-  /** 心跳检测定时器：检测音频被浏览器静默暂停后自动恢复 */
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   /** 分片调度器（管理 chunks、预生成、TTS API 调用） */
   private scheduler: TtsScheduler;
+  /** Media Session + 心跳 + 页面可见性管理 */
+  private mediaSession: TtsMediaSession;
 
   constructor() {
     this.scheduler = new TtsScheduler({
@@ -122,6 +120,30 @@ export class TTSPlayer {
         noCache: this.noCache,
         bookId: this.currentBookId,
       }),
+    });
+
+    this.mediaSession = new TtsMediaSession({
+      onPlay: () => this.play(),
+      onPause: () => this.pause(),
+      onStop: () => this.stop(),
+      onPrevChapter: () => this.callbacks.onPrevChapter?.(),
+      onNextChapter: () => this.callbacks.onNextChapter?.(),
+      onHidden: () => {
+        this.isBackground = true;
+        if (this.state === 'playing') {
+          this.scheduler.prefetchAllRemaining().catch(() => {});
+        }
+        this.persistPlaybackState();
+      },
+      onVisible: () => {
+        this.isBackground = false;
+        if (this.state === 'playing') {
+          this.mediaSession.setPlaybackState('playing');
+        } else if (this.state === 'paused') {
+          this.mediaSession.setPlaybackState('paused');
+        }
+      },
+      onPageHide: () => this.persistPlaybackState(),
     });
   }
 
@@ -144,7 +166,7 @@ export class TTSPlayer {
     // ⭐ 如果 audio 元素已存在（预热时已初始化），只更新选项和设置
     if (this.audioElement) {
       this.audioElement.playbackRate = this.playbackRate;
-      this.updateMediaSessionMetadata();
+      this.syncMediaMetadata();
       return;
     }
 
@@ -178,7 +200,7 @@ export class TTSPlayer {
     document.body.appendChild(el);
     this.audioElement = el;
 
-    // ⭐ 初始化后台播放支持（Media Session API + <audio> 原生后台支持）
+    // ⭐ 初始化后台播放支持（Media Session API + 页面可见性）
     this.setupBackgroundPlayback();
   }
 
@@ -319,8 +341,8 @@ export class TTSPlayer {
         }
       }
       this.setState('playing');
-      this.updateMediaSessionState('playing');
-      this.startHeartbeat();
+      this.mediaSession.setPlaybackState('playing');
+      this.mediaSession.startHeartbeat(() => this.audioElement, () => this.state === 'playing' && !this.isDestroyed);
       return;
     }
 
@@ -328,8 +350,8 @@ export class TTSPlayer {
 
     // idle / loading → 开始播放
     this.setState('playing');
-    this.updateMediaSessionState('playing');
-    this.startHeartbeat();
+    this.mediaSession.setPlaybackState('playing');
+    this.mediaSession.startHeartbeat(() => this.audioElement, () => this.state === 'playing' && !this.isDestroyed);
     this.playNext();
   }
 
@@ -337,8 +359,8 @@ export class TTSPlayer {
     if (this.state !== 'playing') return;
     if (this.audioElement) this.audioElement.pause();
     this.setState('paused');
-    this.updateMediaSessionState('paused');
-    this.clearHeartbeat();
+    this.mediaSession.setPlaybackState('paused');
+    this.mediaSession.stopHeartbeat();
   }
 
   resume(): void {
@@ -365,28 +387,12 @@ export class TTSPlayer {
 
   destroy(): void {
     this.isDestroyed = true;
-    this.clearHeartbeat();
+    this.mediaSession.destroy();
     this.stopInternal();
     this.callbacks = {};
 
     // 清理调度器资源（Blob URL 等）
     this.scheduler.clearAllBlobUrls();
-
-    // 清理后台播放相关
-    if (this.boundVisibilityHandler) {
-      document.removeEventListener('visibilitychange', this.boundVisibilityHandler);
-      this.boundVisibilityHandler = null;
-    }
-    if (this.boundPageHideHandler) {
-      window.removeEventListener('pagehide', this.boundPageHideHandler);
-      this.boundPageHideHandler = null;
-    }
-
-    // 清除 Media Session 元数据
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata = null;
-      navigator.mediaSession.playbackState = 'none';
-    }
 
     // 移除 <audio> 元素
     if (this.audioElement && this.audioElement.parentNode) {
@@ -446,67 +452,17 @@ export class TTSPlayer {
       }
     };
 
-    // ── Media Session API ──
-    this.updateMediaSessionMetadata();
-    if ('mediaSession' in navigator) {
-      try {
-        navigator.mediaSession.setActionHandler('play', () => this.play());
-        navigator.mediaSession.setActionHandler('pause', () => this.pause());
-        navigator.mediaSession.setActionHandler('stop', () => this.stop());
-        navigator.mediaSession.setActionHandler('previoustrack', () => { this.callbacks.onPrevChapter?.(); });
-        navigator.mediaSession.setActionHandler('nexttrack', () => { this.callbacks.onNextChapter?.(); });
-        navigator.mediaSession.setActionHandler('seekbackward', () => { /* 预留 */ });
-        navigator.mediaSession.setActionHandler('seekforward', () => { /* 预留 */ });
-      } catch { /* Media Session 不可用则静默跳过 */ }
-    }
-
-    // ── visibilitychange：后台时预取全部 + 切回前台时同步状态 ──
-    this.boundVisibilityHandler = () => {
-      if (this.isDestroyed) return;
-      if (document.visibilityState === 'hidden') {
-        this.isBackground = true;
-        // 后台时预取所有剩余分段
-        if (this.state === 'playing') {
-          this.scheduler.prefetchAllRemaining().catch(() => {});
-        }
-        this.persistPlaybackState();
-      } else {
-        this.isBackground = false;
-        // 切回前台时同步 Media Session 状态
-        if (this.state === 'playing') {
-          this.updateMediaSessionState('playing');
-        } else if (this.state === 'paused') {
-          this.updateMediaSessionState('paused');
-        }
-      }
-    };
-    document.addEventListener('visibilitychange', this.boundVisibilityHandler);
-
-    // ── pagehide：页面卸载前保存状态 ──
-    this.boundPageHideHandler = () => {
-      if (!this.isDestroyed) this.persistPlaybackState();
-    };
-    window.addEventListener('pagehide', this.boundPageHideHandler);
+    // ── Media Session + 页面可见性 ──
+    this.syncMediaMetadata();
+    this.mediaSession.setup();
   }
 
-  /** 更新 Media Session 播放状态 */
-  private updateMediaSessionState(state: 'playing' | 'paused' | 'none'): void {
-    if ('mediaSession' in navigator) {
-      try { navigator.mediaSession.playbackState = state; } catch { /* ignore */ }
-    }
-  }
-
-  /** 更新 Media Session 元数据（锁屏显示书名+封面） */
-  private updateMediaSessionMetadata(): void {
-    if (!('mediaSession' in navigator)) return;
-    try {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: this.bookTitle || 'iReader 语音朗读',
-        artist: 'iReader',
-        album: this.bookTitle || '有声书',
-        ...(this.bookCoverUrl ? { artwork: [{ src: this.bookCoverUrl, sizes: '256x256', type: 'image/png' }] } : {}),
-      });
-    } catch { /* Media Session 不可用则静默跳过 */ }
+  /** 同步 Media Session 元数据到当前书籍信息 */
+  private syncMediaMetadata(): void {
+    this.mediaSession.updateMetadata({
+      title: this.bookTitle || 'iReader 语音朗读',
+      coverUrl: this.bookCoverUrl || undefined,
+    });
   }
 
   // ── 核心播放循环 ──
@@ -517,7 +473,7 @@ export class TTSPlayer {
     const chunk = this.scheduler.advance();
     if (!chunk) {
       this.setState('idle');
-      this.updateMediaSessionState('none');
+      this.mediaSession.setPlaybackState('none');
       this.callbacks.onEnd?.();
       return;
     }
@@ -533,7 +489,7 @@ export class TTSPlayer {
         this.callbacks.onError?.(message);
         if (chunk.error?.includes('当前离线且该段语音未缓存')) {
           this.setState('idle');
-          this.updateMediaSessionState('none');
+          this.mediaSession.setPlaybackState('none');
           return;
         }
       } else {
@@ -572,9 +528,9 @@ export class TTSPlayer {
     this.audioElement.playbackRate = this.playbackRate;
     this.audioElement.volume = this.volume;
 
-    this.updateMediaSessionMetadata();
+    this.syncMediaMetadata();
     this.setState('playing');
-    this.updateMediaSessionState('playing');
+    this.mediaSession.setPlaybackState('playing');
 
     this.audioElement.play().catch((err) => {
       if (err.name === 'NotAllowedError') {
@@ -597,6 +553,8 @@ export class TTSPlayer {
    * 从预取缓冲区加载章节内容（无需 TTS API 调用，播放立即开始）
    */
   async loadFromPrefetched(): Promise<boolean> {
+    if (this.isDestroyed) return false;
+
     const chunks = this.scheduler.consumePrefetched();
     if (!chunks) return false;
 
@@ -669,32 +627,6 @@ export class TTSPlayer {
       });
     }
   }
-
-  // ── 心跳检测 ──
-
-  private startHeartbeat(): void {
-    this.clearHeartbeat();
-    this.heartbeatTimer = setInterval(() => {
-      if (this.state !== 'playing' || !this.audioElement || this.isDestroyed) return;
-      try {
-        if (this.audioElement.paused && !this.audioElement.ended) {
-          const dur = this.audioElement.duration;
-          const ct = this.audioElement.currentTime;
-          const naturallyEnding = dur > 0 && ct > 0 && ct >= dur - 0.5;
-          if (!naturallyEnding) {
-            this.audioElement.play().catch(() => {});
-          }
-        }
-      } catch { /* 静默 */ }
-    }, 3000);
-  }
-
-  private clearHeartbeat(): void {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-  }
 }
 
 // ===== 辅助：创建默认播放器实例 =====
@@ -717,7 +649,7 @@ setSnapshotProvider(() => {
 });
 
 /**
- * 获取/创建单例 TTSPlayer（应用中只有一个播放器实例）
+ * 获取全局默认 TTS 播放器实例（懒创建）
  */
 export function getDefaultPlayer(): TTSPlayer {
   if (!defaultPlayer) {
@@ -727,7 +659,7 @@ export function getDefaultPlayer(): TTSPlayer {
 }
 
 /**
- * 销毁默认播放器
+ * 销毁全局默认播放器（用于测试或应用退出）
  */
 export function destroyDefaultPlayer(): void {
   if (defaultPlayer) {
