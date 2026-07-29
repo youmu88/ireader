@@ -17,6 +17,7 @@ import { useReadingPosition } from '../reader/position/useReadingPosition';
 import { useReaderInteraction } from '../interaction/useReaderInteraction';
 import { useCacheManager } from '../reader/hooks/useCacheManager';
 import { useTtsSession } from '../reader/hooks/useTtsSession';
+import { getDefaultPlayer } from '../services/ttsPlayer';
 import { useAuth } from '../contexts/AuthContext';
 import { stripHtml } from '../reader/utils/stripHtml';
 import type { Chapter } from '../reader/types';
@@ -133,6 +134,13 @@ function ReaderPage() {
   });
   const { ttsState, ttsProgress, ttsSegmentText, ttsError, activeSegmentIndex, ttsSpeed, ttsVoice } = ttsSession;
   const { handleStartTTS, handleStopTTS, handlePauseTTS, handleResumeTTS, handleTTSSeek, handleSetSleepTimer } = ttsSession;
+
+  // ── 播放倍速（本地 playbackRate，不影响缓存身份） ──
+  const [playbackRate, setPlaybackRate] = useState(() => getDefaultPlayer().getPlaybackRate());
+  const handlePlaybackRateChange = useCallback((rate: number) => {
+    setPlaybackRate(rate);
+    getDefaultPlayer().setPlaybackRate(rate);
+  }, []);
 
   // ── 缓存管理（useCacheManager hook） ──
   const cache = useCacheManager({ bookId, book, chapters, currentChapter, ttsVoice, ttsSpeed });
@@ -534,6 +542,7 @@ function ReaderPage() {
             onSeek={handleTTSSeek}
             onPrevChapter={() => goToPrevChapterRef.current?.()} onNextChapter={() => goToNextChapterRef.current?.()}
             sleepTimerMinutes={ttsSession.sleepTimerMinutes} onSetSleepTimer={handleSetSleepTimer}
+            playbackRate={playbackRate} onPlaybackRateChange={handlePlaybackRateChange}
             fontSize={fontSize} setFontSize={setFontSize} lineHeight={lineHeight} setLineHeight={setLineHeight}
             fontFamily={fontFamily} setFontFamily={setFontFamily} readingMode={readingMode}
             onToggleReadingMode={() => {

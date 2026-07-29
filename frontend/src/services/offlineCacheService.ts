@@ -473,6 +473,17 @@ export async function getAllOfflinePackageBookIds(): Promise<string[]> {
   }
 }
 
+/** 获取所有状态为 stale 的离线包 bookId 列表（用于书架 UI 提示） */
+export async function getStalePackageBookIds(): Promise<string[]> {
+  try {
+    const db = await getDB();
+    const all = await db.getAll('offlinePackages') as OfflineBookPackage[];
+    return all.filter(p => p.status === 'stale').map(p => p.bookId);
+  } catch {
+    return [];
+  }
+}
+
 /** 保存完整离线包 */
 async function saveOfflinePackage(pkg: OfflineBookPackage): Promise<void> {
   const db = await getDB();
@@ -1377,6 +1388,9 @@ export async function downloadBatchCachedAudio(
   chapterSegments: Map<string, string[]>,
   onProgress?: (chapterId: string, segIdx: number) => void,
 ): Promise<number> {
+  const profileHash = computeProfileHash(voice, synthesisRate, source);
+  let session: DownloadSession | null = null;
+
   try {
     const res = await fetch(`/api/tts/batch-cache/${bookId}?voice=${encodeURIComponent(voice)}&speed=${synthesisRate}&source=${encodeURIComponent(source)}`, {
       headers: (() => {
@@ -1390,7 +1404,7 @@ export async function downloadBatchCachedAudio(
     const json = await res.json();
     if (!json.success || !json.data || json.data.length === 0) return 0;
 
-    const segments: { chapterId: string; segIdx: number; audioUrl: string; text?: string }[] = json.data
+    const allSegments: { chapterId: string; segIdx: number; audioUrl: string; text?: string }[] = json.data
       .filter((s: any) => s.chapterId && Number.isInteger(s.segmentIndex))
       .map((s: any) => ({
         chapterId: s.chapterId,
@@ -1400,13 +1414,20 @@ export async function downloadBatchCachedAudio(
       }))
       .filter((s: { text?: string }) => Boolean(s.text));
 
-    // 服务端返回明确 chapterId + segmentIndex，不再依赖数据库返回顺序猜测映射。
+    // 创建或恢复下载 session（续传支持）
+    session = await createOrResumeDownloadSession(bookId, profileHash, allSegments.length);
+    const completedSet = new Set(session.completedKeys);
+
+    // 过滤已完成的段落（续传跳过）
+    const segments = allSegments.filter(s => !completedSet.has(`${s.chapterId}:${s.segIdx}`));
+    if (segments.length === 0) return session.completedItems;
 
     // 并发下载所有段落（最大 6 并发）
     const MAX_DOWNLOAD = 6;
     let downloadedCount = 0;
     const totalSegs = segments.length;
     const audioItems: TTSAudioCacheInput[] = [];
+    const newlyCompletedKeys: string[] = [];
 
     let i = 0;
     const next = async () => {
@@ -1414,19 +1435,18 @@ export async function downloadBatchCachedAudio(
         const idx = i++;
         const seg = segments[idx];
         try {
-          const url = seg.audioUrl;
-          const audioRes = await fetch(url);
+          const audioRes = await fetch(seg.audioUrl);
           if (audioRes.ok) {
             const arrayBuffer = await audioRes.arrayBuffer();
-            const segIdx = seg.segIdx;
             audioItems.push({
               chapterId: seg.chapterId,
-              segmentIndex: segIdx,
+              segmentIndex: seg.segIdx,
               audioData: arrayBuffer,
               identity: { voice, synthesisRate, source, text: seg.text! },
             });
+            newlyCompletedKeys.push(`${seg.chapterId}:${seg.segIdx}`);
             downloadedCount++;
-            onProgress?.(seg.chapterId, segIdx);
+            onProgress?.(seg.chapterId, seg.segIdx);
           }
         } catch { /* 单段下载失败跳过 */ }
       }
@@ -1440,8 +1460,14 @@ export async function downloadBatchCachedAudio(
       await cacheTTSAudioBatch(bookId, audioItems);
     }
 
-    return downloadedCount;
-  } catch {
+    // 更新 session 进度（自动判定 ready）
+    if (newlyCompletedKeys.length > 0) {
+      await updateDownloadSessionProgress(session.sessionId, newlyCompletedKeys);
+    }
+
+    return downloadedCount + session.completedItems;
+  } catch (err) {
+    if (session) await failDownloadSession(session.sessionId, String(err));
     return 0;
   }
 }

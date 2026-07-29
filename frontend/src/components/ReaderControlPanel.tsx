@@ -26,6 +26,9 @@ export interface ReaderControlPanelProps {
   // 睡眠定时器
   sleepTimerMinutes: number | null;
   onSetSleepTimer: (minutes: number | null) => void;
+  // 播放倍速
+  playbackRate: number;
+  onPlaybackRateChange: (rate: number) => void;
   // 设置
   fontSize: number;
   setFontSize: (v: number) => void;
@@ -62,7 +65,7 @@ export function ReaderControlPanel(props: ReaderControlPanelProps) {
     onBack, onSearch, onToggleToc, showToc, chapterTitle,
     ttsState, ttsProgress, onStartTTS, onPauseTTS, onResumeTTS, onStopTTS, onSeek,
     onPrevChapter, onNextChapter,
-    sleepTimerMinutes, onSetSleepTimer,
+    sleepTimerMinutes, onSetSleepTimer, playbackRate, onPlaybackRateChange,
     fontSize, setFontSize, lineHeight, setLineHeight, fontFamily, setFontFamily,
     readingMode, onToggleReadingMode,
     currentChapterIndex, totalChapters, bookFormat, pageIndex, totalPages, onPageTurn,
@@ -129,6 +132,19 @@ export function ReaderControlPanel(props: ReaderControlPanelProps) {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
                   </button>
                 </div>
+                {/* 倍速按钮 */}
+                <button
+                  onClick={() => {
+                    const opts = [0.75, 1, 1.25, 1.5, 2];
+                    const idx = opts.indexOf(playbackRate);
+                    onPlaybackRateChange(opts[(idx + 1) % opts.length]);
+                  }}
+                  className="text-sm px-3 py-1.5 rounded-lg transition-all duration-200 tap-active font-medium"
+                  style={{ background: playbackRate !== 1 ? 'var(--color-primary-subtle)' : 'var(--color-bg-alt)', color: playbackRate !== 1 ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}
+                  title="播放倍速"
+                >
+                  {playbackRate}x
+                </button>
                 {/* 定时按钮 */}
                 <button
                   onClick={() => {

@@ -9,6 +9,7 @@ import {
   getOfflineShelfBooks,
   checkPackageStaleness,
   getAllOfflinePackageBookIds,
+  getStalePackageBookIds,
 } from '../services/offlineCacheService';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -91,6 +92,7 @@ useEffect(() => {
 }, [books, bookStats, loadBookStats]);
 
   // ── mount 时检测离线包过期（比对本地 versionHash 与服务端 fileHash） ──
+  const [staleBookIds, setStaleBookIds] = useState<Set<string>>(new Set());
   useEffect(() => {
     (async () => {
       try {
@@ -98,6 +100,9 @@ useEffect(() => {
         await Promise.allSettled(
           ids.map(id => checkPackageStaleness(id)),
         );
+        // 检测完成后获取 stale 列表用于 UI 提示
+        const staleIds = await getStalePackageBookIds();
+        if (staleIds.length > 0) setStaleBookIds(new Set(staleIds));
       } catch {
         // 静默失败，不影响书架展示
       }
@@ -867,13 +872,16 @@ useEffect(() => {
                     {book.author && (
                       <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{book.author}</p>
                     )}
-                    <div className="mt-1 flex items-center gap-1">
+                    <div className="mt-1 flex items-center gap-1 flex-wrap">
                       <span className="text-xs text-gray-400 uppercase">{book.format}</span>
                       {book.status === 'processing' && (
                         <span className="text-xs text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 px-1.5 py-0.5 rounded">解析中</span>
                       )}
                       {book.status === 'failed' && (
                         <span className="text-xs text-red-600 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded" title={book.parseError || ''}>解析失败</span>
+                      )}
+                      {staleBookIds.has(book.id) && (
+                        <span className="text-xs text-orange-600 bg-orange-100 dark:bg-orange-900/30 px-1.5 py-0.5 rounded" title="离线包已过期，进入阅读器可重新下载">离线包过期</span>
                       )}
                     </div>
                     {/* 阅读百分比 + 语音生成率 */}
@@ -988,13 +996,16 @@ useEffect(() => {
                       {book.author && (
                         <p className="text-xs truncate" style={{ color: 'var(--color-text-muted)' }}>{book.author}</p>
                       )}
-                      <div className="mt-1 flex items-center gap-1">
+                      <div className="mt-1 flex items-center gap-1 flex-wrap">
                         <span className="text-xs uppercase" style={{ color: 'var(--color-text-muted)' }}>{book.format}</span>
                         {book.status === 'processing' && (
                           <span className="text-xs text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 px-1.5 py-0.5 rounded">解析中</span>
                         )}
                         {book.status === 'failed' && (
                           <span className="text-xs text-red-600 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded" title={book.parseError || ''}>解析失败</span>
+                        )}
+                        {staleBookIds.has(book.id) && (
+                          <span className="text-xs text-orange-600 bg-orange-100 dark:bg-orange-900/30 px-1.5 py-0.5 rounded" title="离线包已过期，进入阅读器可重新下载">离线包过期</span>
                         )}
                       </div>
                       {book.status === 'ready' && bookStats[book.id] && (
