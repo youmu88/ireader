@@ -130,7 +130,7 @@ const TxtReaderView = forwardRef<TxtReaderViewHandle, TxtReaderViewProps>(functi
   // ── 暴露命令式 API ─────────────────────────────────────
 
   const performPageTurn = useCallback(async (direction: 'prev' | 'next') => {
-    const container = scrollRef.current;
+    const container = contentRef.current;
     if (!container || readingMode !== 'paginated') return;
 
     isPageTurningRef.current = true;
@@ -176,7 +176,7 @@ const TxtReaderView = forwardRef<TxtReaderViewHandle, TxtReaderViewProps>(functi
       setPageIndex(0);
       return;
     }
-    const el = scrollRef.current;
+    const el = contentRef.current;
     if (!el) return;
     const raf = requestAnimationFrame(() => {
       const pw = el.clientWidth || 1;

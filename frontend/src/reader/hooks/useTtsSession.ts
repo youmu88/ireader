@@ -93,8 +93,8 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
   const paramsRef = useRef(params);
   paramsRef.current = params;
 
-  const [ttsState, setTtsState] = useState<PlayerState>('idle');
-  const [ttsProgress, setTtsProgress] = useState(0);
+  const [, setTtsState] = useState<PlayerState>('idle');
+  const [, setTtsProgress] = useState(0);
   const [ttsSegmentText, setTtsSegmentText] = useState('');
   const [ttsError, setTtsError] = useState<string | null>(null);
   const [ttsSpeed] = useState(() => {
@@ -103,7 +103,7 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
       return raw ? parseFloat(raw) : 1.0;
     } catch { return 1.0; }
   });
-  const [activeSegmentIndex, setActiveSegmentIndex] = useState(-1);
+  const [, setActiveSegmentIndex] = useState(-1);
   const [ttsVoice] = useState(() => {
     try { return localStorage.getItem('ireader_tts_voice') || 'zh-CN-XiaoxiaoNeural'; } catch { return 'zh-CN-XiaoxiaoNeural'; }
   });
@@ -409,11 +409,11 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
   }, []);
 
   return {
-    ttsState,
-    ttsProgress,
+    ttsState: tts.ttsState,
+    ttsProgress: tts.ttsProgress,
     ttsSegmentText,
     ttsError,
-    activeSegmentIndex,
+    activeSegmentIndex: tts.activeSegmentIndex,
     ttsSpeed,
     ttsVoice,
     ttsPlayerRef,
