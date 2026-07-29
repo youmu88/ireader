@@ -474,14 +474,16 @@ export default function SettingsPage() {
           </h2>
           <div className="rounded-2xl overflow-hidden shadow-ios-sm"
             style={{ background: 'var(--color-bg-card)' }}>
-            <button onClick={handleClearCache} disabled={clearing}
-              className="w-full flex items-center justify-between px-4 py-3.5 tap-row"
+            <Button onClick={handleClearCache} disabled={clearing}
+              variant="ghost"
+              fullWidth
+              className="!justify-between !h-auto py-3.5 rounded-none tap-row"
               style={{ borderBottom: '0.5px solid var(--color-border)' }}>
-              <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>清除音频缓存</span>
-              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+              <span className="text-sm font-medium">清除音频缓存</span>
+              <span className="text-xs text-ios-text-muted">
                 {clearing ? '清除中…' : clearMessage || ''}
               </span>
-            </button>
+            </Button>
           </div>
         </div>
 

@@ -5,6 +5,7 @@
  * 性能：章节数 >200 时启用虚拟滚动（仅渲染可视区域 ±buffer）
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button } from './ui/Button';
 
 export interface TocChapter {
   id: string;
@@ -92,22 +93,16 @@ export function TocDrawer({
       <div className="p-3 font-semibold text-sm flex items-center justify-between" style={{ borderBottom: '0.5px solid var(--color-border)' }}>
         <span>章节目录</span>
         {bookFormat === 'epub' && onReparse && (
-          <button
+          <Button
             onClick={onReparse}
             disabled={isReparsing}
-            className="text-xs px-2 py-1 rounded-md font-normal transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed tap-active"
-            style={{
-              background: 'var(--color-bg-alt)',
-              color: 'var(--color-text-secondary)',
-            }}
+            variant="secondary"
+            size="sm"
+            loading={isReparsing}
             title="重新解析书籍章节（旧书目录刷新）"
           >
-            {isReparsing ? (
-              <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />刷新中</span>
-            ) : (
-              <span className="inline-flex items-center gap-1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新章节</span>
-            )}
-          </button>
+            {isReparsing ? '刷新中' : '刷新章节'}
+          </Button>
         )}
       </div>
       {useVirtual ? (

@@ -1182,10 +1182,10 @@ useEffect(() => {
                 </div>
                 {selectedJobIds.size > 0 && (
                   <div className="flex items-center gap-1.5">
-                    <button onClick={handleBatchCancelSelected} className="text-xs px-2 py-1 rounded-lg transition-all duration-150 tap-active text-white"
-                      style={{ background: '#FF9500' }} title="取消选中的排队/运行中任务">
+                    <Button variant="warning" size="sm" onClick={handleBatchCancelSelected}
+                      title="取消选中的排队/运行中任务">
                       ⏹ 取消选中
-                    </button>
+                    </Button>
                     <Button variant="danger" size="sm" onClick={handleBatchDeleteSelected}
                       title="删除选中的任务（不限状态）">
                       🗑 删除选中
@@ -1239,13 +1239,14 @@ useEffect(() => {
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0 ml-2">
                           {(job.status === 'pending' || job.status === 'running') && (
-                            <button
+                            <Button
                               onClick={(e) => { e.stopPropagation(); handleCancelJob(job.id); }}
-                              className="text-xs px-1.5 py-0.5 rounded bg-ios-danger-subtle text-ios-danger hover:brightness-95 transition-colors"
+                              variant="danger"
+                              size="sm"
                               title="取消此任务"
                             >
                               ✕ 取消
-                            </button>
+                            </Button>
                           )}
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor[job.status] || ''}`}>
                             {statusLabel[job.status] || job.status}

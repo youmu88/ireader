@@ -20,7 +20,7 @@ import { useTtsSession } from '../reader/hooks/useTtsSession';
 import { getDefaultPlayer } from '../services/ttsPlayer';
 import { useAuth } from '../contexts/AuthContext';
 import { stripHtml } from '../reader/utils/stripHtml';
-import { toast, confirm } from '../components/ui';
+import { toast, confirm, Button } from '../components/ui';
 import type { Chapter } from '../reader/types';
 
 interface Book {
@@ -411,11 +411,11 @@ function ReaderPage() {
           <div className="text-center">
             <p className="text-ios-danger mb-4">{error}</p>
             <div className="flex flex-col items-center gap-3">
-              <button onClick={() => { setError(null); loadBook(); }} className="px-4 py-2 rounded-lg font-medium" style={{background: 'var(--color-primary)', color: 'white'}}>重试</button>
+              <Button onClick={() => { setError(null); loadBook(); }}>重试</Button>
               {isOfflineMode && (
                 <>
-                  <button onClick={() => navigate('/login', { replace: true })} className="px-4 py-1.5 border border-ios-border text-ios-text-secondary rounded hover:bg-ios-bg-alt text-sm font-medium">返回登录页</button>
-                  <button onClick={exitOfflineMode} className="px-4 py-1.5 border border-ios-danger text-ios-danger rounded hover:bg-ios-danger-subtle text-sm font-medium">退出离线模式</button>
+                  <Button onClick={() => navigate('/login', { replace: true })} variant="secondary" size="sm">返回登录页</Button>
+                  <Button onClick={exitOfflineMode} variant="danger" size="sm">退出离线模式</Button>
                 </>
               )}
             </div>

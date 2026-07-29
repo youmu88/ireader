@@ -1,4 +1,5 @@
 import type { PlayerState } from '../services/ttsPlayer';
+import { Button } from './ui/Button';
 
 export interface TtsOverlayProps {
   ttsError: string | null;
@@ -17,7 +18,7 @@ export function TtsOverlay({ ttsError, onDismissError, ttsState, ttsSegmentText 
             <span className="text-xs sm:text-sm text-ios-danger flex-1">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 inline-block align-text-bottom"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> {ttsError}
             </span>
-            <button onClick={onDismissError} className="text-xs px-2 py-1 rounded bg-ios-danger-subtle text-ios-danger ml-2 shrink-0">关闭</button>
+            <Button onClick={onDismissError} variant="ghost" size="sm" className="ml-2 shrink-0 !text-ios-danger">关闭</Button>
           </div>
         </div>
       )}
