@@ -106,7 +106,7 @@
  *   6) 新增 useReadingPosition.test.ts：10 个单元测试全绿
  *   7) 验收：tsc --noEmit 通过，vitest 10/10 通过
  */
-export const APP_VERSION = '2.27.1';
+export const APP_VERSION = '2.28.0';
 /**
  * 2.16.3 (2026-07-16): [BUGFIX] 移除有缺陷的 EPUB 滚动监听自动加载，替换为常驻上下章按钮
  *   1) 根因：epub.js scrolled-doc 模式的 iframe 内 scroll 事件监听不可靠（容器/内容尺寸变化等
@@ -316,4 +316,13 @@ export const APP_VERSION = '2.27.1';
  *   2) 修复：在 ReaderPage error 面板中新增「返回登录页」和「退出离线模式」两个按钮，
  *      仅在 isOfflineMode 为 true 时显示；从 useAuth 解构 exitOfflineMode。
  *   3) 验证：tsc --noEmit 全绿。
+ */
+/**
+ * 2.28.0 (2026-07-29): [REFACTOR] ReaderPage 瘦身 — 提取 5 个独立模块，1995→577 行
+ *   1) SearchOverlay 组件：全书搜索浮层（双线程搜索逻辑 + UI + handleSearchJump）
+ *   2) TtsOverlay 组件：TTS 错误横幅 + 朗读分段指示浮层
+ *   3) useCacheManager hook：离线缓存管理（章节/全书缓存、语音合成、清理）
+ *   4) useTtsSession hook：TTS 全生命周期（预热、状态同步、跨章续播、进度条拖拽、卸载清理）
+ *   5) stripHtml 工具函数：HTML→纯文本转换
+ *   验证：tsc --noEmit 零错误，vitest 152/152 全绿。
  */
