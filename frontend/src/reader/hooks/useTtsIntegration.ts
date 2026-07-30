@@ -101,6 +101,13 @@ export function useTtsIntegration(options: UseTtsIntegrationOptions): UseTtsInte
     // 不同书 → 停止旧的
     if (currentState !== 'idle') player.stop();
 
+    // ⭐ 确保 audio 元素已创建（首次播放时 init 尚未被预热触发）
+    await player.init({
+      bookId: opts.bookId,
+      bookTitle: opts.bookTitle || '',
+      bookCoverUrl: `/api/books/${opts.bookId}/cover`,
+    });
+
     // 设置元数据
     player.chapterTitle = opts.currentChapterTitle || '';
     player.chapterId = opts.currentChapterId || '';

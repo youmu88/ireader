@@ -168,15 +168,20 @@ function ReaderPage() {
 
   const interaction = useReaderInteraction({
     enabled: () => (
-      readingModeRef.current === 'paginated'
-      && !showUiRef.current && !showTocRef.current && !isPageTurningRef.current
-      && ttsStateRef.current === 'idle' && !showSearchRef.current
-      && book?.format === 'txt'
+      !showTocRef.current && !showSearchRef.current
     ),
-    navigate: (direction) => performPageTurnRef.current(direction === 'next' ? 'next' : 'prev'),
+    navigate: (direction) => {
+      // 仅 TXT 分页模式支持手势翻页；滚动模式由原生滚动处理
+      if (readingModeRef.current === 'paginated' && book?.format === 'txt'
+        && !showUiRef.current && !isPageTurningRef.current && ttsStateRef.current === 'idle') {
+        performPageTurnRef.current(direction === 'next' ? 'next' : 'prev');
+      }
+    },
     tap: () => {
+      if (ttsStateRef.current !== 'idle') return;
       if (showUiRef.current) closeMenu();
       else if (showTocRef.current) setShowToc(false);
+      else toggleFloatMenu();
     },
   });
 
@@ -298,6 +303,13 @@ function ReaderPage() {
           }
         }
         await loadChapterContent(targetChapter, undefined, isEpub);
+        // ⭐ 初始加载必须设置 position，否则 updatePosition 全部静默丢弃
+        setPosition({
+          bookId: bookId!,
+          chapterId: targetChapter.id,
+          chapterIndex: targetChapter.order,
+          ratio: progressResult?.restoreRatio ?? 0,
+        });
         preloadNextChapters(targetChapter.id);
       }
       cache.checkCacheStatus();

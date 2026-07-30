@@ -61,18 +61,18 @@ export function useProgressRestore(): UseProgressRestoreResult {
       if (exact) {
         targetChapter = exact;
       } else if (savedProgress.percentage != null) {
-        const estimatedOrder = Math.round(savedProgress.percentage * chapters.length);
+        const estimatedOrder = Math.round((savedProgress.percentage / 100) * chapters.length);
         const fallback = chapters.find(c => c.order === estimatedOrder);
         if (fallback) targetChapter = fallback;
       }
     }
 
-    // 计算恢复比例
+    // 计算恢复比例（percentage 是 0~100，需除以 100 归一化）
     let restoreRatio = 0;
-    if (savedProgress.percentage != null) {
-      restoreRatio = Math.min(1, Math.max(0, savedProgress.percentage));
-    } else if (savedProgress.pageIndex != null) {
+    if (savedProgress.pageIndex != null) {
       restoreRatio = Math.min(1, Math.max(0, savedProgress.pageIndex / 10000));
+    } else if (savedProgress.percentage != null) {
+      restoreRatio = Math.min(1, Math.max(0, savedProgress.percentage / 100));
     }
 
     // TTS 分段索引

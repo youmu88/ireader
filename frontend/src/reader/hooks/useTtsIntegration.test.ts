@@ -5,6 +5,7 @@ import { useTtsIntegration } from './useTtsIntegration';
 // mock ttsPlayer
 const mockPlayer = {
   getState: vi.fn((): string => 'idle'),
+  init: vi.fn(async () => {}),
   play: vi.fn(async () => {}),
   pause: vi.fn(),
   resume: vi.fn(),

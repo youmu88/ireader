@@ -26,7 +26,7 @@ describe('useProgressRestore (Phase 6.3d)', () => {
   });
 
   it('有 chapterId 时精确匹配', async () => {
-    vi.mocked(axios.get).mockResolvedValue({ data: { data: { chapterId: 'c2', percentage: 0.5, progressVersion: 5, deviceId: 'dev-1', updatedAt: '2026-07-01T00:00:00Z' } } });
+    vi.mocked(axios.get).mockResolvedValue({ data: { data: { chapterId: 'c2', percentage: 50, progressVersion: 5, deviceId: 'dev-1', updatedAt: '2026-07-01T00:00:00Z' } } });
     const { result } = renderHook(() => useProgressRestore());
     const res = await result.current.restore('b1', chapters, false);
     expect(res?.targetChapter.id).toBe('c2');
@@ -37,10 +37,10 @@ describe('useProgressRestore (Phase 6.3d)', () => {
   });
 
   it('chapterId 不匹配时按 percentage 兜底', async () => {
-    vi.mocked(axios.get).mockResolvedValue({ data: { data: { chapterId: 'old-id', percentage: 0.67 } } });
+    vi.mocked(axios.get).mockResolvedValue({ data: { data: { chapterId: 'old-id', percentage: 67 } } });
     const { result } = renderHook(() => useProgressRestore());
     const res = await result.current.restore('b1', chapters, false);
-    // 0.67 * 3 ≈ 2 → order=2 → c3
+    // (67/100) * 3 ≈ 2.01 → round → 2 → order=2 → c3
     expect(res?.targetChapter.id).toBe('c3');
   });
 
