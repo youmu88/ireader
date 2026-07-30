@@ -35,5 +35,7 @@
  * 2.36.1 (2026-07-29): [BUGFIX] 修复TTS朗读状态不同步（useTtsSession双状态源）+ 翻页模式scrollTo目标容器错误
  * 2.37.0 (2026-07-29): [REFACTOR] 迭代B-7 — TxtReaderView分页进度修复 + useTtsSession死状态移除 + Button新增pill变体/xs尺寸/active属性 + ReaderTopBar/ReaderControlPanel 20处迁移
  * 2.38.0 (2026-07-29): [REFACTOR] 迭代B-8 — 8个文件23处原生button全量迁移至Button/IconButton；Button新增row/success/accent变体+justify属性，IconButton新增warning变体；BatchAction改用variant语义化；清理Layout硬编码色值
+ * 2.39.0 (2026-07-30): [REFACTOR] 迭代B-9 — SettingsPage 9处原生button迁移至统一组件体系，新增ToggleSwitch组件，Button justify扩展，硬编码颜色清零
+ * 2.40.0 (2026-07-30): [BUGFIX] 修复4个核心功能缺陷 — 手势交互全模式启用+TTS首次播放init+初始加载setPosition+进度恢复percentage/100
  */
-export const APP_VERSION = '2.38.0';
+export const APP_VERSION = '2.40.0';
