@@ -278,7 +278,6 @@ export function useTtsSession(params: UseTtsSessionParams): UseTtsSessionReturn 
           }
         }
       },
-      onProgress: () => {},
       onError: (err) => {
         console.warn('TTS 朗读错误:', err);
         if ((err.includes('合成失败') || err.includes('无可用音频')) && !err.includes('当前离线且该段语音未缓存')) return;

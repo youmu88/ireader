@@ -14,8 +14,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   fullWidth?: boolean;
   /** 激活态（pill / row 变体专用，切换为 primary-subtle 高亮） */
   active?: boolean;
-  /** 内容水平对齐，默认 center；row 等全宽场景用 start */
-  justify?: 'center' | 'start';
+  /** 内容水平对齐，默认 center；row 等全宽场景用 start；between 用于两端对齐 */
+  justify?: 'center' | 'start' | 'between';
   children: ReactNode;
 }
 
@@ -28,7 +28,7 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   success: 'bg-ios-success text-white hover:bg-ios-success-hover active:bg-ios-success-hover shadow-ios-sm ripple-btn',
   accent: 'bg-ios-accent-1 text-white hover:bg-ios-accent-1-hover active:bg-ios-accent-1-hover shadow-ios-sm ripple-btn',
   text: 'bg-transparent text-ios-primary hover:bg-ios-primary-subtle',
-  pill: 'bg-ios-bg-alt text-ios-text-secondary hover:bg-ios-border rounded-full',
+  pill: 'bg-ios-bg-alt text-ios-text-secondary hover:bg-ios-border dark:hover:bg-ios-bg-elevated rounded-full',
   row: 'bg-transparent text-ios-text-secondary hover:bg-ios-bg-alt',
 };
 
@@ -70,7 +70,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     <button
       ref={ref}
       disabled={disabled || loading}
-      className={`inline-flex items-center ${justify === 'start' ? 'justify-start' : 'justify-center'} font-medium select-none whitespace-nowrap ${variantCls} ${SIZE_CLASSES[size]}${fullWidth ? ' w-full' : ''}${className ? ` ${className}` : ''}`}
+      className={`inline-flex items-center ${justify === 'start' ? 'justify-start' : justify === 'between' ? 'justify-between' : 'justify-center'} font-medium select-none whitespace-nowrap ${variantCls} ${SIZE_CLASSES[size]}${fullWidth ? ' w-full' : ''}${className ? ` ${className}` : ''}`}
       {...rest}
     >
       {loading && (

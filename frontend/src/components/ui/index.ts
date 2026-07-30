@@ -6,3 +6,4 @@ export { Button, type ButtonProps, type ButtonVariant, type ButtonSize } from '.
 export { ToastProvider, toast, type ToastType, type ToastOptions } from './Toast';
 export { Modal, ConfirmProvider, confirm, type ModalProps, type ConfirmOptions } from './Modal';
 export { IconButton, type IconButtonProps, type IconButtonVariant, type IconButtonSize } from './IconButton';
+export { ToggleSwitch, type ToggleSwitchProps } from './ToggleSwitch';
