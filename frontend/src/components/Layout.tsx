@@ -6,6 +6,13 @@ import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { Button } from './ui/Button';
 import { IconButton } from './ui/IconButton';
+import { Dock } from './Dock/Dock';
+
+const DOCK_TABS = [
+  { id: '/', label: '书架', icon: 'shelf' as const },
+  { id: '/library', label: '图书管理', icon: 'library' as const },
+  { id: '/settings', label: '设置', icon: 'settings' as const },
+];
 
 interface TTSJob {
   id: string;
@@ -222,6 +229,15 @@ function Layout() {
       <main className="flex-1">
         <Outlet />
       </main>
+      {/* iOS 底部透明 Dock（阅读器态隐藏） */}
+      <Dock
+        tabs={DOCK_TABS}
+        currentPath={location.pathname}
+        hidden={isReader}
+        onNavigate={(path) => {
+          if (location.pathname !== path) navigate(path);
+        }}
+      />
     </div>
   );
 }

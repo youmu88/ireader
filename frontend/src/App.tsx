@@ -5,6 +5,7 @@ import BookshelfPage from './pages/BookshelfPage';
 import ReaderPage from './pages/ReaderPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
+import LibraryPage from './pages/LibraryPage';
 
 /** 受保护路由：未登录跳转到登录页（离线时跳过认证，允许访问缓存的本地内容） */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -58,6 +59,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <SettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/library"
+          element={
+            <ProtectedRoute>
+              <LibraryPage />
             </ProtectedRoute>
           }
         />
