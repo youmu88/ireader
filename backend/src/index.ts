@@ -43,7 +43,23 @@ app.use(express.json());
 const projectRoot = path.resolve(_curDir, '..', '..');
 const staticDir =
   process.env.FRONTEND_DIST || path.join(projectRoot, 'frontend', 'dist');
-app.use(express.static(staticDir));
+
+// 静态资源强缓存策略：
+//  - assets/ 下的 vender/app chunk（文件名含内容 hash）→ immutable 长缓存（命中强缓存，跳过网络）
+//  - index.html（SPA 入口）→ no-cache（每次校验 ETag，避免新部署被旧缓存卡住）
+// 目标：react-vendor / router-vendor 等带 hash 的 chunk 在浏览器强缓存命中，无需重新下载。
+app.use('/assets', express.static(path.join(staticDir, 'assets'), {
+  maxAge: '1y',
+  immutable: true,
+  etag: true,
+}));
+app.use(express.static(staticDir, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('index.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  },
+}));
 
 // API routes
 app.use('/api', healthRouter);
