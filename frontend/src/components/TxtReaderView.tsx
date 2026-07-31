@@ -122,6 +122,8 @@ const TxtReaderView = forwardRef<TxtReaderViewHandle, TxtReaderViewProps>(functi
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const scrollSentinelRef = useRef<HTMLDivElement>(null);
+  const restoredRef = useRef(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -223,19 +225,35 @@ const TxtReaderView = forwardRef<TxtReaderViewHandle, TxtReaderViewProps>(functi
     };
   }, [readingMode, content, handleScroll]);
 
-  // ── 滚动位置恢复 ─────────────────────────────────────
-
+  // ── (Bug A 修复) 滚动位置恢复：订阅式，内容加载完成 & 可滚动后只应用一次 ──
+  // 不再依赖 rAF 与内容加载的隐性竞态；restoredRef 保证只恢复一次，不覆盖用户后续滚动
   useEffect(() => {
-    if (initialScrollRatio == null || initialScrollRatio <= 0) return;
     if (readingMode !== 'scroll') return;
-    const raf = requestAnimationFrame(() => {
-      const el = scrollRef.current;
-      if (el && el.scrollHeight > el.clientHeight) {
-        el.scrollTop = initialScrollRatio * (el.scrollHeight - el.clientHeight);
-      }
-    });
-    return () => cancelAnimationFrame(raf);
+    if (initialScrollRatio == null || initialScrollRatio <= 0) return;
+    if (restoredRef.current) return;
+    const el = scrollRef.current;
+    if (!el || el.scrollHeight <= el.clientHeight) return;
+    restoredRef.current = true;
+    el.scrollTop = initialScrollRatio * (el.scrollHeight - el.clientHeight);
   }, [content, initialScrollRatio, readingMode]);
+
+  // ── (Bug B 修复) 底部哨兵 + 内部 IntersectionObserver：滚动到底自动加载下一章 ──
+  // 原实现由 ReaderPage 外部 observe 一个从未挂载的哨兵 ref → 永不触发；
+  // 现改为组件的滚动容器内真实挂载哨兵节点，observer 的 root 取自身滚动容器。
+  useEffect(() => {
+    if (readingMode !== 'scroll') return;
+    const container = scrollRef.current;
+    const sentinel = scrollSentinelRef.current;
+    if (!container || !sentinel || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) onBoundary?.('next');
+      },
+      { root: container, threshold: 0, rootMargin: '0px 0px 120px 0px' }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [readingMode, content, onBoundary]);
 
   // ── TTS 高亮自动滚动 ─────────────────────────────────
 
@@ -295,6 +313,11 @@ const TxtReaderView = forwardRef<TxtReaderViewHandle, TxtReaderViewProps>(functi
       >
         {renderHighlightedContent(content, ttsSegments, activeSegmentIndex, searchResults)}
       </div>
+
+      {/* (Bug B 修复) 滚动模式底部哨兵：滚动到此触发自动加载下一章 */}
+      {readingMode === 'scroll' && (
+        <div ref={scrollSentinelRef} style={{ height: 1 }} data-testid="scroll-sentinel" />
+      )}
 
       {/* 分页模式页码指示 */}
       {readingMode === 'paginated' && totalPages > 1 && (

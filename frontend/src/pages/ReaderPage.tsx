@@ -67,8 +67,6 @@ function ReaderPage() {
 
   const chaptersRef = useRef(chapters);
   const currentChapterRef = useRef(currentChapter);
-  const loadingNextChapterRef = useRef(false);
-  const bottomSentinelRef = useRef<HTMLDivElement>(null);
   const goToNextChapterRef = useRef<((_fromAutoScroll?: boolean) => Promise<void>) | null>(null);
   const goToPrevChapterRef = useRef<(() => Promise<void>) | null>(null);
   const navigateToChapterRef = useRef<((chapter: Chapter, _append?: boolean) => Promise<void>) | null>(null);
@@ -209,7 +207,6 @@ function ReaderPage() {
     if (!bookId) return;
     currentBookIdRef.current = bookId;
     loadBook();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId]);
 
   // autoPlayTts=1：从书架底部栏续播时自动启动 TTS
@@ -222,7 +219,6 @@ function ReaderPage() {
     autoPlayTtsTriggered.current = true;
     const timer = setTimeout(() => { handleStartTTS(); }, 500);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentChapter, book, searchParams]);
 
   const [isReparsing, setIsReparsing] = useState(false);
@@ -380,30 +376,6 @@ function ReaderPage() {
   useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
   useEffect(() => { currentChapterRef.current = currentChapter; }, [currentChapter]);
 
-  // ── 滚动到底部时自动加载下一章 ──
-  const lastChapterLoadTimeRef = useRef(0);
-  useEffect(() => {
-    if (readingMode !== 'scroll') return;
-    const scrollContainer = txtScrollRef.current;
-    const sentinel = bottomSentinelRef.current;
-    if (!scrollContainer || !sentinel) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry?.isIntersecting || loadingNextChapterRef.current) return;
-        const now = Date.now();
-        if (now - lastChapterLoadTimeRef.current < 800) return;
-        const idx = chaptersRef.current.findIndex((c: Chapter) => c.id === currentChapterRef.current?.id);
-        if (idx < 0 || idx >= chaptersRef.current.length - 1) return;
-        loadingNextChapterRef.current = true;
-        lastChapterLoadTimeRef.current = now;
-        goToNextChapterRef.current!(true).finally(() => { loadingNextChapterRef.current = false; });
-      },
-      { root: scrollContainer, threshold: 0, rootMargin: '0px 0px 400px 0px' }
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [readingMode, book?.format]);
-
   if (loading) {
     return (
       <div className="h-screen flex flex-col" style={{background: 'var(--color-bg)'}}>
@@ -463,25 +435,6 @@ function ReaderPage() {
                 onPrevChapter={() => goToPrevChapterRef.current?.()}
                 onNextChapter={() => goToNextChapterRef.current?.()}
               />
-            )}
-
-            {book?.format === 'epub' && (
-              <>
-                <IconButton onClick={() => { const idx = chapters.findIndex((c) => c.id === currentChapter?.id); if (idx > 0) navigateToChapter(chapters[idx - 1]); }}
-                  disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter?.id) <= 0}
-                  variant="subtle" size="md"
-                  className="absolute left-2 top-1/2 -translate-y-1/2 z-10 opacity-40 hover:opacity-100"
-                  title="上一章">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                </IconButton>
-                <IconButton onClick={() => { const idx = chapters.findIndex((c) => c.id === currentChapter?.id); if (idx >= 0 && idx < chapters.length - 1) navigateToChapter(chapters[idx + 1]); }}
-                  disabled={!currentChapter || chapters.findIndex((c) => c.id === currentChapter?.id) >= chapters.length - 1}
-                  variant="subtle" size="md"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 z-10 opacity-40 hover:opacity-100"
-                  title="下一章">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                </IconButton>
-              </>
             )}
 
             {book?.format === 'txt' && (
