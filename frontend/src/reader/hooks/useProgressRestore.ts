@@ -45,10 +45,10 @@ export function useProgressRestore(): UseProgressRestoreResult {
     let savedProgress: any = null;
     try {
       if (!isOffline) {
-        const res = await axios.get(`/api/books/${bookId}/progress`);
+        const res = await axios.get(`/api/books/${bookId}/progress`, { timeout: 15000 });
         savedProgress = res.data?.data || res.data;
       }
-    } catch { /* 无保存的进度 */ }
+    } catch { /* 无保存的进度或请求超时 */ }
 
     if (!savedProgress) {
       return { targetChapter: chapters[0], restoreRatio: 0, cfi: null, ttsSegmentIndex: null, progressVersion: 0, deviceId: null, updatedAt: null, rawProgress: null };

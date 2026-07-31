@@ -262,12 +262,12 @@ function ReaderPage() {
       if (!isOffline) {
         try {
           const [bookRes, chaptersRes] = await Promise.all([
-            axios.get(`/api/books/${bookId}`),
-            axios.get(`/api/books/${bookId}/chapters`),
+            axios.get(`/api/books/${bookId}`, { timeout: 15000 }),
+            axios.get(`/api/books/${bookId}/chapters`, { timeout: 15000 }),
           ]);
           bookData = bookRes.data.data;
           chaptersData = chaptersRes.data.data || [];
-        } catch { /* 网络请求失败 → 尝试离线降级 */ }
+        } catch { /* 网络请求失败或超时 → 尝试离线降级 */ }
       }
       if (!bookData || !chaptersData.length) {
         const offlineData = await offlineFallback.loadOffline(bookId!);
@@ -338,7 +338,7 @@ function ReaderPage() {
           if (!_append) setChapterLoading(false);
         } else {
           if (!_append) setChapterLoading(true);
-          const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`);
+          const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`, { timeout: 15000 });
           const rawContent = res.data.data?.content || '';
           content = isEpub ? stripHtml(rawContent) : rawContent;
           if (!_append) setChapterLoading(false);

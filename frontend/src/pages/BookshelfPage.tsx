@@ -401,8 +401,13 @@ useEffect(() => {
   });
 
   // ── Split into pinned / others for two-section display ──
-  const pinnedBooks = filteredBooks.filter(b => b.pinned);
-  const otherBooks = filteredBooks.filter(b => !b.pinned);
+  // 最近阅读排序：按 lastReadAt 降序（最近读的在前），无阅读记录的排在后
+  const pinnedBooks = filteredBooks
+    .filter(b => b.pinned)
+    .sort((a, b) => (b.lastReadAt || '').localeCompare(a.lastReadAt || ''));
+  const otherBooks = filteredBooks
+    .filter(b => !b.pinned)
+    .sort((a, b) => (b.lastReadAt || '').localeCompare(a.lastReadAt || ''));
 
   // Categorize books for sidebar count
   const categoryCount = new Map<string, number>();
