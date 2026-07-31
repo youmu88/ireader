@@ -12,25 +12,11 @@ import {
   getStalePackageBookIds,
 } from '../services/offlineCacheService';
 import { useAuth } from '../contexts/AuthContext';
+import { useTtsQueue } from '../hooks/useTtsQueue';
 import { toast, confirm, Modal, Button } from '../components/ui';
 import { TtsQueuePanel } from '../components/TtsQueuePanel';
 import { BatchActionBar } from '../components/BatchActionBar';
 import { IconButton } from '../components/ui/IconButton';
-
-interface TTSJob {
-  id: string;
-  bookId: string;
-  bookTitle: string;
-  voice: string;
-  speed: number;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  progress: number;
-  totalChunks: number;
-  completedChunks: number;
-  error: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
 
 interface Book {
   id: string;
@@ -155,140 +141,26 @@ useEffect(() => {
   };
 
   const [batchActionLoading, setBatchActionLoading] = useState<string | null>(null);
-  // ── TTS 生成队列可视化 ──
-  const [ttsJobs, setTtsJobs] = useState<TTSJob[]>([]);
-  const [showTtsQueue, setShowTtsQueue] = useState(false);
-  const ttsQueuePollRef = useRef<ReturnType<typeof setInterval>>();
-
-  const fetchTTSJobs = useCallback(async () => {
-    try {
-      const res = await axios.get('/api/tts/jobs');
-      if (res.data.success) {
-        setTtsJobs(res.data.data);
-        // 如果没有活跃任务，停止轮询
-        const active = res.data.data.filter((j: TTSJob) => j.status === 'pending' || j.status === 'running');
-        if (active.length === 0 && ttsQueuePollRef.current) {
-          clearInterval(ttsQueuePollRef.current);
-          ttsQueuePollRef.current = undefined;
-        }
+  // ── TTS 生成队列（共享 hook：状态/轮询/操作，confirm 弹窗文案随 action 还原） ──
+  const {
+    ttsJobs, showTtsQueue, setShowTtsQueue, selectedJobIds,
+    fetchTTSJobs, toggleJobSelection, selectAllJobs, deselectAllJobs,
+    handleCancelJob, handleBatchCancelSelected, handleBatchDeleteSelected,
+    handleClearTerminated, handleClearAllJobs, closeQueue,
+  } = useTtsQueue({
+    confirm: (action, count) => {
+      switch (action) {
+        case 'batchCancel':
+          return confirm({ title: '取消任务', message: `确定取消 ${count} 个语音生成任务？`, confirmText: '取消任务', danger: true });
+        case 'batchDelete':
+          return confirm({ title: '删除任务', message: `确定删除选中的 ${count} 个任务？此操作不可恢复。`, confirmText: '删除', danger: true });
+        case 'clearTerminated':
+          return confirm({ title: '清除任务', message: `确定清除 ${count} 个已完成/失败的任务？`, confirmText: '清除', danger: true });
+        case 'clearAll':
+          return confirm({ title: '清除全部', message: '确定取消所有排队中的语音生成任务？', confirmText: '全部取消', danger: true });
       }
-    } catch { /* 静默 */ }
-  }, []);
-
-  // ── 取消单个 TTS 生成任务 ──
-  const handleCancelJob = useCallback(async (jobId: string) => {
-    try {
-      await axios.delete(`/api/tts/jobs/${jobId}`);
-      await fetchTTSJobs();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || '取消失败');
-    }
-  }, [fetchTTSJobs]);
-
-  // ── 队列批量选择模式 ──
-  const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
-
-  const toggleJobSelection = (id: string) => {
-    setSelectedJobIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const selectAllJobs = () => {
-    setSelectedJobIds(new Set(ttsJobs.map(j => j.id)));
-  };
-
-  const deselectAllJobs = () => {
-    setSelectedJobIds(new Set());
-  };
-
-  // ── 批量取消选中的排队/运行中任务 ──
-  const handleBatchCancelSelected = async () => {
-    if (selectedJobIds.size === 0) return;
-    const cancelIds = [...selectedJobIds].filter(id => {
-      const job = ttsJobs.find(j => j.id === id);
-      return job && (job.status === 'pending' || job.status === 'running');
-    });
-    if (cancelIds.length === 0) {
-      toast.warning('选中的任务中没有可取消的（仅 pending/running 可取消）');
-      return;
-    }
-    const okCancel = await confirm({
-      title: '取消任务',
-      message: `确定取消 ${cancelIds.length} 个语音生成任务？`,
-      confirmText: '取消任务',
-      danger: true,
-    });
-    if (!okCancel) return;
-    try {
-      await axios.post('/api/tts/jobs/batch-cancel', { jobIds: cancelIds });
-      setSelectedJobIds(new Set());
-      await fetchTTSJobs();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || '批量取消失败');
-    }
-  };
-
-  // ── 批量删除选中的任务（不限状态） ──
-  const handleBatchDeleteSelected = async () => {
-    if (selectedJobIds.size === 0) return;
-    const okDelJobs = await confirm({
-      title: '删除任务',
-      message: `确定删除选中的 ${selectedJobIds.size} 个任务？此操作不可恢复。`,
-      confirmText: '删除',
-      danger: true,
-    });
-    if (!okDelJobs) return;
-    try {
-      await axios.post('/api/tts/jobs/delete', { jobIds: [...selectedJobIds] });
-      setSelectedJobIds(new Set());
-      await fetchTTSJobs();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || '批量删除失败');
-    }
-  };
-
-  // ── 清除所有已完成/失败任务 ──
-  const handleClearTerminated = async () => {
-    const terminatedCount = ttsJobs.filter(j => j.status === 'completed' || j.status === 'failed').length;
-    if (terminatedCount === 0) {
-      toast.warning('没有已完成或失败的任务');
-      return;
-    }
-    const okClear = await confirm({
-      title: '清除任务',
-      message: `确定清除 ${terminatedCount} 个已完成/失败的任务？`,
-      confirmText: '清除',
-      danger: true,
-    });
-    if (!okClear) return;
-    try {
-      await axios.post('/api/tts/jobs/clear-terminated');
-      await fetchTTSJobs();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || '清除失败');
-    }
-  };
-
-  // ── 清除全部排队任务 ──
-  const handleClearAllJobs = useCallback(async () => {
-    const okClearAll = await confirm({
-      title: '清除全部',
-      message: '确定取消所有排队中的语音生成任务？',
-      confirmText: '全部取消',
-      danger: true,
-    });
-    if (!okClearAll) return;
-    try {
-      await axios.post('/api/tts/jobs/clear-all');
-      await fetchTTSJobs();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || '清除失败');
-    }
-  }, [fetchTTSJobs]);
+    },
+  });
 
   // ── 书籍去重 ──
   const [deduping, setDeduping] = useState(false);
@@ -314,34 +186,6 @@ useEffect(() => {
       setDeduping(false);
     }
   }, [deduping]);
-
-  // 当面板打开或有活跃任务时轮询
-  useEffect(() => {
-    if (showTtsQueue) {
-      fetchTTSJobs();
-      if (!ttsQueuePollRef.current) {
-        ttsQueuePollRef.current = setInterval(fetchTTSJobs, 3000);
-      }
-    }
-    return () => {
-      if (ttsQueuePollRef.current) {
-        clearInterval(ttsQueuePollRef.current);
-        ttsQueuePollRef.current = undefined;
-      }
-    };
-  }, [showTtsQueue, fetchTTSJobs]);
-
-  // 全局：只要有 pending/running 任务就后台轮询（更新书架 stats 显示）
-  useEffect(() => {
-    const hasActive = ttsJobs.some(j => j.status === 'pending' || j.status === 'running');
-    if (hasActive && !ttsQueuePollRef.current) {
-      ttsQueuePollRef.current = setInterval(fetchTTSJobs, 5000);
-    }
-    if (!hasActive && ttsQueuePollRef.current) {
-      clearInterval(ttsQueuePollRef.current);
-      ttsQueuePollRef.current = undefined;
-    }
-  }, [ttsJobs, fetchTTSJobs]);
 
   const handleBatchGenerateVoice = async () => {
     if (selectedIds.size === 0) return;
@@ -1085,7 +929,7 @@ useEffect(() => {
         onClearTerminated={handleClearTerminated}
         onClearAllJobs={handleClearAllJobs}
         onRefresh={fetchTTSJobs}
-        onClose={() => { setShowTtsQueue(false); setSelectedJobIds(new Set()); }}
+        onClose={closeQueue}
       />
 
       {globalTtsInfo?.bookId && (

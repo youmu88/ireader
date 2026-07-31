@@ -3,12 +3,12 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout';
 import BookshelfPage from './pages/BookshelfPage';
-import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
 import LibraryPage from './pages/LibraryPage';
 
-// 阅读器懒加载：epubjs 等重依赖拆分为独立 chunk，仅进入阅读器时加载，优化首屏
+// 懒加载重页：拆独立 chunk，进入对应路由时加载，优化首屏
 const ReaderPage = lazy(() => import('./pages/ReaderPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 
 /** 受保护路由：未登录跳转到登录页（离线时跳过认证，允许访问缓存的本地内容） */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -67,7 +67,13 @@ function AppRoutes() {
           path="/settings"
           element={
             <ProtectedRoute>
-              <SettingsPage />
+              <Suspense fallback={
+                <div className="min-h-screen flex items-center justify-center bg-ios-bg">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ios-primary" />
+                </div>
+              }>
+                <SettingsPage />
+              </Suspense>
             </ProtectedRoute>
           }
         />

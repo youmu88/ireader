@@ -8,6 +8,13 @@ export interface UseTtsQueueOptions {
   poll?: boolean;
   /** 轮询间隔 ms（默认 3000） */
   interval?: number;
+  /**
+   * 可选确认回调：批量/清除类破坏性操作前的确认门控。
+   * 参数 (action, count)：count 为受影响任务数（cancel/delete/clearTerminated 为数量，clearAll 无计数值可为 0）。
+   * 返回 true 继续执行，false 中止。默认 undefined（无确认，直接执行）。
+   * 用于 BookShelfPage 等需要 confirm 弹窗的调用方，LibraryPage 无需传。
+   */
+  confirm?: (action: 'batchCancel' | 'batchDelete' | 'clearTerminated' | 'clearAll', count: number) => boolean | Promise<boolean>;
 }
 
 /**
@@ -21,7 +28,7 @@ export interface UseTtsQueueOptions {
  * 不负责 UI 确认弹窗（confirm）—— 调用方决定交互层。
  */
 export function useTtsQueue(options: UseTtsQueueOptions = {}) {
-  const { poll = true, interval = 3000 } = options;
+  const { poll = true, interval = 3000, confirm } = options;
 
   const [ttsJobs, setTtsJobs] = useState<TTSJob[]>([]);
   const [showTtsQueue, setShowTtsQueue] = useState(false);
@@ -98,6 +105,10 @@ export function useTtsQueue(options: UseTtsQueueOptions = {}) {
       return job && (job.status === 'pending' || job.status === 'running');
     });
     if (cancelIds.length === 0) return false;
+    if (confirm) {
+      const ok = await confirm('batchCancel', cancelIds.length);
+      if (!ok) return false;
+    }
     try {
       await axios.post('/api/tts/jobs/batch-cancel', { jobIds: cancelIds });
       setSelectedJobIds(new Set());
@@ -107,11 +118,15 @@ export function useTtsQueue(options: UseTtsQueueOptions = {}) {
       toast.error(err.response?.data?.error || '批量取消失败');
       return false;
     }
-  }, [selectedJobIds, ttsJobs, fetchTTSJobs]);
+  }, [selectedJobIds, ttsJobs, fetchTTSJobs, confirm]);
 
   // ── 批量删除选中的任务 ──
   const handleBatchDeleteSelected = useCallback(async () => {
     if (selectedJobIds.size === 0) return false;
+    if (confirm) {
+      const ok = await confirm('batchDelete', selectedJobIds.size);
+      if (!ok) return false;
+    }
     try {
       await axios.post('/api/tts/jobs/delete', { jobIds: [...selectedJobIds] });
       setSelectedJobIds(new Set());
@@ -121,12 +136,16 @@ export function useTtsQueue(options: UseTtsQueueOptions = {}) {
       toast.error(err.response?.data?.error || '批量删除失败');
       return false;
     }
-  }, [selectedJobIds, fetchTTSJobs]);
+  }, [selectedJobIds, fetchTTSJobs, confirm]);
 
   // ── 清除所有已完成/失败任务 ──
   const handleClearTerminated = useCallback(async () => {
     const terminated = ttsJobs.filter(j => j.status === 'completed' || j.status === 'failed').length;
     if (terminated === 0) { toast.info('没有可清除的任务'); return false; }
+    if (confirm) {
+      const ok = await confirm('clearTerminated', terminated);
+      if (!ok) return false;
+    }
     try {
       await axios.post('/api/tts/jobs/clear-terminated');
       await fetchTTSJobs();
@@ -135,10 +154,14 @@ export function useTtsQueue(options: UseTtsQueueOptions = {}) {
       toast.error(err.response?.data?.error || '清除失败');
       return false;
     }
-  }, [ttsJobs, fetchTTSJobs]);
+  }, [ttsJobs, fetchTTSJobs, confirm]);
 
   // ── 清除全部排队任务 ──
   const handleClearAllJobs = useCallback(async () => {
+    if (confirm) {
+      const ok = await confirm('clearAll', ttsJobs.length);
+      if (!ok) return false;
+    }
     try {
       await axios.post('/api/tts/jobs/clear-all');
       await fetchTTSJobs();
@@ -147,7 +170,7 @@ export function useTtsQueue(options: UseTtsQueueOptions = {}) {
       toast.error(err.response?.data?.error || '清除失败');
       return false;
     }
-  }, [fetchTTSJobs]);
+  }, [fetchTTSJobs, confirm]);
 
   const activeCount = ttsJobs.filter(j => j.status === 'pending' || j.status === 'running').length;
 

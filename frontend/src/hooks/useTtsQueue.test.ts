@@ -70,4 +70,27 @@ describe('useTtsQueue 共享 TTS 队列 hook', () => {
     expect(mockedAxios.get.mock.calls.length).toBeGreaterThan(1);
     vi.useRealTimers();
   });
+
+  it('aborts batch cancel when confirm callback returns false', async () => {
+    const confirmMock = vi.fn().mockResolvedValue(false);
+    const { result } = renderHook(() => useTtsQueue({ poll: false, confirm: confirmMock }));
+    await act(async () => { await result.current.fetchTTSJobs(); });
+    // 选择 j1（running，可取消）
+    act(() => result.current.selectAllJobs());
+    const res = await act(async () => result.current.handleBatchCancelSelected());
+    expect(confirmMock).toHaveBeenCalled();
+    expect(mockedAxios.post).not.toHaveBeenCalled();
+    expect(res).toBe(false);
+  });
+
+  it('executes batch cancel when confirm callback returns true', async () => {
+    const confirmMock = vi.fn().mockResolvedValue(true);
+    const { result } = renderHook(() => useTtsQueue({ poll: false, confirm: confirmMock }));
+    await act(async () => { await result.current.fetchTTSJobs(); });
+    act(() => result.current.selectAllJobs());
+    const res = await act(async () => result.current.handleBatchCancelSelected());
+    expect(confirmMock).toHaveBeenCalled();
+    expect(mockedAxios.post).toHaveBeenCalledWith('/api/tts/jobs/batch-cancel', { jobIds: expect.any(Array) });
+    expect(res).toBe(true);
+  });
 });
