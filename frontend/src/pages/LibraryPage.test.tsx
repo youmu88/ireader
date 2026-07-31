@@ -58,4 +58,28 @@ describe('LibraryPage 图书管理', () => {
       expect(screen.getByText('2')).toBeDefined();
     });
   });
+
+  it('opens TTS queue panel from pre-synthesize tab', async () => {
+    renderPage();
+    // 切到"预合成语音"Tab
+    const preSynthButton = screen.getAllByText(/预合成语音/i).find(el => el.tagName === 'BUTTON')
+      ?? screen.getAllByText(/预合成语音/i)[0];
+    fireEvent.click(preSynthButton);
+    // Tab 内应有"查看语音队列"入口
+    fireEvent.click(screen.getByText(/查看语音队列/i));
+    expect(screen.getByText(/语音生成队列/i)).toBeDefined();
+  });
+
+  it('opens TTS queue panel after submitting voice generation', async () => {
+    mockedAxios.post.mockResolvedValue({ data: { success: true } });
+    renderPage();
+    await screen.findByText('示例书一');
+    fireEvent.click(screen.getByText(/全选/i));
+    await waitFor(() => expect(screen.getByText('2')).toBeDefined());
+    // 批量选择区应有"预合成语音"提交按钮（含 🎙 前缀，区别于分段 Tab 纯文本）
+    fireEvent.click(screen.getByText(/🎙.*预合成语音/i));
+    await waitFor(() => {
+      expect(screen.getByText(/语音生成队列/i)).toBeDefined();
+    });
+  });
 });

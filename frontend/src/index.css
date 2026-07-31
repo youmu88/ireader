@@ -651,3 +651,67 @@ button, a, [role="button"] {
   -webkit-user-select: text;
   -webkit-touch-callout: default;
 }
+
+/* ════════════════════════════════════════
+   iOS 极致精修区（SF 字体渲染 + spring 手感动效）
+   收敛于 CSS 层，不改组件逻辑；全部遵循 prefers-reduced-motion 降级。
+   ════════════════════════════════════════ */
+
+/* ── SF Pro 字体渲染优化（iOS 视网膜文字质感） ── */
+body,
+.reader-root,
+.paginated-scroll,
+.epub-content {
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+  font-variant-ligatures: contextual;
+}
+/* iOS 16+ SF 动态字距微调（正文更贴近 Books 观感） */
+.paginated-scroll p,
+.epub-content p {
+  text-wrap: pretty;
+}
+
+/* ── iOS spring 弹簧 token（阅读器面板/抽屉/浮层入场） ── */
+@keyframes ios-sheet-in {
+  0%   { transform: translateY(24px) scale(0.985); opacity: 0; }
+  60%  { transform: translateY(-2px) scale(1.002); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+@keyframes ios-fade-pop {
+  0%   { transform: scale(0.96); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.ios-sheet-in {
+  animation: ios-sheet-in 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.ios-fade-pop {
+  animation: ios-fade-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+/* overdrive 变体：从更近处弹入，令 spring 回弹更明显 */
+.ios-sheet-spring {
+  animation: ios-sheet-in 0.45s cubic-bezier(0.22, 1.61, 0.36, 1) both;
+}
+/* 旧 animate-slide-up 别名 → spring 手感（兼容既有调用） */
+.animate-slide-up {
+  animation: ios-sheet-in 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ── 阅读器 UI 浮层柔和模糊过渡（顶栏/面板透明度渐入） ── */
+.reader-ui-fade {
+  transition: background-color 0.3s ease, backdrop-filter 0.3s ease, opacity 0.25s ease;
+}
+
+/* ── 减少动效模式：iOS 精修区一并降级 ── */
+@media (prefers-reduced-motion: reduce) {
+  .ios-sheet-in,
+  .ios-fade-pop,
+  .ios-sheet-spring,
+  .animate-slide-up {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+}
+
