@@ -40,4 +40,4 @@
  * 2.41.0 (2026-08-01): [FEATURE] 移动端优先 iOS 原生观感重构 — 底部透明Dock(书架/图书管理/设置)+图书管理页(上传/批量选择/预合成语音)+横向滑动TabView容器+TDD测试
  * 2.42.1 (2026-08-01): [PERF] 进一步code-split — LibraryPage懒加载拆chunk,提取PageFallback复用组件消重复,主bundle 340KB→334KB
  */
-export const APP_VERSION = '2.43.0';
+export const APP_VERSION = '2.43.1';

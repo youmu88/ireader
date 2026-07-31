@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { getCachedChapterContent } from '../services/offlineCacheService';
 import axios from 'axios';
 import EpubViewer from '../components/EpubViewer';
-import TxtReaderView, { type TxtReaderViewHandle } from '../components/TxtReaderView';
+import WxReaderView, { type WxReaderViewHandle } from '../components/WxReaderView';
 import { ReaderTopBar } from '../components/ReaderTopBar';
 import { ReaderControlPanel } from '../components/ReaderControlPanel';
 import { TocDrawer } from '../components/TocDrawer';
@@ -70,8 +70,8 @@ function ReaderPage() {
   const goToNextChapterRef = useRef<((_fromAutoScroll?: boolean) => Promise<void>) | null>(null);
   const goToPrevChapterRef = useRef<(() => Promise<void>) | null>(null);
   const navigateToChapterRef = useRef<((chapter: Chapter, _append?: boolean) => Promise<void>) | null>(null);
-  const txtScrollRef = useRef<HTMLDivElement>(null);
-  const txtReaderViewRef = useRef<TxtReaderViewHandle>(null);
+  const txtScrollRef = useRef<HTMLDivElement | null>(null);
+  const txtReaderViewRef = useRef<WxReaderViewHandle>(null);
   const currentBookIdRef = useRef<string | undefined>(bookId);
   const [pendingScrollRestorePct, setPendingScrollRestorePct] = useState<number | null>(null);
   const accumulatedIdsRef = useRef<Set<string>>(new Set());
@@ -438,7 +438,7 @@ function ReaderPage() {
             )}
 
             {book?.format === 'txt' && (
-              <TxtReaderView
+              <WxReaderView
                 ref={txtReaderViewRef} content={txtContent} chapterTitle={(displayChapter || currentChapter)?.title || ''}
                 readingMode={readingMode} fontSize={fontSize} lineHeight={lineHeight} letterSpacing={letterSpacing} fontFamily={fontFamily}
                 ttsSegments={null} activeSegmentIndex={activeSegmentIndex} searchResults={[]}
@@ -446,6 +446,7 @@ function ReaderPage() {
                 onBoundary={(dir) => { if (dir === 'next') goToNextChapterRef.current?.(); else goToPrevChapterRef.current?.(); }}
                 onPageInfo={(page, total) => { setPageIndex(page); setTotalPages(total); updatePosition({ page, pageCount: total }); }}
                 initialScrollRatio={pendingScrollRestorePct} isPageTurning={isPageTurning}
+                onScrollContainerReady={(el) => { txtScrollRef.current = el; }}
               />
             )}
 

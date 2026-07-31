@@ -9,7 +9,15 @@
  *
  * props 与 TxtReaderView 对齐，便于 ReaderPage 后续替换联调。
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+
+/** WxReaderView 暴露给父级的命令式句柄（与 TxtReaderViewHandle 同构，便于替换） */
+export interface WxReaderViewHandle {
+  getScrollContainer: () => HTMLDivElement | null;
+  getContentContainer: () => HTMLDivElement | null;
+  performPageTurn: (direction: 'prev' | 'next') => Promise<void>;
+  getScrollRatio: () => number;
+}
 
 export interface WxReaderViewProps {
   content: string;
@@ -27,6 +35,8 @@ export interface WxReaderViewProps {
   onPageInfo?: (page: number, totalPages: number) => void;
   initialScrollRatio?: number | null;
   isPageTurning?: boolean;
+  /** 内部滚动容器就绪时回调（供父级桥接 txtScrollRef，用于 TTS 高亮定位/搜索跳转） */
+  onScrollContainerReady?: (el: HTMLDivElement | null) => void;
 }
 
 const FONT_MAP: Record<string, string> = {
@@ -40,7 +50,7 @@ function isCenterTap(clientY: number, height: number): boolean {
   return clientY > height * 0.15 && clientY < height * 0.85;
 }
 
-export function WxReaderView({
+export const WxReaderView = forwardRef<WxReaderViewHandle, WxReaderViewProps>(function WxReaderView({
   content,
   chapterTitle,
   readingMode,
@@ -56,12 +66,29 @@ export function WxReaderView({
   onPageInfo,
   initialScrollRatio,
   isPageTurning,
-}: WxReaderViewProps) {
+  onScrollContainerReady,
+}, ref) {
   // 菜单（顶栏+底部条）显隐
   const [menuVisible, setMenuVisible] = useState(true);
   const [ratio, setRatio] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const restoredRef = useRef(false);
+
+  // 暴露命令式句柄（getScrollContainer 等，与 TxtReaderViewHandle 同构）
+  useImperativeHandle(ref, () => ({
+    getScrollContainer: () => scrollRef.current,
+    getContentContainer: () => scrollRef.current,
+    performPageTurn: async (direction: 'prev' | 'next') => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const step = el.clientHeight * 0.85;
+      el.scrollBy({ top: direction === 'next' ? step : -step, behavior: 'smooth' });
+    },
+    getScrollRatio: () => ratioRef.current,
+  }));
+
+  // 供 getScrollRatio 读取的最新比例
+  const ratioRef = useRef(0);
 
   // 高亮渲染（纯文本 + 可选分段/搜索标记）
   function renderBody(): React.ReactNode {
@@ -92,6 +119,7 @@ export function WxReaderView({
     const max = el.scrollHeight - el.clientHeight;
     const r = max > 0 ? el.scrollTop / max : 0;
     setRatio(r);
+    ratioRef.current = r;
     onProgress?.(r);
     // 滚动到底 → 通知父级加载下一章
     if (max > 0 && el.scrollTop >= max - 4) {
@@ -128,6 +156,12 @@ export function WxReaderView({
     el.addEventListener('scroll', handleScroll, { passive: true });
     return () => el.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
+
+  // 内部滚动容器就绪后通知父级（供 txtScrollRef 桥接：TTS 高亮定位/搜索跳转）
+  useEffect(() => {
+    onScrollContainerReady?.(scrollRef.current ?? null);
+    return () => onScrollContainerReady?.(null);
+  }, [onScrollContainerReady]);
 
   return (
     <div
@@ -203,7 +237,7 @@ export function WxReaderView({
       <Observer onPageInfo={onPageInfo} />
     </div>
   );
-}
+});
 
 /** 小助手：内容挂载后上报页码信息（滚动模式为 1 屏，供父级兜底） */
 function Observer({ onPageInfo }: { onPageInfo?: (page: number, totalPages: number) => void }) {
