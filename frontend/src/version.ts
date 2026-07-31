@@ -38,5 +38,6 @@
  * 2.39.0 (2026-07-30): [REFACTOR] 迭代B-9 — SettingsPage 9处原生button迁移至统一组件体系，新增ToggleSwitch组件，Button justify扩展，硬编码颜色清零
  * 2.40.0 (2026-07-30): [BUGFIX] 修复4个核心功能缺陷 — 手势交互全模式启用+TTS首次播放init+初始加载setPosition+进度恢复percentage/100
  * 2.41.0 (2026-08-01): [FEATURE] 移动端优先 iOS 原生观感重构 — 底部透明Dock(书架/图书管理/设置)+图书管理页(上传/批量选择/预合成语音)+横向滑动TabView容器+TDD测试
+ * 2.42.1 (2026-08-01): [PERF] 进一步code-split — LibraryPage懒加载拆chunk,提取PageFallback复用组件消重复,主bundle 340KB→334KB
  */
-export const APP_VERSION = '2.42.0';
+export const APP_VERSION = '2.42.1';

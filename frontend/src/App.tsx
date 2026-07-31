@@ -4,11 +4,12 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout';
 import BookshelfPage from './pages/BookshelfPage';
 import LoginPage from './pages/LoginPage';
-import LibraryPage from './pages/LibraryPage';
+import { PageFallback } from './components/PageFallback';
 
 // 懒加载重页：拆独立 chunk，进入对应路由时加载，优化首屏
 const ReaderPage = lazy(() => import('./pages/ReaderPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const LibraryPage = lazy(() => import('./pages/LibraryPage'));
 
 /** 受保护路由：未登录跳转到登录页（离线时跳过认证，允许访问缓存的本地内容） */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -53,11 +54,7 @@ function AppRoutes() {
           path="/reader/:bookId"
           element={
             <ProtectedRoute>
-              <Suspense fallback={
-                <div className="min-h-screen flex items-center justify-center bg-ios-bg">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ios-primary" />
-                </div>
-              }>
+              <Suspense fallback={<PageFallback />}>
                 <ReaderPage />
               </Suspense>
             </ProtectedRoute>
@@ -67,11 +64,7 @@ function AppRoutes() {
           path="/settings"
           element={
             <ProtectedRoute>
-              <Suspense fallback={
-                <div className="min-h-screen flex items-center justify-center bg-ios-bg">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ios-primary" />
-                </div>
-              }>
+              <Suspense fallback={<PageFallback />}>
                 <SettingsPage />
               </Suspense>
             </ProtectedRoute>
@@ -81,7 +74,9 @@ function AppRoutes() {
           path="/library"
           element={
             <ProtectedRoute>
-              <LibraryPage />
+              <Suspense fallback={<PageFallback />}>
+                <LibraryPage />
+              </Suspense>
             </ProtectedRoute>
           }
         />
