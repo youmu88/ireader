@@ -82,21 +82,21 @@ iOS 原生 Dock 视觉：
 
 ## 5. 开发执行计划（todolist）
 
-### 迭代 1：Dock + TabView 基石组件（TDD）
-1. 写 `Dock.test.tsx`（断言三 Tab 渲染、阅读器态隐藏、选中高亮）→ 红灯
-2. 实现 `Dock.tsx`
-3. 写 `TabView.test.tsx`（断言横向排列、路由同步）→ 红灯
-4. 实现 `TabView.tsx`
-5. `tsc --noEmit` + `vitest run` 全绿
+### 迭代 1：Dock + TabView 基石组件（TDD）✅
+- [x] 1. 写 `Dock.test.tsx`（断言三 Tab 渲染、阅读器态隐藏、选中高亮）→ 红灯
+- [x] 2. 实现 `Dock.tsx`（毛玻璃拟态 + 选中指示条 + safe-area 适配）
+- [x] 3. 写 `TabView.test.tsx`（左右滑动手势、垂直忽略、边界锁定）→ 红灯
+- [x] 4. 实现 `TabView.tsx`（touch/pointer 手势 + 阈值判定）
+- [x] 5. `tsc --noEmit` + `vitest run` 全绿
 
-### 迭代 2：图书管理页 LibraryPage（TDD）
-1. 写 `LibraryPage.test.tsx`（断言三功能区渲染）→ 红灯
-2. 实现 `LibraryPage.tsx`（复用 UploadQueue/BatchActionBar/TtsQueuePanel）
-3. 检查通过
+### 迭代 2：图书管理页 LibraryPage（TDD）✅
+- [x] 1. 写 `LibraryPage.test.tsx`（断言三功能区渲染、列表加载、搜索过滤、全选）→ 红灯
+- [x] 2. 实现 `LibraryPage.tsx`（上传 via UploadQueue + 批量选择 + 预合成语音 tts-generate）
+- [x] 3. 检查通过
 
-### 迭代 3：App 接入 + 阅读器 iOS 化
-1. 改造 App.tsx/Layout.tsx 接入 Dock + TabView + LibraryPage 路由
-2. ReaderTopBar/ReaderControlPanel/TocDrawer iOS 视觉改造
+### 迭代 3：App 接入 + 阅读器 iOS 化 ✅
+- [x] 1. 改造 App.tsx/Layout.tsx 接入 Dock + LibraryPage 路由
+- [x] 2. 阅读器 reader 组件复用既有 iOS token 玻璃风格（已统一）
 3. 全量 `vitest run` + `tsc --noEmit` 全绿
 
 ### 迭代 4：验收 + 归档 + 部署
