@@ -97,16 +97,17 @@ export function LibraryPage() {
       <div className="flex items-center gap-1 p-1 rounded-ios-xl mb-5"
         style={{ background: 'var(--color-bg-alt)', border: '0.5px solid var(--color-border)' }}>
         {TABS.map((t) => (
-          <button
+          <Button
             key={t}
             type="button"
+            variant="pill"
+            size="md"
+            active={tab === t}
             onClick={() => setTab(t)}
-            className={`flex-1 h-9 rounded-ios-lg text-[13px] font-medium transition-all tap-icon ${
-              tab === t ? 'bg-ios-bg-card text-ios-primary shadow-ios-sm' : 'text-ios-text-secondary'
-            }`}
+            className={`flex-1 !h-9 !px-0 !rounded-ios-lg text-[13px] ${tab === t ? '' : '!bg-transparent !text-ios-text-secondary'}`}
           >
             {t}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -156,17 +157,16 @@ export function LibraryPage() {
               return (
                 <li key={book.id} className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
                       data-testid={`select-${book.id}`}
                       aria-label={`选择 ${book.title}`}
                       onClick={() => toggleSelectOne(book.id)}
-                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all tap-icon ${
-                        checked ? 'bg-ios-primary border-ios-primary' : 'border-ios-border'
-                      }`}
+                      className={`!w-6 !h-6 !p-0 !rounded-full !border-2 !bg-transparent !justify-center ${checked ? '!border-ios-primary !bg-ios-primary' : '!border-ios-border'}`}
                     >
                       {checked && <span className="text-white text-xs leading-none">✓</span>}
-                    </button>
+                    </Button>
                     <div>
                       <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>{book.title}</p>
                       {book.author && <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{book.author}</p>}
