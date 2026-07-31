@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import WxReaderView from './WxReaderView';
 
@@ -69,5 +69,13 @@ describe('WxReaderView 微信读书沉浸式视觉骨架', () => {
     expect(body).toBeTruthy();
     // 正文配色使用 iOS token
     expect(body.style.color).toContain('var(--color-text)');
+  });
+
+  it('R-007: clicking top chapter bar triggers onOpenToc (chapter-end/toc interaction)', () => {
+    const onOpenToc = vi.fn();
+    renderWx({ onOpenToc });
+    // 点击顶栏章节名（章节条）→ 触发目录打开
+    fireEvent.click(screen.getByText('第一章 微信读书'));
+    expect(onOpenToc).toHaveBeenCalled();
   });
 });

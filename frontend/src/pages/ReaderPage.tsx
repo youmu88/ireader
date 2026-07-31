@@ -447,6 +447,7 @@ function ReaderPage() {
                 onPageInfo={(page, total) => { setPageIndex(page); setTotalPages(total); updatePosition({ page, pageCount: total }); }}
                 initialScrollRatio={pendingScrollRestorePct} isPageTurning={isPageTurning}
                 onScrollContainerReady={(el) => { txtScrollRef.current = el; }}
+                onOpenToc={() => { closeMenu(); setShowToc(true); }}
               />
             )}
 

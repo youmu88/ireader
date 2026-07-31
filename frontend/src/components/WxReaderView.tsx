@@ -10,6 +10,7 @@
  * props 与 TxtReaderView 对齐，便于 ReaderPage 后续替换联调。
  */
 import { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+import { Button } from './ui/Button';
 
 /** WxReaderView 暴露给父级的命令式句柄（与 TxtReaderViewHandle 同构，便于替换） */
 export interface WxReaderViewHandle {
@@ -37,6 +38,8 @@ export interface WxReaderViewProps {
   isPageTurning?: boolean;
   /** 内部滚动容器就绪时回调（供父级桥接 txtScrollRef，用于 TTS 高亮定位/搜索跳转） */
   onScrollContainerReady?: (el: HTMLDivElement | null) => void;
+  /** 点击顶部章节名条时触发（父级用于打开章节目录抽屉 TocDrawer） */
+  onOpenToc?: () => void;
 }
 
 const FONT_MAP: Record<string, string> = {
@@ -67,6 +70,7 @@ export const WxReaderView = forwardRef<WxReaderViewHandle, WxReaderViewProps>(fu
   initialScrollRatio,
   isPageTurning,
   onScrollContainerReady,
+  onOpenToc,
 }, ref) {
   // 菜单（顶栏+底部条）显隐
   const [menuVisible, setMenuVisible] = useState(true);
@@ -180,10 +184,16 @@ export const WxReaderView = forwardRef<WxReaderViewHandle, WxReaderViewProps>(fu
           background: 'linear-gradient(to bottom, var(--color-bg) 0%, transparent 100%)',
         }}
       >
-        <span className="text-sm font-medium tracking-wide" style={{ color: 'var(--color-text)' }}>
+        <Button
+          variant="ghost"
+          onClick={(e) => { e.stopPropagation(); onOpenToc?.(); }}
+          aria-label="打开章节目录"
+          className="!p-1 !px-3 !text-sm !font-medium !tracking-wide !h-auto tap-icon pointer-events-auto"
+          style={{ color: 'var(--color-text)' }}
+        >
           {chapterTitle}
-        </span>
-        <span className="ml-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>▾</span>
+          <span className="ml-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>▾</span>
+        </Button>
       </div>
 
       {/* 沉浸式正文滚动区 */}
