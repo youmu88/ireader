@@ -86,7 +86,7 @@ function Layout() {
       {!isReader && (
         <SafeGlass compatibility={compatibility} className="sticky top-0 z-40" fallbackClassName="sticky top-0 z-40">
           <div className="max-w-7xl mx-auto px-4 sm:px-6">
-            {/* 主栏：标题 + 操作 */}
+            {/* 主栏：标题 + 操作（书架/设置导航已由底部 Dock 承担，顶部仅保留全局操作，避免重复） */}
             <div className="flex items-center justify-between h-12 sm:h-14">
               {/* 左侧：iOS 风格标题 */}
               <Link to="/" className="flex items-center gap-2 no-underline">
@@ -119,50 +119,8 @@ function Layout() {
                 )}
               </Link>
 
-              {/* 右侧：导航操作（双端图标一致：书架 → 设置 → 语音合成） */}
+              {/* 右侧：全局操作（语音合成 + 桌面端用户区）；书架/设置导航由底部 Dock 承担 */}
               <nav className="flex items-center gap-1 sm:gap-2">
-                {/* 书架按钮（移动端纯图标 + 桌面端图标文字） */}
-                <Link
-                  to="/"
-                  className={`flex items-center justify-center sm:justify-start gap-1.5 w-9 h-9 sm:w-auto sm:px-3 sm:py-1.5 rounded-full sm:rounded-lg text-sm font-medium transition-all duration-200 tap-icon sm:tap-active ${
-                    location.pathname === '/'
-                      ? 'sm:bg-primary-subtle sm:text-primary'
-                      : 'sm:opacity-70 sm:hover:opacity-100'
-                  }`}
-                  style={{
-                    color: location.pathname === '/' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                    background: location.pathname === '/' ? 'var(--color-primary-subtle)' : 'transparent',
-                  }}
-                  title="书架"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="sm:w-[16px] sm:h-[16px]">
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                  </svg>
-                  <span className="hidden sm:inline">书架</span>
-                </Link>
-
-                {/* 设置按钮（移动端纯图标 + 桌面端图标文字） */}
-                <Link
-                  to="/settings"
-                  className={`flex items-center justify-center sm:justify-start gap-1.5 w-9 h-9 sm:w-auto sm:px-3 sm:py-1.5 rounded-full sm:rounded-lg text-sm font-medium transition-all duration-200 tap-icon sm:tap-active ${
-                    location.pathname === '/settings'
-                      ? 'sm:bg-primary-subtle sm:text-primary'
-                      : 'sm:opacity-70 sm:hover:opacity-100'
-                  }`}
-                  style={{
-                    color: location.pathname === '/settings' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                    background: location.pathname === '/settings' ? 'var(--color-primary-subtle)' : 'transparent',
-                  }}
-                  title="设置"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="sm:w-[16px] sm:h-[16px]">
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                  </svg>
-                  <span className="hidden sm:inline">设置</span>
-                </Link>
-
                 {/* 语音合成（麦克风图标）—— 双端统一 */}
                 <IconButton
                   onClick={openTtsQueue}

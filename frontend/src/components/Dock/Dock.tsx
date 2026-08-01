@@ -24,7 +24,8 @@ export interface DockProps {
 
 function TabIcon({ name, active }: { name: DockTab['icon']; active: boolean }) {
   const stroke = 'currentColor';
-  const sw = 1.8;
+  // 选中态笔画加粗（iOS 选中图标视觉权重更高）
+  const sw = active ? 2.1 : 1.8;
   switch (name) {
     case 'shelf':
       return (
@@ -51,7 +52,15 @@ function TabIcon({ name, active }: { name: DockTab['icon']; active: boolean }) {
   }
 }
 
-/** iOS 原生底部透明 Dock（毛玻璃拟态） */
+/**
+ * iOS 原生底部 Dock（毛玻璃拟态 Tab Bar）
+ *
+ * 设计要点（iOS Tab Bar 风格）：
+ * - 每个 tab 为「图标 + 文字」纵向排列；选中态：iOS 蓝图标（笔画加粗）+ 轻微上浮放大 + 文字高亮 + 底部指示条
+ * - 无 hover/按压背景：ghost 变体 hover 椭圆背景用 hover:!bg-transparent 消除（原实现点击时胶囊盖不住图标）
+ * - 高度自适应：!h-auto 覆盖 Button md 固定 h-10，避免 26px 图标 + 文字纵向溢出按钮边界
+ * - 按压反馈：active:scale-90 弹性缩放（不产生任何椭圆/胶囊背景）
+ */
 export function Dock({ tabs, currentPath, onNavigate }: DockProps) {
   // 根路径 '/' 需精确匹配；其余按照前缀匹配子路径
   const isActiveTab = (tabId: string) =>
@@ -72,37 +81,34 @@ export function Dock({ tabs, currentPath, onNavigate }: DockProps) {
           <div className="flex items-center justify-around">
             {tabs.map((tab) => {
               const active = tab.id === activeId;
-              const inner = (
-                <>
-                  <span className={`block scale-100 transition-transform duration-200 ${active ? '-translate-y-0.5 scale-105' : ''}`}>
+              return (
+                <Button
+                  key={tab.id}
+                  variant="ghost"
+                  type="button"
+                  data-active={active ? 'true' : 'false'}
+                  onClick={() => onNavigate?.(tab.id)}
+                  aria-label={tab.label}
+                  aria-current={active ? 'page' : undefined}
+                  className="relative !flex !flex-col items-center !h-auto px-4 pt-1.5 pb-1 rounded-full transition-transform duration-200 active:scale-90 hover:!bg-transparent"
+                  style={{
+                    color: active ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                    gap: '3px',
+                  }}
+                >
+                  <span className={`transition-transform duration-200 ${active ? '-translate-y-0.5 scale-110' : ''}`}>
                     <TabIcon name={tab.icon} active={active} />
                   </span>
-                  <span className={`text-[10px] font-medium transition-colors ${active ? 'text-ios-primary' : 'text-ios-text-muted'}`}>
+                  <span className={`text-[10px] font-medium transition-colors duration-200 ${active ? 'text-ios-primary' : 'text-ios-text-muted'}`}>
                     {tab.label}
                   </span>
-                </>
-              );
-              return (
-                <div key={tab.id} className="flex flex-col items-center gap-0.5">
-                  <Button
-                    variant="ghost"
-                    type="button"
-                    data-active={active ? 'true' : 'false'}
-                    onClick={() => onNavigate?.(tab.id)}
-                    className="relative !flex !flex-col items-center gap-0.5 !rounded-full !px-5 !py-1.5 tap-icon transition-transform active:scale-90 !text-current"
-                    aria-label={tab.label}
-                    aria-current={active ? 'page' : undefined}
-                    style={{ color: active ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}
-                  >
-                    {inner}
-                    {/* 选中指示条 */}
-                    <span
-                      className={`absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-4 h-[3px] rounded-full transition-all duration-200 ${
-                        active ? 'bg-ios-primary opacity-100' : 'opacity-0'
-                      }`}
-                    />
-                  </Button>
-                </div>
+                  {/* 选中指示条 */}
+                  <span
+                    className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-[3px] rounded-full transition-all duration-200 ${
+                      active ? 'bg-ios-primary opacity-100' : 'opacity-0'
+                    }`}
+                  />
+                </Button>
               );
             })}
           </div>

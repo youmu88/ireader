@@ -51,5 +51,6 @@
  * 2.49.2 (2026-08-01): [BUGFIX] 根治点击弹出菜单失效 — renderTo 补 allowScriptedContent:true。根因：epub.js iframe 默认 sandbox="allow-same-origin"（无 allow-scripts），WebKit bug 218086 证实此类 sandbox iframe 内事件无法被父页面 contentDocument 监听器捕获，历次 pointer/click 直挂在 iOS 全部失效；补 allow-scripts 后父页面可正常监听 iframe 内点击
  * 2.50.0 (2026-08-01): [FEATURE+FIX] 阅读器全屏能力（PWA standalone+iOS meta+菜单全屏按钮）｜书架排序统一为最近阅读优先→书名次级（前后端+离线缓存 lastReadAt）｜Dock 加 translateZ(0) 规避 iOS Safari fixed+backdrop-filter 滚动错位｜阅读器卸载时 flush 进度到服务端（保障书架最近阅读排序实时更新）
  * 2.51.1 (2026-08-01): [BUGFIX] 书架排序加固 — 后端 lastReadMap 查询补 userId 过滤（消除全表扫描跨用户隐患）；前后端排序改用时间戳数值比较（已读按 lastReadAt 降序在前，未读按书名升序在后，不受 ISO 格式/locale 影响）；新增未读多本排序/混合场景前端测试
+ * 2.52.0 (2026-08-01): [FEATURE] 顶部导航精简 + Dock iOS 化 — 移除顶栏与底部 Dock 重复的「书架/设置」入口（顶栏仅保留语音合成与桌面用户区）；Dock tab 弃用 Button ghost 椭圆背景（固定高度致点击胶囊盖不住图标），重写为 iOS 原生 Tab Bar：无背景、选中蓝色图标+文字+底部指示条、按压弹性缩放
  */
-export const APP_VERSION = '2.51.1';
+export const APP_VERSION = '2.52.0';
