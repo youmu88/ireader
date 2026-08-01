@@ -123,6 +123,12 @@ export class EpubBookController {
       flow: 'scrolled-continuous',
       manager: 'continuous',
       spread: 'none',
+      // 点击桥接关键配置：epub.js iframe 默认 sandbox="allow-same-origin"（无 allow-scripts）。
+      // WebKit bug 218086：无 allow-scripts 的 sandbox iframe，父页面在 contentDocument 上绑定的事件
+      // 监听器收不到 iframe 内事件 → 点击桥接在 iOS Safari 全部失效（历次 pointer/click 直挂均失败）。
+      // allowScriptedContent:true 使 sandbox 变为 "allow-same-origin allow-scripts"，父页面可正常
+      // 监听 iframe 内 click/pointer 事件（自托管书库威胁模型可接受；epub.js 官方支持该选项）。
+      allowScriptedContent: true,
     });
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
@@ -154,6 +160,9 @@ export class EpubBookController {
       flow: 'scrolled-continuous',
       manager: 'continuous',
       spread: 'none',
+      // 点击桥接关键配置：同 EPUB，sandbox 需含 allow-scripts 才能让父页面监听到 iframe 内事件
+      // （WebKit 218086：无 allow-scripts 的 sandbox iframe 阻断父页面 contentDocument 事件监听）
+      allowScriptedContent: true,
     });
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));

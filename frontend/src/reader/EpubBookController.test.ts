@@ -99,7 +99,7 @@ describe('EpubBookController', () => {
     });
     expect(mocks.book.renderTo).toHaveBeenCalledWith(
       container,
-      expect.objectContaining({ flow: 'scrolled-continuous', manager: 'continuous', spread: 'none' }),
+      expect.objectContaining({ flow: 'scrolled-continuous', manager: 'continuous', spread: 'none', allowScriptedContent: true }),
     );
     expect(mocks.rendition.display).toHaveBeenCalledWith('epubcfi(/6/2!/4/2)');
     expect(toc).toHaveLength(2);
@@ -241,7 +241,7 @@ describe('EpubBookController', () => {
     );
     expect(mocks.book.renderTo).toHaveBeenCalledWith(
       container,
-      expect.objectContaining({ flow: 'scrolled-continuous', manager: 'continuous' }),
+      expect.objectContaining({ flow: 'scrolled-continuous', manager: 'continuous', allowScriptedContent: true }),
     );
     expect(mocks.rendition.hooks.content.register).toHaveBeenCalled();
   });
