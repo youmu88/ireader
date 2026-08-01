@@ -5,7 +5,7 @@
 /** 阅读主题（对标 Apple Books 四色） */
 export type ReaderTheme = 'white' | 'sepia' | 'gray' | 'black';
 
-/** 阅读器设置 */
+/** 阅读器设置（固定垂直滚动模式，仅保留排版相关项） */
 export interface ReaderSettings {
   /** 字号百分比（60-200，默认 100） */
   fontSize: number;
@@ -13,8 +13,6 @@ export interface ReaderSettings {
   theme: ReaderTheme;
   /** 行高 */
   lineHeight: number;
-  /** 垂直滚动模式（true=上下滚动，false=左右翻页） */
-  scrollMode: boolean;
 }
 
 /** 目录项（自 epub.js navigation.toc 递归映射） */

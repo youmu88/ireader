@@ -9,10 +9,10 @@ const tabs: DockTab[] = [
   { id: '/settings', label: '设置', icon: 'settings' },
 ];
 
-function renderDock(path = '/', hidden = false, onNavigate?: (path: string) => void) {
+function renderDock(path = '/', onNavigate?: (path: string) => void) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <Dock tabs={tabs} currentPath={path} hidden={hidden} onNavigate={onNavigate} />
+      <Dock tabs={tabs} currentPath={path} onNavigate={onNavigate} />
     </MemoryRouter>
   );
 }
@@ -35,20 +35,8 @@ describe('Dock', () => {
 
   it('calls onNavigate when a tab is clicked', () => {
     const onNavigate = vi.fn();
-    renderDock('/', false, onNavigate);
+    renderDock('/', onNavigate);
     fireEvent.click(screen.getByText('设置'));
     expect(onNavigate).toHaveBeenCalledWith('/settings');
-  });
-
-  it('hides when hidden is true', () => {
-    renderDock('/', true);
-    const nav = document.querySelector('[data-testid="dock"]');
-    expect(nav?.className).toContain('translate-y-full');
-  });
-
-  it('is visible when hidden is false', () => {
-    renderDock('/', false);
-    const nav = document.querySelector('[data-testid="dock"]');
-    expect(nav?.className).not.toContain('translate-y-full');
   });
 });

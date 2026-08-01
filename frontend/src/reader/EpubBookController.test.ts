@@ -5,10 +5,7 @@ import { EpubBookController } from './EpubBookController';
 const mocks = vi.hoisted(() => {
   const rendition = {
     display: vi.fn().mockResolvedValue(undefined),
-    next: vi.fn().mockResolvedValue(undefined),
-    prev: vi.fn().mockResolvedValue(undefined),
     on: vi.fn(),
-    flow: vi.fn(),
     themes: { register: vi.fn(), select: vi.fn(), fontSize: vi.fn() },
     destroy: vi.fn(),
   };
@@ -48,6 +45,12 @@ function emitRelocated(loc: unknown) {
   cb?.(loc);
 }
 
+function emitClick() {
+  const call = mocks.rendition.on.mock.calls.find(([event]) => event === 'click');
+  const cb = call?.[1] as (() => void) | undefined;
+  cb?.();
+}
+
 describe('EpubBookController', () => {
   let controller: EpubBookController;
   const container = document.createElement('div');
@@ -57,7 +60,7 @@ describe('EpubBookController', () => {
     controller = new EpubBookController();
   });
 
-  it('load：创建 book、以 paginated 渲染、显示初始 CFI、返回递归映射目录', async () => {
+  it('load：创建 book、以 scrolled-doc（固定垂直滚动）渲染、显示初始 CFI、返回递归映射目录', async () => {
     const toc = await controller.load('https://x/book.epub', container, {
       initialCfi: 'epubcfi(/6/2!/4/2)',
       requestHeaders: { Authorization: 'Bearer t' },
@@ -68,7 +71,7 @@ describe('EpubBookController', () => {
     });
     expect(mocks.book.renderTo).toHaveBeenCalledWith(
       container,
-      expect.objectContaining({ flow: 'paginated', spread: 'none' }),
+      expect.objectContaining({ flow: 'scrolled-doc', spread: 'none' }),
     );
     expect(mocks.rendition.display).toHaveBeenCalledWith('epubcfi(/6/2!/4/2)');
     expect(toc).toHaveLength(2);
@@ -84,7 +87,7 @@ describe('EpubBookController', () => {
   });
 
   it('load/applySettings：注入主题样式并应用字号', async () => {
-    await controller.load('url', container, { settings: { fontSize: 120, theme: 'sepia', lineHeight: 2.0, scrollMode: false } });
+    await controller.load('url', container, { settings: { fontSize: 120, theme: 'sepia', lineHeight: 2.0 } });
     expect(mocks.rendition.themes.register).toHaveBeenCalledWith(
       'sepia',
       expect.objectContaining({ body: expect.objectContaining({ 'line-height': '2 !important' }) }),
@@ -92,7 +95,7 @@ describe('EpubBookController', () => {
     expect(mocks.rendition.themes.select).toHaveBeenCalledWith('sepia');
     expect(mocks.rendition.themes.fontSize).toHaveBeenCalledWith('120%');
 
-    controller.applySettings({ fontSize: 90, theme: 'black', lineHeight: 1.5, scrollMode: false });
+    controller.applySettings({ fontSize: 90, theme: 'black', lineHeight: 1.5 });
     expect(mocks.rendition.themes.select).toHaveBeenCalledWith('black');
     expect(mocks.rendition.themes.fontSize).toHaveBeenCalledWith('90%');
   });
@@ -147,13 +150,9 @@ describe('EpubBookController', () => {
     expect(mocks.book.locations.cfiFromPercentage).toHaveBeenCalledWith(1);
   });
 
-  it('next/prev/goTo 转发到 rendition', async () => {
+  it('goTo 跳转章节 href', async () => {
     await controller.load('url', container);
-    await controller.next();
-    await controller.prev();
     await controller.goTo('ch2.xhtml');
-    expect(mocks.rendition.next).toHaveBeenCalledTimes(1);
-    expect(mocks.rendition.prev).toHaveBeenCalledTimes(1);
     expect(mocks.rendition.display).toHaveBeenCalledWith('ch2.xhtml');
   });
 
@@ -164,6 +163,30 @@ describe('EpubBookController', () => {
     off();
     emitRelocated({ start: { cfi: 'cfi-b', displayed: { page: 1, total: 1 } } });
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('onTap：epub.js click 桥接触发订阅回调；退订后不再触发', async () => {
+    await controller.load('url', container);
+    const listener = vi.fn();
+    const off = controller.onTap(listener);
+    emitClick();
+    expect(listener).toHaveBeenCalledTimes(1);
+    off();
+    emitClick();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('loadTxt：以 scrolled-doc 渲染并注册 click 桥接', async () => {
+    await controller.loadTxt(
+      [{ id: 't1', title: '第一章', text: '正文' }],
+      container,
+      { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75 } },
+    );
+    expect(mocks.book.renderTo).toHaveBeenCalledWith(
+      container,
+      expect.objectContaining({ flow: 'scrolled-doc' }),
+    );
+    expect(mocks.rendition.on.mock.calls.some(([event]) => event === 'click')).toBe(true);
   });
 
   it('getExcerptAt：提取 CFI 锚点处文本摘要（压缩空白、限长）', async () => {
@@ -182,24 +205,6 @@ describe('EpubBookController', () => {
     expect(await controller.getExcerptAt('')).toBe('');
     mocks.book.getRange.mockRejectedValue(new Error('bad cfi'));
     expect(await controller.getExcerptAt('epubcfi(bad)')).toBe('');
-  });
-
-  it('setFlow：切换滚动/翻页流模式并转发到 rendition.flow', async () => {
-    await controller.load('url', container);
-    controller.setFlow(true);
-    expect(mocks.rendition.flow).toHaveBeenCalledWith('scrolled-doc');
-    controller.setFlow(false);
-    expect(mocks.rendition.flow).toHaveBeenCalledWith('paginated');
-  });
-
-  it('load：scrollMode 初始设置时以 scrolled-doc 渲染', async () => {
-    await controller.load('url', container, {
-      settings: { fontSize: 100, theme: 'white', lineHeight: 1.75, scrollMode: true },
-    });
-    expect(mocks.book.renderTo).toHaveBeenCalledWith(
-      container,
-      expect.objectContaining({ flow: 'scrolled-doc' }),
-    );
   });
 
   it('destroy：销毁 rendition 与 book 并清理状态', async () => {

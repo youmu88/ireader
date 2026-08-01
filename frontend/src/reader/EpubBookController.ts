@@ -37,11 +37,7 @@ interface EpubBook {
 
 interface EpubRendition {
   display(target?: string): Promise<unknown>;
-  next(): Promise<unknown>;
-  prev(): Promise<unknown>;
   on(event: string, cb: (...args: any[]) => void): void;
-  /** 切换流模式：'paginated' 左右翻页 / 'scrolled-doc' 垂直滚动 */
-  flow(mode: string): void;
   themes: {
     register(name: string, styles: unknown): void;
     select(name: string): void;
@@ -81,6 +77,7 @@ export class EpubBookController {
   private book: EpubBook | null = null;
   private rendition: EpubRendition | null = null;
   private listeners = new Set<LocationListener>();
+  private tapListeners = new Set<() => void>();
   private locationsReady = false;
   private lastLocation: ReaderLocation | null = null;
 
@@ -101,11 +98,14 @@ export class EpubBookController {
     this.rendition = this.book.renderTo(container, {
       width: '100%',
       height: '100%',
-      flow: settings.scrollMode ? 'scrolled-doc' : 'paginated',
+      // 固定垂直滚动模式（阅读器已移除左右翻页；scrolled-doc 下 iframe 高度随内容增长，外层容器滚动）
+      flow: 'scrolled-doc',
       spread: 'none',
     });
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
+    // epub.js 将 iframe 内 click 桥接到 rendition（显隐工具栏用；不在滚动容器上叠加拦截层）
+    this.rendition.on('click', () => this.emitTap());
     await this.rendition.display(options.initialCfi || undefined);
 
     const nav = await this.book.loaded.navigation;
@@ -128,11 +128,14 @@ export class EpubBookController {
     this.rendition = this.book.renderTo(container, {
       width: '100%',
       height: '100%',
-      flow: settings.scrollMode ? 'scrolled-doc' : 'paginated',
+      // 固定垂直滚动模式（阅读器已移除左右翻页；scrolled-doc 下 iframe 高度随内容增长，外层容器滚动）
+      flow: 'scrolled-doc',
       spread: 'none',
     });
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
+    // epub.js 将 iframe 内 click 桥接到 rendition（显隐工具栏用；不在滚动容器上叠加拦截层）
+    this.rendition.on('click', () => this.emitTap());
     await this.rendition.display(options.initialCfi || undefined);
 
     // TXT Feed 无 navigation.toc：由章节构建目录（href 为 section href）
@@ -149,14 +152,6 @@ export class EpubBookController {
     return this.book.locations.length();
   }
 
-  next(): Promise<unknown> | undefined {
-    return this.rendition?.next();
-  }
-
-  prev(): Promise<unknown> | undefined {
-    return this.rendition?.prev();
-  }
-
   /** 跳转章节 href（目录点击） */
   goTo(href: string): Promise<unknown> | undefined {
     return this.rendition?.display(href);
@@ -167,11 +162,6 @@ export class EpubBookController {
     if (!this.book || !this.locationsReady) return;
     const clamped = Math.min(1, Math.max(0, p));
     void this.rendition?.display(this.book.locations.cfiFromPercentage(clamped));
-  }
-
-  /** 切换翻页/滚动流模式（epub.js rendition.flow 自动回到相近位置并触发 relocated） */
-  setFlow(scrollMode: boolean): void {
-    this.rendition?.flow(scrollMode ? 'scrolled-doc' : 'paginated');
   }
 
   /** 提取 CFI 锚点处文本摘要（书签用；失败/无 CFI 返回空串） */
@@ -208,6 +198,14 @@ export class EpubBookController {
     this.listeners.add(cb);
     return () => {
       this.listeners.delete(cb);
+    };
+  }
+
+  /** 订阅正文点击（epub.js 将 iframe 内 click 桥接到 rendition；用于显隐工具栏，不在滚动容器上叠加拦截层）。返回退订函数。 */
+  onTap(cb: () => void): () => void {
+    this.tapListeners.add(cb);
+    return () => {
+      this.tapListeners.delete(cb);
     };
   }
 
@@ -249,5 +247,9 @@ export class EpubBookController {
     }
     this.lastLocation = loc;
     for (const cb of this.listeners) cb(loc);
+  }
+
+  private emitTap(): void {
+    for (const cb of this.tapListeners) cb();
   }
 }

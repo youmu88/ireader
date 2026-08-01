@@ -1,9 +1,9 @@
 /**
- * ReaderPage — Apple Books 风格 EPUB 阅读页
+ * ReaderPage — Apple Books 风格 EPUB 阅读页（垂直滚动模式）
  *
- * 组装：书籍加载（离线包优先）→ EpubBookController → 点按层 / Chrome / 面板。
- * 交互：点按左右 1/4 翻页（带滑动动画），点按中央显隐工具栏；
- *       TXT 书籍显示暂不支持提示；翻页动画加在包装层，不重建 epub iframe。
+ * 组装：书籍加载（离线包优先）→ EpubBookController → 底栏 Chrome / 面板。
+ * 交互：正文垂直滚动阅读（滚动容器上无覆盖层，滚动手势直达）；点按正文（epub.js click 桥接）显隐底栏；
+ *       TXT 书籍复用同一渲染管线（HTML Feed）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -15,7 +15,7 @@ import { useReaderSettings } from '../reader/useReaderSettings';
 import { useReaderProgress } from '../reader/useReaderProgress';
 import { useBookmarks, type BookmarkItem } from '../reader/useBookmarks';
 import { ReaderChrome } from '../reader/components/ReaderChrome';
-import { ReaderTopBar } from '../reader/components/ReaderTopBar';
+import { ReaderMenuBar } from '../reader/components/ReaderMenuBar';
 import { ReaderBottomBar } from '../reader/components/ReaderBottomBar';
 import { FontSettingsPanel } from '../reader/components/FontSettingsPanel';
 import { TocPanel } from '../reader/components/TocPanel';
@@ -67,10 +67,7 @@ export default function ReaderPage() {
   const [searching, setSearching] = useState(false);
 
   const viewerRef = useRef<HTMLDivElement>(null);
-  const viewerWrapRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<EpubBookController | null>(null);
-  const turnDirRef = useRef<'next' | 'prev' | null>(null);
-  const [turnAnim, setTurnAnim] = useState<{ dir: 'next' | 'prev'; seq: number } | null>(null);
 
   const { settings, updateSettings } = useReaderSettings();
   const { loadInitialCfi, scheduleSave } = useReaderProgress({ bookId });
@@ -98,11 +95,9 @@ export default function ReaderPage() {
         controller.onLocationChange(loc => {
           setLocation(loc);
           scheduleSave(loc);
-          if (turnDirRef.current) {
-            setTurnAnim({ dir: turnDirRef.current, seq: Date.now() });
-            turnDirRef.current = null;
-          }
         });
+        // 正文点按（epub.js 桥接 iframe 内 click）→ 显隐底栏；不叠加覆盖层，滚动手势直达
+        controller.onTap(() => setChromeVisible(v => !v));
         void controller.generateLocations().then(() => {
           if (!cancelled) setLocationsReady(true);
         });
@@ -182,30 +177,6 @@ export default function ReaderPage() {
     controllerRef.current?.applySettings(settings);
   }, [settings]);
 
-  // ── 滚动模式切换：rendition.flow 实时切换，自动回到相近位置 ──
-  useEffect(() => {
-    controllerRef.current?.setFlow(settings.scrollMode);
-  }, [settings.scrollMode]);
-
-  // ── 翻页滑动动画：relocated 后触发，操作包装层 style，不重建 epub 容器 ──
-  useEffect(() => {
-    const el = viewerWrapRef.current;
-    if (!el || !turnAnim) return;
-    el.style.animation = 'none';
-    void el.offsetWidth; // 强制 reflow 以重启动画
-    el.style.animation = `${turnAnim.dir === 'next' ? 'reader-page-next' : 'reader-page-prev'} 0.28s ease-out`;
-  }, [turnAnim]);
-
-  const handlePrev = useCallback(() => {
-    turnDirRef.current = 'prev';
-    void controllerRef.current?.prev();
-  }, []);
-
-  const handleNext = useCallback(() => {
-    turnDirRef.current = 'next';
-    void controllerRef.current?.next();
-  }, []);
-
   const handleTocSelect = useCallback((href: string) => {
     setTocOpen(false);
     void controllerRef.current?.goTo(href);
@@ -264,11 +235,9 @@ export default function ReaderPage() {
   }
 
   return (
-    <div className="fixed inset-0 overflow-hidden" style={{ background: themeSpec.background, perspective: '1600px' }}>
-      {/* epub.js 渲染区（翻页动画作用于包装层，不重建内部 iframe） */}
-      <div ref={viewerWrapRef} className="absolute inset-0">
-        <div ref={viewerRef} className="absolute inset-0" />
-      </div>
+    <div className="fixed inset-0 overflow-hidden" style={{ background: themeSpec.background }}>
+      {/* epub.js 渲染区（垂直滚动容器；上方无覆盖层，滚动手势直达） */}
+      <div ref={viewerRef} className="absolute inset-0" />
 
       {loading && (
         <div
@@ -285,44 +254,26 @@ export default function ReaderPage() {
         </div>
       )}
 
-      {/* 点按层：左 1/4 上一页 · 中央显隐工具栏 · 右 1/4 下一页（滚动模式下禁用左右翻页区） */}
-      {!loading && (
-        <div className="absolute inset-0 z-10 flex" data-testid="tap-zones">
-          {!settings.scrollMode && (
-            <button className="w-1/4 h-full" onClick={handlePrev} aria-label="上一页" />
-          )}
-          <button className="flex-1 h-full" onClick={() => setChromeVisible(v => !v)} aria-label="显示或隐藏工具栏" />
-          {!settings.scrollMode && (
-            <button className="w-1/4 h-full" onClick={handleNext} aria-label="下一页" />
-          )}
-        </div>
-      )}
-
-      <ReaderChrome
-        visible={chromeVisible}
-        top={
-          <ReaderTopBar
-            title={book?.title ?? ''}
-            chromeBackground={themeSpec.chromeBackground}
-            chromeColor={themeSpec.chromeColor}
-            onBack={() => navigate('/')}
-            onOpenToc={() => setTocOpen(true)}
-            onOpenFontSettings={() => setFontOpen(true)}
-            bookmarked={isBookmarked(location?.cfi)}
-            onToggleBookmark={handleToggleBookmark}
-            onOpenSearch={() => setSearchOpen(true)}
-          />
-        }
-        bottom={
-          <ReaderBottomBar
-            location={location}
-            locationsReady={locationsReady}
-            chromeBackground={themeSpec.chromeBackground}
-            chromeColor={themeSpec.chromeColor}
-            onSeek={handleSeek}
-          />
-        }
-      />
+      <ReaderChrome visible={chromeVisible}>
+        <ReaderMenuBar
+          title={book?.title ?? ''}
+          chromeBackground={themeSpec.chromeBackground}
+          chromeColor={themeSpec.chromeColor}
+          onBack={() => navigate('/')}
+          onOpenToc={() => setTocOpen(true)}
+          onOpenFontSettings={() => setFontOpen(true)}
+          bookmarked={isBookmarked(location?.cfi)}
+          onToggleBookmark={handleToggleBookmark}
+          onOpenSearch={() => setSearchOpen(true)}
+        />
+        <ReaderBottomBar
+          location={location}
+          locationsReady={locationsReady}
+          chromeBackground={themeSpec.chromeBackground}
+          chromeColor={themeSpec.chromeColor}
+          onSeek={handleSeek}
+        />
+      </ReaderChrome>
 
       <TocPanel
         open={tocOpen}

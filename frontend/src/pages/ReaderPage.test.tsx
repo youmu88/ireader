@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ReaderPage from './ReaderPage';
@@ -13,15 +13,13 @@ const controllerMocks = vi.hoisted(() => {
     load: vi.fn(),
     loadTxt: vi.fn(),
     destroy: vi.fn(),
-    next: vi.fn().mockResolvedValue(undefined),
-    prev: vi.fn().mockResolvedValue(undefined),
     goTo: vi.fn(),
     goToPercentage: vi.fn(),
-    setFlow: vi.fn(),
     search: vi.fn().mockResolvedValue([]),
     getExcerptAt: vi.fn().mockResolvedValue(''),
     applySettings: vi.fn(),
     onLocationChange: vi.fn().mockReturnValue(() => {}),
+    onTap: vi.fn().mockReturnValue(() => {}),
     generateLocations: vi.fn().mockResolvedValue(500),
     isLocationsReady: false,
     currentLocation: null,
@@ -77,11 +75,19 @@ const mockBook = (format: 'epub' | 'txt') => {
   });
 };
 
+// 捕获正文点按回调（epub.js click 桥接 → onTap），测试中模拟“点按正文”
+let tapCb: (() => void) | undefined;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  tapCb = undefined;
   controllerMocks.instance.load.mockResolvedValue([{ id: 'c1', label: '第一章', href: 'ch1.xhtml' }]);
   controllerMocks.instance.loadTxt.mockResolvedValue([{ id: 'c1', label: '第一章', href: 'txt-0.xhtml' }]);
   controllerMocks.instance.onLocationChange.mockReturnValue(() => {});
+  controllerMocks.instance.onTap.mockImplementation((cb: () => void) => {
+    tapCb = cb;
+    return () => {};
+  });
   controllerMocks.instance.generateLocations.mockResolvedValue(500);
   offlineMocks.getCachedEpubArchive.mockResolvedValue(undefined);
   controllerMocks.instance.getExcerptAt.mockResolvedValue('');
@@ -94,18 +100,17 @@ describe('ReaderPage', () => {
   it('TXT 书籍：成功加载 → 逐章拉取正文 → loadTxt 渲染并显示目录', async () => {
     mockBook('txt');
     renderReader();
-    expect(await screen.findByTestId('tap-zones')).toBeDefined();
+    await waitFor(() => expect(controllerMocks.instance.loadTxt).toHaveBeenCalledTimes(1));
     expect(controllerMocks.instance.load).not.toHaveBeenCalled();
-    expect(controllerMocks.instance.loadTxt).toHaveBeenCalledTimes(1);
     const [, , options] = controllerMocks.instance.loadTxt.mock.calls[0];
     // 传入的章节完整（标题 + 正文文本）
     expect(options.settings).toBeDefined();
   });
 
-  it('EPUB 书籍：以文件 URL + Authorization 头初始化渲染，渲染点按层', async () => {
+  it('EPUB 书籍：以文件 URL + Authorization 头初始化渲染', async () => {
     mockBook('epub');
     renderReader();
-    expect(await screen.findByTestId('tap-zones')).toBeDefined();
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
     const [source, , options] = controllerMocks.instance.load.mock.calls[0];
     expect(source).toBe('/api/books/book-1/file');
     expect(options.requestHeaders).toEqual({ Authorization: 'Bearer test-token' });
@@ -117,39 +122,49 @@ describe('ReaderPage', () => {
     offlineMocks.getCachedEpubArchive.mockResolvedValue({ data: new ArrayBuffer(8) });
     mockBook('epub');
     renderReader();
-    await screen.findByTestId('tap-zones');
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
     const [source, , options] = controllerMocks.instance.load.mock.calls[0];
     expect(source).toBeInstanceOf(ArrayBuffer);
     expect(options.requestHeaders).toBeUndefined();
   });
 
-  it('点按中央切换工具栏显隐；点按右侧触发下一页', async () => {
+  it('点按正文（epub.js click 桥接）切换底部工具栏显隐', async () => {
     mockBook('epub');
     renderReader();
-    await screen.findByTestId('tap-zones');
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
 
     // 初始隐藏
-    expect(screen.getByTestId('reader-chrome-top').className).toContain('-translate-y-full');
-    // 点按中央 → 显示
-    fireEvent.click(screen.getByLabelText('显示或隐藏工具栏'));
-    expect(screen.getByTestId('reader-chrome-top').className).toContain('translate-y-0');
-    // 顶栏书名
+    expect(screen.getByTestId('reader-chrome-bottom').className).toContain('translate-y-full');
+    // 点按正文 → 显示
+    act(() => tapCb?.());
+    expect(screen.getByTestId('reader-chrome-bottom').className).toContain('translate-y-0');
+    // 底栏菜单书名
     expect(screen.getByText('测试之书')).toBeDefined();
-    // 点按右侧 1/4 → 下一页
-    fireEvent.click(screen.getByLabelText('下一页'));
-    expect(controllerMocks.instance.next).toHaveBeenCalledTimes(1);
-    // 点按左侧 1/4 → 上一页
-    fireEvent.click(screen.getByLabelText('上一页'));
-    expect(controllerMocks.instance.prev).toHaveBeenCalledTimes(1);
+    // 再点按正文 → 隐藏
+    act(() => tapCb?.());
+    expect(screen.getByTestId('reader-chrome-bottom').className).toContain('translate-y-full');
   });
 
-  it('顶栏打开目录/aA 面板；目录选择跳转并关闭', async () => {
+  it('底栏菜单顺序：返回书库 → 目录 → 书名 → 书签/搜索/aA', async () => {
     mockBook('epub');
     renderReader();
-    await screen.findByTestId('tap-zones');
-    fireEvent.click(screen.getByLabelText('显示或隐藏工具栏'));
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
+    act(() => tapCb?.());
+    const bar = screen.getByTestId('reader-menu-bar');
+    const texts = Array.from(bar.querySelectorAll('button, p')).map(el => el.textContent ?? '');
+    const idx = (s: string) => texts.findIndex(t => t.includes(s));
+    expect(idx('书库')).toBeGreaterThanOrEqual(0);
+    expect(idx('书库')).toBeLessThan(idx('测试之书'));
+    expect(idx('aA')).toBeGreaterThan(idx('测试之书'));
+  });
 
-    // 打开目录（getByRole 精确命中顶栏按钮，避免与抽屉容器 aria-label 冲突）
+  it('底栏打开目录/aA 面板；目录选择跳转并关闭', async () => {
+    mockBook('epub');
+    renderReader();
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
+    act(() => tapCb?.());
+
+    // 打开目录（getByRole 精确命中底栏按钮，避免与抽屉容器 aria-label 冲突）
     fireEvent.click(screen.getByRole('button', { name: '目录' }));
     fireEvent.click(screen.getByText('第一章'));
     expect(controllerMocks.instance.goTo).toHaveBeenCalledWith('ch1.xhtml');
@@ -167,7 +182,7 @@ describe('ReaderPage', () => {
     expect(screen.getByText('返回书库')).toBeDefined();
   });
 
-  it('书签：顶栏按钮切换当前页书签并持久化到 localStorage', async () => {
+  it('书签：底栏按钮切换当前页书签并持久化到 localStorage', async () => {
     mockBook('epub');
     let locationCb: ((loc: unknown) => void) | undefined;
     controllerMocks.instance.onLocationChange.mockImplementation((cb: (loc: unknown) => void) => {
@@ -178,15 +193,16 @@ describe('ReaderPage', () => {
       cfi: 'epubcfi(/6/4)', percentage: null, pageInChapter: 2, pagesInChapter: 9, chapterHref: 'ch1.xhtml',
     };
     controllerMocks.instance.getExcerptAt.mockResolvedValue('书签摘要');
+    mockBook('epub');
     renderReader();
-    await screen.findByTestId('tap-zones');
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
     // 模拟 epub.js relocated：驱动 location state（书签按钮状态依赖它）
     act(() => {
       locationCb?.({
         cfi: 'epubcfi(/6/4)', percentage: null, pageInChapter: 2, pagesInChapter: 9, chapterHref: 'ch1.xhtml',
       });
     });
-    fireEvent.click(screen.getByLabelText('显示或隐藏工具栏'));
+    act(() => tapCb?.());
     fireEvent.click(screen.getByLabelText('添加书签'));
     await screen.findByLabelText('移除书签');
     const stored = JSON.parse(localStorage.getItem('ireader_bookmarks_book-1')!);
@@ -201,8 +217,8 @@ describe('ReaderPage', () => {
       { cfi: 'epubcfi(/6/8!/2/1:5)', excerpt: '命中摘要文本', chapterHref: 'ch1.xhtml' },
     ]);
     renderReader();
-    await screen.findByTestId('tap-zones');
-    fireEvent.click(screen.getByLabelText('显示或隐藏工具栏'));
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
+    act(() => tapCb?.());
     fireEvent.click(screen.getByRole('button', { name: '搜索' }));
     // 面板内输入关键词（防抖 300ms 后触发 controller.search）
     fireEvent.change(screen.getByLabelText('搜索全书'), { target: { value: '关键词' } });

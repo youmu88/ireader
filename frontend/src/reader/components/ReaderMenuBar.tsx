@@ -1,12 +1,12 @@
 /**
- * ReaderTopBar — 阅读器顶栏（Apple Books 风格）
+ * ReaderMenuBar — 阅读器底部菜单栏（自顶栏迁移，仅保留底部）
  *
- * 布局：‹ 书库（返回） | 书名（居中截断） | 书签 · 搜索 · 目录 · aA
+ * 顺序：‹ 返回书库 | 目录 | 书名（居中截断） | 书签 · 搜索 · aA
  * 颜色随阅读主题（chromeBackground/chromeColor 由 ReaderPage 按主题注入）。
  * 书签/搜索按钮仅在提供对应回调时渲染（向后兼容）。
  */
 
-export interface ReaderTopBarProps {
+export interface ReaderMenuBarProps {
   title: string;
   chromeBackground: string;
   chromeColor: string;
@@ -30,7 +30,7 @@ const BookmarkIcon = ({ filled }: { filled: boolean }) =>
     </svg>
   );
 
-export function ReaderTopBar({
+export function ReaderMenuBar({
   title,
   chromeBackground,
   chromeColor,
@@ -40,10 +40,11 @@ export function ReaderTopBar({
   bookmarked = false,
   onToggleBookmark,
   onOpenSearch,
-}: ReaderTopBarProps) {
+}: ReaderMenuBarProps) {
   return (
     <div
-      className="flex items-center h-14 px-2 backdrop-blur-xl border-b"
+      data-testid="reader-menu-bar"
+      className="flex items-center h-14 px-2 backdrop-blur-xl border-t"
       style={{ background: chromeBackground, color: chromeColor, borderColor: 'rgba(128,128,128,0.25)' }}
     >
       <button
@@ -54,6 +55,13 @@ export function ReaderTopBar({
           <path d="M10 2 L2 10 L10 18" />
         </svg>
         书库
+      </button>
+      <button onClick={onOpenToc} aria-label="目录" className="p-2.5 rounded-lg active:opacity-40 transition-opacity">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+          <line x1="4" y1="6" x2="20" y2="6" />
+          <line x1="4" y1="12" x2="16" y2="12" />
+          <line x1="4" y1="18" x2="20" y2="18" />
+        </svg>
       </button>
       <p className="flex-1 text-center text-[15px] font-medium truncate px-2">{title}</p>
       <div className="flex items-center">
@@ -75,13 +83,6 @@ export function ReaderTopBar({
             </svg>
           </button>
         )}
-        <button onClick={onOpenToc} aria-label="目录" className="p-2.5 rounded-lg active:opacity-40 transition-opacity">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-            <line x1="4" y1="6" x2="20" y2="6" />
-            <line x1="4" y1="12" x2="16" y2="12" />
-            <line x1="4" y1="18" x2="20" y2="18" />
-          </svg>
-        </button>
         <button
           onClick={onOpenFontSettings}
           aria-label="字体与主题"

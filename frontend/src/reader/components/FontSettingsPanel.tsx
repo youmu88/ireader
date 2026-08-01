@@ -108,25 +108,6 @@ export function FontSettingsPanel({
             );
           })}
         </div>
-        {/* 垂直滚动开关 */}
-        <div className="flex items-center justify-between">
-          <span className="text-sm">垂直滚动</span>
-          <button
-            role="switch"
-            aria-checked={settings.scrollMode}
-            aria-label="垂直滚动"
-            onClick={() => onChange({ scrollMode: !settings.scrollMode })}
-            className={`w-12 h-7 rounded-full relative transition-colors ${
-              settings.scrollMode ? 'bg-green-500' : 'bg-gray-300'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${
-                settings.scrollMode ? 'translate-x-[22px]' : 'translate-x-0.5'
-              }`}
-            />
-          </button>
-        </div>
       </div>
     </div>
   );

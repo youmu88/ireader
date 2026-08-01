@@ -229,15 +229,16 @@ function Layout() {
       <main className="flex-1">
         <Outlet />
       </main>
-      {/* iOS 底部透明 Dock（阅读器态隐藏） */}
-      <Dock
-        tabs={DOCK_TABS}
-        currentPath={location.pathname}
-        hidden={isReader}
-        onNavigate={(path) => {
-          if (location.pathname !== path) navigate(path);
-        }}
-      />
+      {/* iOS 底部透明 Dock（阅读器路由不渲染：阅读页为全屏沉浸态，Dock 常驻会以空白条遮挡底部 UI 与设置面板） */}
+      {!isReader && (
+        <Dock
+          tabs={DOCK_TABS}
+          currentPath={location.pathname}
+          onNavigate={(path) => {
+            if (location.pathname !== path) navigate(path);
+          }}
+        />
+      )}
     </div>
   );
 }

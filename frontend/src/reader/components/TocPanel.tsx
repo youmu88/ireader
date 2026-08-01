@@ -144,7 +144,7 @@ export function TocPanel({
           <div className="flex-1 overflow-y-auto py-2" role="tabpanel" aria-label="书签列表">
             {bookmarks.length === 0 ? (
               <p className="px-4 py-8 text-sm text-center" style={{ opacity: 0.6 }}>
-                暂无书签，阅读时点击顶栏书签按钮添加
+                暂无书签，阅读时点击底栏书签按钮添加
               </p>
             ) : (
               bookmarks.map(b => (

@@ -11,8 +11,6 @@ export interface DockProps {
   tabs: DockTab[];
   /** 当前激活路径 */
   currentPath: string;
-  /** 是否隐藏（阅读器态等） */
-  hidden?: boolean;
   onNavigate?: (path: string) => void;
 }
 
@@ -46,7 +44,7 @@ function TabIcon({ name, active }: { name: DockTab['icon']; active: boolean }) {
 }
 
 /** iOS 原生底部透明 Dock（毛玻璃拟态） */
-export function Dock({ tabs, currentPath, hidden = false, onNavigate }: DockProps) {
+export function Dock({ tabs, currentPath, onNavigate }: DockProps) {
   // 根路径 '/' 需精确匹配；其余按照前缀匹配子路径
   const isActiveTab = (tabId: string) =>
     tabId === '/' ? currentPath === '/' : currentPath === tabId || currentPath.startsWith(tabId + '/');
@@ -56,9 +54,7 @@ export function Dock({ tabs, currentPath, hidden = false, onNavigate }: DockProp
     <nav
       data-testid="dock"
       aria-label="底部导航"
-      className={`fixed bottom-0 left-0 right-0 z-40 transition-transform duration-300 ${
-        hidden ? 'translate-y-full' : 'translate-y-0'
-      }`}
+      className="fixed bottom-0 left-0 right-0 z-40"
     >
       {/* 毛玻璃容器 */}
       <div className="backdrop-blur-2xl bg-white/70 dark:bg-black/60 border-t border-black/5 dark:border-white/10"

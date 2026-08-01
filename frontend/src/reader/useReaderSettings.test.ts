@@ -33,20 +33,20 @@ describe('loadSettings', () => {
 
 describe('clampSettings', () => {
   it('字号超出上限钳到 200', () => {
-    expect(clampSettings({ fontSize: 250, theme: 'white', lineHeight: 1.75, scrollMode: false }).fontSize).toBe(200);
+    expect(clampSettings({ fontSize: 250, theme: 'white', lineHeight: 1.75 }).fontSize).toBe(200);
   });
 
   it('字号低于下限钳到 60', () => {
-    expect(clampSettings({ fontSize: 30, theme: 'white', lineHeight: 1.75, scrollMode: false }).fontSize).toBe(60);
+    expect(clampSettings({ fontSize: 30, theme: 'white', lineHeight: 1.75 }).fontSize).toBe(60);
   });
 
   it('非法主题回退默认主题', () => {
-    const s = clampSettings({ fontSize: 100, theme: 'neon' as never, lineHeight: 1.75, scrollMode: false });
+    const s = clampSettings({ fontSize: 100, theme: 'neon' as never, lineHeight: 1.75 });
     expect(s.theme).toBe(DEFAULT_READER_SETTINGS.theme);
   });
 
   it('非法行距回退默认行距', () => {
-    const s = clampSettings({ fontSize: 100, theme: 'white', lineHeight: 3.3, scrollMode: false });
+    const s = clampSettings({ fontSize: 100, theme: 'white', lineHeight: 3.3 });
     expect(s.lineHeight).toBe(DEFAULT_READER_SETTINGS.lineHeight);
   });
 });
@@ -55,7 +55,7 @@ describe('useReaderSettings', () => {
   it('初始值来自 localStorage', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ fontSize: 140, theme: 'black', lineHeight: 2.0 }));
     const { result } = renderHook(() => useReaderSettings());
-    expect(result.current.settings).toEqual({ fontSize: 140, theme: 'black', lineHeight: 2.0, scrollMode: false });
+    expect(result.current.settings).toEqual({ fontSize: 140, theme: 'black', lineHeight: 2.0 });
   });
 
   it('updateSettings 合并补丁、clamp 并持久化', () => {
@@ -68,16 +68,5 @@ describe('useReaderSettings', () => {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
     expect(stored.fontSize).toBe(200);
     expect(stored.theme).toBe('gray');
-  });
-
-  it('scrollMode 更新、读取与持久化', () => {
-    const { result } = renderHook(() => useReaderSettings());
-    expect(result.current.settings.scrollMode).toBe(false);
-    act(() => {
-      result.current.updateSettings({ scrollMode: true });
-    });
-    expect(result.current.settings.scrollMode).toBe(true);
-    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
-    expect(stored.scrollMode).toBe(true);
   });
 });

@@ -5,18 +5,14 @@ import { ReaderBottomBar } from './ReaderBottomBar';
 import type { ReaderLocation } from '../types';
 
 describe('ReaderChrome', () => {
-  it('visible=true 时顶栏底栏滑入（translate-y-0）', () => {
-    render(<ReaderChrome visible top={<div>TOP</div>} bottom={<div>BOTTOM</div>} />);
-    expect(screen.getByTestId('reader-chrome-top').className).toContain('translate-y-0');
+  it('visible=true 时底栏滑入（translate-y-0）', () => {
+    render(<ReaderChrome visible>BOTTOM</ReaderChrome>);
     expect(screen.getByTestId('reader-chrome-bottom').className).toContain('translate-y-0');
   });
 
-  it('visible=false 时顶栏上滑隐藏、底栏下滑隐藏且禁用指针', () => {
-    render(<ReaderChrome visible={false} top={<div>TOP</div>} bottom={<div>BOTTOM</div>} />);
-    const top = screen.getByTestId('reader-chrome-top');
+  it('visible=false 时底栏下滑隐藏且禁用指针', () => {
+    render(<ReaderChrome visible={false}>BOTTOM</ReaderChrome>);
     const bottom = screen.getByTestId('reader-chrome-bottom');
-    expect(top.className).toContain('-translate-y-full');
-    expect(top.className).toContain('pointer-events-none');
     expect(bottom.className).toContain('translate-y-full');
     expect(bottom.className).toContain('pointer-events-none');
   });

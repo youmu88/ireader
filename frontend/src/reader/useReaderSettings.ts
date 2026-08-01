@@ -15,14 +15,14 @@ import {
 
 export const STORAGE_KEY = 'ireader_reader_settings';
 
-/** 将外部输入钳制到合法范围（字号/主题/行距/滚动模式） */
+/** 将外部输入钳制到合法范围（字号/主题/行距） */
 export function clampSettings(s: ReaderSettings): ReaderSettings {
   const fontSize = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(s.fontSize)));
   const theme = s.theme in READER_THEMES ? s.theme : DEFAULT_READER_SETTINGS.theme;
   const lineHeight = (LINE_HEIGHT_OPTIONS as readonly number[]).includes(s.lineHeight)
     ? s.lineHeight
     : DEFAULT_READER_SETTINGS.lineHeight;
-  return { fontSize, theme, lineHeight, scrollMode: s.scrollMode === true };
+  return { fontSize, theme, lineHeight };
 }
 
 /** 从 localStorage 读取设置；缺失/损坏时返回默认值 */
