@@ -87,7 +87,8 @@ export function useReaderProgress({ bookId, saveDelay = 800 }: UseReaderProgress
 
   const loadInitialCfi = useCallback(async (): Promise<string | null> => {
     try {
-      const res = await axios.get(`/api/books/${bookId}/progress`);
+      // 15s 超时：服务端挂起时回退本地，避免 loading 永不结束（根因见 5a218ca）
+      const res = await axios.get(`/api/books/${bookId}/progress`, { timeout: 15000 });
       const data = res.data?.data;
       if (typeof data?.progressVersion === 'number') versionRef.current = data.progressVersion;
       if (data?.cfi) return data.cfi as string;

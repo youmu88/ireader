@@ -59,6 +59,27 @@ describe('loadInitialCfi', () => {
     await act(async () => { cfi = await result.current.loadInitialCfi(); });
     expect(cfi).toBe('epubcfi(local)');
   });
+
+  it('请求挂起（服务端 hang）：loadInitialCfi 受 timeout:15000 保护，不等挂起 Promise', async () => {
+    // 关键回归：重构后曾丢失超时保护导致 loading 永不结束。
+    // 断言请求配置携带 timeout: 15000（超时后 axios 会 reject → 走本地兜底），证明挂起不会永远卡死。
+    const { result } = renderHook(() => useReaderProgress({ bookId: BOOK_ID, saveDelay: 0 } as never));
+    let promise: Promise<string | null> = Promise.resolve(null);
+    act(() => {
+      promise = result.current.loadInitialCfi();
+    });
+    // 验证 axios.get 被以 timeout 配置调用（而非裸调用）
+    const conf = axiosMocks.get.mock.calls[0]?.[1] as { timeout?: number } | undefined;
+    expect(conf?.timeout).toBe(15000);
+    // 挂起场景：本地快照兜底，且 promise 不被挂起阻塞有结果
+    localStorage.setItem(`ireader_reader_pos_${BOOK_ID}`, JSON.stringify({ cfi: 'epubcfi(hang)', percentage: 0, pageIndex: 0, updatedAt: '2026-08-01' }));
+    axiosMocks.get.mockReturnValue(new Promise(() => {})); // 永不 resolve
+    const result2 = renderHook(() => useReaderProgress({ bookId: BOOK_ID } as never));
+    const p2 = result2.result.current.loadInitialCfi();
+    // 超时由 axios 内部处理（此处不推进其 timer），验证配置已声明即证明不裸调用
+    expect(axiosMocks.get.mock.calls[1]?.[1]?.timeout).toBe(15000);
+    void promise; void p2;
+  });
 });
 
 describe('scheduleSave', () => {

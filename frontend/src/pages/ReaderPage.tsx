@@ -42,6 +42,14 @@ function findTocLabel(items: TocItem[], href: string): string | undefined {
   return undefined;
 }
 
+/** 为 Promise 加超时兜底：超时 reject，避免 loading 永不结束（根因见 useReaderProgress 注释） */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`加载超时(${label}>${ms}ms)`)), ms);
+    p.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+  });
+}
+
 export default function ReaderPage() {
   const { bookId = '' } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
@@ -102,20 +110,24 @@ export default function ReaderPage() {
 
       if (meta.format === 'txt') {
         // TXT：拉取章节清单 → 逐章取正文 → 以 HTML Feed 渲染（复用全套阅读管线）
-        const chaptersRes = await axios.get(`/api/books/${bookId}/chapters`);
+        const chaptersRes = await axios.get(`/api/books/${bookId}/chapters`, { timeout: 15000 });
         const chapters: { id: string; title: string; href: string | null }[] = chaptersRes.data?.data || [];
         const initialCfiTxt = await loadInitialCfi();
         const feedInputs: TxtFeedSectionInput[] = [];
         for (const ch of chapters) {
-          const contentRes = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`);
+          const contentRes = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`, { timeout: 15000 });
           const raw = contentRes.data?.data;
           const text = typeof raw === 'string' ? raw : raw?.text ?? raw?.content ?? '';
           feedInputs.push({ id: ch.id, title: ch.title || `第${feedInputs.length + 1}部分`, text: String(text) });
         }
-        const tocItemsTxt = await controller.loadTxt(feedInputs, viewerRef.current!, {
-          initialCfi: initialCfiTxt,
-          settings,
-        });
+        const tocItemsTxt = await withTimeout(
+          controller.loadTxt(feedInputs, viewerRef.current!, {
+            initialCfi: initialCfiTxt,
+            settings,
+          }),
+          20000,
+          'loadTxt',
+        );
         if (cancelled) return;
         attachReader(tocItemsTxt);
         return;
@@ -136,11 +148,15 @@ export default function ReaderPage() {
         ? { Authorization: `Bearer ${token}` }
         : undefined;
 
-      const tocItems = await controller.load(source, viewerRef.current!, {
-        initialCfi,
-        requestHeaders,
-        settings,
-      });
+      const tocItems = await withTimeout(
+        controller.load(source, viewerRef.current!, {
+          initialCfi,
+          requestHeaders,
+          settings,
+        }),
+        20000,
+        'load-epub',
+      );
       if (cancelled) return;
       // 注册位置监听 + 页码生成（TXT/EPUB 共用）
       setToc(tocItems);
