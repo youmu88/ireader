@@ -6,6 +6,10 @@ const mocks = vi.hoisted(() => {
   const rendition = {
     display: vi.fn().mockResolvedValue(undefined),
     on: vi.fn(),
+    next: vi.fn().mockResolvedValue(undefined),
+    prev: vi.fn().mockResolvedValue(undefined),
+    getContents: vi.fn<[], { document?: Document }[]>(() => []),
+    manager: { container: null as HTMLElement | null },
     themes: { register: vi.fn(), select: vi.fn(), fontSize: vi.fn() },
     destroy: vi.fn(),
   };
@@ -39,25 +43,39 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('epubjs', () => ({ default: mocks.ePub }));
 
+/** iframe 内容文档 mock（点按桥接直挂目标） */
+const contentDoc = document.implementation.createHTMLDocument('epub-content');
+
 function emitRelocated(loc: unknown) {
   const call = mocks.rendition.on.mock.calls.find(([event]) => event === 'relocated');
   const cb = call?.[1] as ((l: unknown) => void) | undefined;
   cb?.(loc);
 }
 
-function emitClick() {
-  const call = mocks.rendition.on.mock.calls.find(([event]) => event === 'click');
-  const cb = call?.[1] as (() => void) | undefined;
-  cb?.();
+/** 模拟在 iframe 内容文档上的点按（pointerdown + pointerup 同坐标，位移 0） */
+function emitTap(x = 10, y = 10) {
+  contentDoc.dispatchEvent(new MouseEvent('pointerdown', { clientX: x, clientY: y, bubbles: true }));
+  contentDoc.dispatchEvent(new MouseEvent('pointerup', { clientX: x, clientY: y, bubbles: true }));
+}
+
+/** 模拟拖动/滚动：pointerup 坐标与 down 位移 ≥ 10px */
+function emitDrag(fromX: number, fromY: number, toX: number, toY: number) {
+  contentDoc.dispatchEvent(new MouseEvent('pointerdown', { clientX: fromX, clientY: fromY, bubbles: true }));
+  contentDoc.dispatchEvent(new MouseEvent('pointerup', { clientX: toX, clientY: toY, bubbles: true }));
 }
 
 describe('EpubBookController', () => {
   let controller: EpubBookController;
   const container = document.createElement('div');
+  /** epub.js manager.container（滚动衔接监听的滚动容器） */
+  let scrollContainer: HTMLElement;
 
   beforeEach(() => {
     vi.clearAllMocks();
     controller = new EpubBookController();
+    scrollContainer = document.createElement('div');
+    mocks.rendition.manager.container = scrollContainer;
+    mocks.rendition.getContents.mockReturnValue([{ document: contentDoc }]);
   });
 
   it('load：创建 book、以 scrolled-doc（固定垂直滚动）渲染、显示初始 CFI、返回递归映射目录', async () => {
@@ -165,18 +183,78 @@ describe('EpubBookController', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it('onTap：epub.js click 桥接触发订阅回调；退订后不再触发', async () => {
+  it('onTap：iframe 内容文档 pointerdown+up（位移 0）触发订阅回调；退订后不再触发', async () => {
     await controller.load('url', container);
     const listener = vi.fn();
     const off = controller.onTap(listener);
-    emitClick();
+    emitTap();
     expect(listener).toHaveBeenCalledTimes(1);
     off();
-    emitClick();
+    emitTap();
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
-  it('loadTxt：以 scrolled-doc 渲染并注册 click 桥接', async () => {
+  it('onTap：拖动/滚动（pointer 位移 ≥ 10px）不触发点按', async () => {
+    await controller.load('url', container);
+    const listener = vi.fn();
+    controller.onTap(listener);
+    emitDrag(10, 10, 60, 220); // 滚动典型位移
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('滚动接近章节末尾（剩余 <140px）→ 自动加载下一章', async () => {
+    await controller.load('url', container);
+    Object.defineProperty(scrollContainer, 'scrollHeight', { value: 2000, configurable: true });
+    Object.defineProperty(scrollContainer, 'clientHeight', { value: 800, configurable: true });
+    Object.defineProperty(scrollContainer, 'scrollTop', { value: 1900, configurable: true }); // 1900+800=2700 ≥ 2000-140
+
+    scrollContainer.dispatchEvent(new Event('scroll'));
+    expect(mocks.rendition.next).toHaveBeenCalledTimes(1);
+  });
+
+  it('滚动接近章节开头（距顶 <140px）→ 自动加载上一章，并在 relocated 后滚到新章节末尾（阅读连续）', async () => {
+    await controller.load('url', container);
+    Object.defineProperty(scrollContainer, 'scrollHeight', { value: 2000, configurable: true });
+    Object.defineProperty(scrollContainer, 'clientHeight', { value: 800, configurable: true });
+    Object.defineProperty(scrollContainer, 'scrollTop', { value: 50, configurable: true, writable: true }); // ≤140
+
+    scrollContainer.dispatchEvent(new Event('scroll'));
+    expect(mocks.rendition.prev).toHaveBeenCalledTimes(1);
+
+    // relocated（上一章切换完成）→ 滚到新章节末尾
+    emitRelocated({ start: { cfi: 'cfi-prev', href: 'ch1.xhtml', displayed: { page: 1, total: 1 } } });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    expect(scrollContainer.scrollTop).toBe(scrollContainer.scrollHeight);
+  });
+
+  it('章节内滚动（既不在开头也不在末尾）→ 不触发衔接', async () => {
+    await controller.load('url', container);
+    Object.defineProperty(scrollContainer, 'scrollHeight', { value: 2000, configurable: true });
+    Object.defineProperty(scrollContainer, 'clientHeight', { value: 800, configurable: true });
+    Object.defineProperty(scrollContainer, 'scrollTop', { value: 1000, configurable: true });
+
+    scrollContainer.dispatchEvent(new Event('scroll'));
+    expect(mocks.rendition.next).not.toHaveBeenCalled();
+    expect(mocks.rendition.prev).not.toHaveBeenCalled();
+  });
+
+  it('章节切换（href 变化）→ 播放 280ms 跨章节过渡动画（添加 class，动画后移除）', async () => {
+    await controller.load('url', container);
+    expect(scrollContainer.classList.contains('reader-chapter-transition')).toBe(false);
+
+    emitRelocated({ start: { cfi: 'cfi-a', href: 'ch1.xhtml', displayed: { page: 1, total: 1 } } });
+    expect(scrollContainer.classList.contains('reader-chapter-transition')).toBe(true);
+
+    // 同一章节重复 relocated 不重播
+    emitRelocated({ start: { cfi: 'cfi-a2', href: 'ch1.xhtml', displayed: { page: 2, total: 1 } } });
+    expect(scrollContainer.classList.contains('reader-chapter-transition')).toBe(true);
+
+    // 动画结束后移除 class
+    await new Promise(resolve => setTimeout(resolve, 320));
+    expect(scrollContainer.classList.contains('reader-chapter-transition')).toBe(false);
+  });
+
+  it('loadTxt：以 scrolled-doc 渲染并直挂点按桥接（getContents 被消费）', async () => {
     await controller.loadTxt(
       [{ id: 't1', title: '第一章', text: '正文' }],
       container,
@@ -186,7 +264,7 @@ describe('EpubBookController', () => {
       container,
       expect.objectContaining({ flow: 'scrolled-doc' }),
     );
-    expect(mocks.rendition.on.mock.calls.some(([event]) => event === 'click')).toBe(true);
+    expect(mocks.rendition.getContents).toHaveBeenCalled();
   });
 
   it('getExcerptAt：提取 CFI 锚点处文本摘要（压缩空白、限长）', async () => {

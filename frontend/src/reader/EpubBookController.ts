@@ -39,6 +39,10 @@ interface EpubRendition {
   display(target?: string): Promise<unknown>;
   /** 切换到下一章（章节自动衔接用；已至末章时静默） */
   next(): Promise<unknown>;
+  /** 切换到上一章（向上滚动衔接用；已至首章时静默） */
+  prev(): Promise<unknown>;
+  /** 当前已渲染章节的内容（点按桥接直挂用：Contents.document 即 iframe 内容文档） */
+  getContents?(): { document?: Document }[];
   on(event: string, cb: (...args: any[]) => void): void;
   themes: {
     register(name: string, styles: unknown): void;
@@ -86,6 +90,15 @@ export class EpubBookController {
   private scrollEl: HTMLElement | null = null;
   private autoNextLocked = false;
   private autoNextBound = false;
+  /** 向上滚动衔接：标记「已请求上一章，需在 relocated 后滚到新章节末尾」保持阅读连续 */
+  private pendingPrevScrollToBottom = false;
+  /** 跨章节过渡动画：记录当前章节 href，切换时播放 280ms 淡入（区别于章节内滚动） */
+  private chapterTransitionTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 点按桥接：直挂 iframe 内容文档的 pointer 事件（绕过 epub.js click 桥接，移动端 click 合成不可靠） */
+  private tapBoundDocs = new Set<Document>();
+  private tapStart: { x: number; y: number } | null = null;
+  /** 章节衔接阈值：滚动到章节顶部/底部 140px 内触发上一章/下一章 */
+  private static readonly CHAPTER_BOUNDARY = 140;
 
   /** 加载书籍并渲染。返回目录树。 */
   async load(source: string | ArrayBuffer, container: HTMLElement, options: LoadOptions = {}): Promise<TocItem[]> {
@@ -110,10 +123,11 @@ export class EpubBookController {
     });
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
-    // epub.js 将 iframe 内 click 桥接到 rendition（显隐工具栏用；不在滚动容器上叠加拦截层）
-    this.rendition.on('click', () => this.emitTap());
     await this.rendition.display(options.initialCfi || undefined);
     this.bindAutoNext();
+    // 点按桥接：直挂 iframe 内容文档 pointer 事件（epub.js click 桥接在 scrolled-doc 重建场景不可靠，
+    // 且移动端 click 合成有延迟/丢失；pointerdown+up 位移识别最稳）
+    this.bindTap();
 
     const nav = await this.book.loaded.navigation;
     return (nav.toc || []).map((item, i) => mapTocItem(item, String(i)));
@@ -141,10 +155,9 @@ export class EpubBookController {
     });
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
-    // epub.js 将 iframe 内 click 桥接到 rendition（显隐工具栏用；不在滚动容器上叠加拦截层）
-    this.rendition.on('click', () => this.emitTap());
     await this.rendition.display(options.initialCfi || undefined);
     this.bindAutoNext();
+    this.bindTap();
 
     // TXT Feed 无 navigation.toc：由章节构建目录（href 为 section href）
     const nav = await this.book.loaded.navigation;
@@ -227,6 +240,11 @@ export class EpubBookController {
 
   destroy(): void {
     this.unbindAutoNext();
+    this.unbindTap();
+    if (this.chapterTransitionTimer) {
+      clearTimeout(this.chapterTransitionTimer);
+      this.chapterTransitionTimer = null;
+    }
     this.rendition?.destroy();
     this.book?.destroy();
     this.rendition = null;
@@ -239,7 +257,9 @@ export class EpubBookController {
   // ── 内部 ──────────────────────────────────────────────
 
   /**
-   * 绑定渲染层滚动容器（epub.js manager.container），滚动接近章节末尾时自动加载下一章。
+   * 绑定渲染层滚动容器（epub.js manager.container），滚动到章节边界时自动衔接上/下一章：
+   *  - 接近章节末尾（剩余 < 140px）→ 加载下一章
+   *  - 接近章节开头（距顶 < 140px）→ 加载上一章，并滚到上一章末尾（保持阅读连续）
    * 仅作衔接，不叠加覆盖层、不拦截滚动手势；已绑定幂等。
    */
   private bindAutoNext(): void {
@@ -248,33 +268,56 @@ export class EpubBookController {
     const el = manager?.container;
     if (!el) return;
     this.scrollEl = el;
-    el.addEventListener('scroll', this.handleAutoNextScroll, { passive: true });
+    el.addEventListener('scroll', this.handleAutoChapterScroll, { passive: true });
     this.autoNextBound = true;
   }
 
   private unbindAutoNext(): void {
     if (this.scrollEl) {
-      this.scrollEl.removeEventListener('scroll', this.handleAutoNextScroll);
+      this.scrollEl.removeEventListener('scroll', this.handleAutoChapterScroll);
       this.scrollEl = null;
     }
     this.autoNextBound = false;
     this.autoNextLocked = false;
+    this.pendingPrevScrollToBottom = false;
   }
 
-  /** 滚动接近章节末尾（剩余 < 140px）且上一章切换完成后 → 自动加载下一章 */
-  private handleAutoNextScroll = (): void => {
+  /** 滚动到章节边界自动衔接：接近末尾 → next；接近开头 → prev（随后滚到新章节末尾保持连续阅读） */
+  private handleAutoChapterScroll = (): void => {
     const el = this.scrollEl;
     if (!el || this.autoNextLocked || !this.rendition) return;
-    if (el.scrollTop + el.clientHeight < el.scrollHeight - 140) return;
-    this.autoNextLocked = true;
-    void (this.rendition.next() as Promise<unknown>)
-      .catch(() => undefined)
-      .finally(() => {
-        // 等 relocated（章节切换完成）后解锁，避免滚动事件风暴连发
-        setTimeout(() => {
-          this.autoNextLocked = false;
-        }, 400);
-      });
+    const boundary = EpubBookController.CHAPTER_BOUNDARY;
+
+    // 章节内正常滚动（既不在开头也不在末尾）→ 不处理
+    if (el.scrollTop + el.clientHeight < el.scrollHeight - boundary && el.scrollTop > boundary) return;
+
+    // 接近章节末尾 → 加载下一章
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - boundary) {
+      this.autoNextLocked = true;
+      void (this.rendition.next() as Promise<unknown>)
+        .catch(() => undefined)
+        .finally(() => {
+          // 等 relocated（章节切换完成）后解锁，避免滚动事件风暴连发
+          setTimeout(() => {
+            this.autoNextLocked = false;
+          }, 400);
+        });
+      return;
+    }
+
+    // 接近章节开头 → 加载上一章；relocated 后滚动到新章节末尾（向上阅读保持连续）
+    if (el.scrollTop <= boundary) {
+      this.autoNextLocked = true;
+      this.pendingPrevScrollToBottom = true;
+      void (this.rendition.prev() as Promise<unknown>)
+        .catch(() => undefined)
+        .finally(() => {
+          setTimeout(() => {
+            this.autoNextLocked = false;
+            this.pendingPrevScrollToBottom = false;
+          }, 400);
+        });
+    }
   };
 
   private handleRelocated(raw: unknown): void {
@@ -294,8 +337,85 @@ export class EpubBookController {
       loc.globalPage = Math.max(1, Math.min(total, Math.ceil(p * total)));
     }
     this.lastLocation = loc;
+
+    // 向上衔接：切换完成（新章节已渲染）后滚动到新章节末尾，保持「上一章末尾 → 本章开头」阅读连续
+    if (this.pendingPrevScrollToBottom) {
+      this.pendingPrevScrollToBottom = false;
+      this.scrollToChapterBottom();
+    }
+
+    // 章节切换（href 变化）→ 播放 280ms 跨章节过渡动画，与章节内滚动区分
+    this.playChapterTransitionIfChanged(start.href);
+
     for (const cb of this.listeners) cb(loc);
   }
+
+  /** 将渲染层滚动容器滚到当前章节末尾（向上衔接上一章后调用，保证连续阅读） */
+  private scrollToChapterBottom(): void {
+    const el = this.scrollEl;
+    if (!el) return;
+    // 新章节 iframe 刚替换，DOM 尚未完全布局；用两帧后再滚动，确保 scrollHeight 正确
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    });
+  }
+
+  /** 章节 href 变化时播放跨章节过渡动画（280ms 淡入；区别于章节内滚动，更丝滑） */
+  private playChapterTransitionIfChanged(href: string): void {
+    const el = this.scrollEl;
+    if (!el || !href || href === el.dataset.chapterHref) return;
+    el.dataset.chapterHref = href;
+    el.classList.remove('reader-chapter-transition');
+    // 强制重排以重启动画
+    void el.offsetWidth;
+    el.classList.add('reader-chapter-transition');
+    if (this.chapterTransitionTimer) clearTimeout(this.chapterTransitionTimer);
+    this.chapterTransitionTimer = setTimeout(() => {
+      el.classList.remove('reader-chapter-transition');
+      this.chapterTransitionTimer = null;
+    }, 300);
+  }
+
+  /** 点按桥接：直挂当前 iframe 内容文档 pointer 事件（epub.js click 桥接在 scrolled-doc 重建场景不可靠，
+   *  且移动端 click 合成有 300ms 延迟/丢失；pointerdown+up 位移识别最稳）。返回退订函数。 */
+  private bindTap(): void {
+    if (!this.rendition) return;
+    const contents = this.rendition.getContents?.() ?? [];
+    for (const c of contents) {
+      const doc = c.document;
+      if (!doc || this.tapBoundDocs.has(doc)) continue;
+      this.tapBoundDocs.add(doc);
+      doc.addEventListener('pointerdown', this.handleTapStart, { passive: true });
+      doc.addEventListener('pointerup', this.handleTapEnd, { passive: true });
+    }
+  }
+
+  private unbindTap(): void {
+    for (const doc of this.tapBoundDocs) {
+      doc.removeEventListener('pointerdown', this.handleTapStart);
+      doc.removeEventListener('pointerup', this.handleTapEnd);
+    }
+    this.tapBoundDocs.clear();
+    this.tapStart = null;
+  }
+
+  /** pointerdown 记录起始坐标（用于与滚动/拖动区分） */
+  private handleTapStart = (e: PointerEvent): void => {
+    this.tapStart = { x: e.clientX, y: e.clientY };
+  };
+
+  /** pointerup 位移 < 10px 视为点按（滚动/拖动的 pointerup 位移大，不触发） */
+  private handleTapEnd = (e: PointerEvent): void => {
+    const start = this.tapStart;
+    this.tapStart = null;
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
+    this.emitTap();
+  };
 
   private emitTap(): void {
     for (const cb of this.tapListeners) cb();
