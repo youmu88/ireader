@@ -250,6 +250,24 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
   // 注意：必须在 CREATE TABLE IF NOT EXISTS 之后运行，确保 users 表已存在
   migrateOldTables(sqlite);
 
+  // ── 兜底迁移：reading_progress 补 progress_version / device_id 列（多设备冲突合并） ──
+  // 注意：不能放在 migrateOldTables 内——其哨兵检查（categories 已有 user_id）命中会提前 return，
+  // 导致早期版本创建的 reading_progress 旧表永远补不上这两列（曾导致线上 PUT/GET progress 报 no such column）。
+  // 此处必须在主流程独立执行，且幂等（PRAGMA 检查列存在性）。
+  try {
+    const progressCols = sqlite.prepare("PRAGMA table_info('reading_progress')").all() as { name: string }[];
+    if (!progressCols.some(c => c.name === 'progress_version')) {
+      sqlite.exec(`ALTER TABLE reading_progress ADD COLUMN progress_version INTEGER NOT NULL DEFAULT 1;`);
+      console.log('[迁移] reading_progress 补充 progress_version 列 ✅');
+    }
+    if (!progressCols.some(c => c.name === 'device_id')) {
+      sqlite.exec(`ALTER TABLE reading_progress ADD COLUMN device_id TEXT;`);
+      console.log('[迁移] reading_progress 补充 device_id 列 ✅');
+    }
+  } catch (err) {
+    console.error('[迁移] reading_progress 列补充失败:', (err as Error).message);
+  }
+
   // ── 单独检查 tts_settings 的 api_url/api_key 列（旧版 migrateOldTables 可能跳过此步骤） ──
   try {
     const ttsCols = sqlite.prepare("PRAGMA table_info('tts_settings')").all() as { name: string }[];
@@ -550,16 +568,4 @@ function migrateOldTables(sqlite: Database.Database) {
     console.error('[迁移] 数据库升级失败（可能是新表或已有列，忽略）:', (err as Error).message);
   }
 
-  // Migration: add progress_version and device_id for multi-device conflict resolution
-  // 注意：建表 DDL 已含这两列（与 schema.ts 对齐）；此处仅兜底历史库（ALTER 幂等）
-  try {
-    sqlite.exec(`
-      ALTER TABLE reading_progress ADD COLUMN progress_version INTEGER NOT NULL DEFAULT 1;
-    `);
-  } catch { /* column already exists */ }
-  try {
-    sqlite.exec(`
-      ALTER TABLE reading_progress ADD COLUMN device_id TEXT;
-    `);
-  } catch { /* column already exists */ }
 }
