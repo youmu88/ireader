@@ -11,7 +11,7 @@ module.exports = {
     sourceType: 'module',
     ecmaFeatures: { jsx: true },
   },
-  plugins: ['@typescript-eslint'],
+  plugins: ['@typescript-eslint', 'react-hooks'],
   ignorePatterns: ['dist', 'node_modules', '*.config.*'],
   overrides: [
     {
@@ -19,6 +19,7 @@ module.exports = {
       excludedFiles: [
         'src/components/ui/Button.tsx',
         'src/components/ui/IconButton.tsx',
+        'src/components/ui/ToggleSwitch.tsx',
       ],
       rules: {
         'no-restricted-syntax': ['error', {

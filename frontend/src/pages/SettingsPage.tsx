@@ -579,8 +579,9 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center gap-2">
               {['#ffffff', '#f5f0e8', '#e8f0f5', '#1a1a2e', '#2d2d2d'].map(color => (
-                <button key={color} onClick={() => { setReaderBg(color); document.documentElement.style.setProperty('--reader-bg', color); try { localStorage.setItem('ireader_reader_bg', color); } catch {} }}
-                  className="w-7 h-7 rounded-full border-2 transition-all duration-200 tap-icon"
+                <Button key={color} variant="ghost" onClick={() => { setReaderBg(color); document.documentElement.style.setProperty('--reader-bg', color); try { localStorage.setItem('ireader_reader_bg', color); } catch {} }}
+                  aria-label={`阅读背景色 ${color}`}
+                  className="!w-7 !h-7 !rounded-full !p-0 border-2 transition-all duration-200 tap-icon !text-current"
                   style={{
                     background: color,
                     borderColor: readerBg === color ? 'var(--color-primary)' : 'var(--color-border)',

@@ -80,6 +80,8 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       text_offset INTEGER,
       percentage REAL,
       page_index INTEGER,
+      progress_version INTEGER NOT NULL DEFAULT 1,
+      device_id TEXT,
       updated_at TEXT NOT NULL
     );
 
@@ -561,6 +563,7 @@ function migrateOldTables(sqlite: Database.Database) {
   }
 
   // Migration: add progress_version and device_id for multi-device conflict resolution
+  // 注意：建表 DDL 已含这两列（与 schema.ts 对齐）；此处仅兜底历史库（ALTER 幂等）
   try {
     sqlite.exec(`
       ALTER TABLE reading_progress ADD COLUMN progress_version INTEGER NOT NULL DEFAULT 1;

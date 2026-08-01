@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
+import { Button } from '../components/ui/Button';
 
 // 模拟 getCurrentUser，用于断言「离线态不应发起认证请求」
 const getCurrentUserSpy = vi.fn();
@@ -23,7 +24,7 @@ function Probe() {
       <span data-testid="loading">{String(loading)}</span>
       <span data-testid="auth">{String(isAuthenticated)}</span>
       <span data-testid="offline">{String(isOfflineMode)}</span>
-      <button data-testid="enter" onClick={enterOfflineMode}>enter</button>
+      <Button data-testid="enter" onClick={enterOfflineMode} variant="ghost" className="!w-auto !h-auto !px-2 !py-1">enter</Button>
     </div>
   );
 }

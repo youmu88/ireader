@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "migrate:refs": "tsx src/scripts/migrate-global-refs.ts",
     "migrate:backfill-text": "tsx src/scripts/backfill-normalized-text.ts",
-    "lint": "eslint src/"
+    "lint": "eslint --ext .ts src/"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

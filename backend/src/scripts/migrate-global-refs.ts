@@ -164,7 +164,7 @@ async function migrate() {
     ttsKeyMap.get(ttsKey)!.group.push(entry);
   }
 
-  for (const [key, { group, globalId: _existingGlobalId }] of ttsKeyMap) {
+  for (const [, { group, globalId: _existingGlobalId }] of ttsKeyMap) {
     if (group.length === 0) continue;
     const first = group[0];
     

@@ -8,6 +8,8 @@
 import { useState } from 'react';
 import type { TocItem } from '../types';
 import type { BookmarkItem } from '../useBookmarks';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
 
 export interface TocPanelProps {
   open: boolean;
@@ -40,16 +42,15 @@ function TocRow({ item, depth, currentHref, onSelect }: TocRowProps) {
   const active = isActiveTocItem(item.href, currentHref);
   return (
     <>
-      <button
+      <Button
+        variant="ghost"
         onClick={() => onSelect(item.href)}
         aria-current={active ? 'true' : undefined}
-        className={`w-full text-left py-2.5 pr-4 text-[15px] leading-snug active:opacity-40 transition-opacity ${
-          active ? 'font-semibold text-blue-500' : ''
-        }`}
+        className={`!w-full !justify-start !h-auto !px-0 !py-2.5 !pr-4 !rounded-none text-[15px] leading-snug !text-current active:opacity-40 transition-opacity ${active ? 'font-semibold text-blue-500' : ''}`}
         style={{ paddingLeft: 16 + depth * 20 }}
       >
         {item.label}
-      </button>
+      </Button>
       {item.subitems?.map(sub => (
         <TocRow key={sub.id} item={sub} depth={depth + 1} currentHref={currentHref} onSelect={onSelect} />
       ))}
@@ -102,26 +103,25 @@ export function TocPanel({
           style={{ borderColor: 'rgba(128,128,128,0.25)' }}
         >
           <h2 className="text-[17px] font-semibold">{showTabs && tab === 'bookmarks' ? '书签' : '目录'}</h2>
-          <button onClick={onClose} aria-label="关闭目录" className="p-2 rounded-lg active:opacity-40 transition-opacity text-lg leading-none">
+          <IconButton onClick={onClose} aria-label="关闭目录" variant="ghost" className="!w-auto !h-auto !p-2 !rounded-lg !text-current active:opacity-40 transition-opacity text-lg leading-none">
             &times;
-          </button>
+          </IconButton>
         </div>
 
         {/* tab 头（仅传入 bookmarks 时显示） */}
         {showTabs && (
           <div className="flex shrink-0 border-b" role="tablist" style={{ borderColor: 'rgba(128,128,128,0.25)' }}>
             {(['toc', 'bookmarks'] as const).map(t => (
-              <button
+              <Button
                 key={t}
+                variant="ghost"
                 role="tab"
                 aria-selected={tab === t}
                 onClick={() => setTab(t)}
-                className={`flex-1 py-2.5 text-sm transition-colors ${
-                  tab === t ? 'font-semibold border-b-2 border-blue-500' : 'opacity-60'
-                }`}
+                className={`!flex-1 !w-auto !h-auto !rounded-none !py-2.5 text-sm transition-colors !text-current ${tab === t ? 'font-semibold border-b-2 border-blue-500' : 'opacity-60'}`}
               >
                 {t === 'toc' ? `目录（${toc.length}）` : `书签（${bookmarks.length}）`}
-              </button>
+              </Button>
             ))}
           </div>
         )}
@@ -149,24 +149,26 @@ export function TocPanel({
             ) : (
               bookmarks.map(b => (
                 <div key={b.id} className="flex items-start gap-1 px-2">
-                  <button
+                  <Button
+                    variant="ghost"
                     onClick={() => onSelectBookmark?.(b)}
-                    className="flex-1 text-left px-2 py-2 rounded-lg active:opacity-40 transition-opacity"
+                    className="!flex-1 !w-auto !justify-start !h-auto !px-2 !py-2 !rounded-lg !text-current active:opacity-40 transition-opacity"
                   >
                     <p className="text-[15px] leading-snug line-clamp-2">{b.excerpt || '（无摘要）'}</p>
                     <p className="text-xs mt-1" style={{ opacity: 0.6 }}>
                       {b.globalPage ? `第 ${b.globalPage} 页 · ` : ''}
                       {formatBookmarkDate(b.createdAt)}
                     </p>
-                  </button>
-                  <button
+                  </Button>
+                  <IconButton
+                    variant="ghost"
                     onClick={() => onRemoveBookmark?.(b.id)}
                     aria-label={`删除书签-${b.excerpt || b.id}`}
-                    className="p-2 mt-1 rounded-lg active:opacity-40 transition-opacity text-base leading-none"
+                    className="!w-auto !h-auto !p-2 !mt-1 !rounded-lg !text-current active:opacity-40 transition-opacity text-base leading-none"
                     style={{ opacity: 0.5 }}
                   >
                     &times;
-                  </button>
+                  </IconButton>
                 </div>
               ))
             )}

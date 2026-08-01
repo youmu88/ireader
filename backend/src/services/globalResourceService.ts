@@ -118,7 +118,6 @@ export function createUserBookRef(
  * 恢复用户已删除的引用（重新上传已删除过的书）
  */
 export function restoreUserBookRef(db: any, refId: string): void {
-  const now = new Date().toISOString();
   db.update(userBookRefs)
     .set({ deletedAt: null, refCount: 1 } as any)
     .where(sql`id = ${refId}`)
@@ -303,7 +302,7 @@ const CLEANUP_THRESHOLD_DAYS = 30;
 /**
  * 清理所有引用归零且超过30天的全局资源
  */
-export function cleanupExpiredResources(db: any, dataDir: string): CleanupResult {
+export function cleanupExpiredResources(db: any, _dataDir: string): CleanupResult {
   const threshold = new Date(Date.now() - CLEANUP_THRESHOLD_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const result: CleanupResult = { booksDeleted: 0, ttsResourcesDeleted: 0, filesDeleted: 0 };
 

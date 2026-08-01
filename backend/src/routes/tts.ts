@@ -9,8 +9,8 @@ import path from 'path';
 import { sql } from 'drizzle-orm';
 import { getSources, getVoices, getModels, checkHealth, synthesize } from '../services/ttsProxyService.js';
 import { ttsSettings, ttsCache, ttsGenerationJobs, books, ttsGlobalResources, ttsRefs, userBookRefs } from '../db/schema.js';
-import { findCache, isCacheValid, saveToCache, clearAllCache, evictStaleCache, findCachedSegmentsByBook } from '../services/ttsCacheService.js';
-import { findTtsGlobalResource, createTtsGlobalResource, createTtsRef, removeTtsRef } from '../services/globalResourceService.js';
+import { findCache, isCacheValid, saveToCache, clearAllCache, findCachedSegmentsByBook } from '../services/ttsCacheService.js';
+import { findTtsGlobalResource, createTtsGlobalResource, createTtsRef } from '../services/globalResourceService.js';
 import { requireAuth } from '../middleware/auth.js';
 import { regenerateAllForNewVoice, createFullBookGenerationJob, cancelJob, cancelJobs, cancelAllUserJobs, deleteJobs, clearTerminatedJobs } from '../services/ttsGenerationService.js';
 

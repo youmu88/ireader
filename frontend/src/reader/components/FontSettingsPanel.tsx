@@ -6,6 +6,7 @@
  */
 import type { ReaderSettings, ReaderTheme } from '../types';
 import { FONT_SIZE_MAX, FONT_SIZE_MIN, FONT_SIZE_STEP, LINE_HEIGHT_OPTIONS, READER_THEMES } from '../theme';
+import { Button } from '../../components/ui/Button';
 
 export interface FontSettingsPanelProps {
   open: boolean;
@@ -47,25 +48,27 @@ export function FontSettingsPanel({
       >
         {/* 字号 */}
         <div className="flex items-center justify-between">
-          <button
+          <Button
+            variant="ghost"
             onClick={() => onChange({ fontSize: settings.fontSize - FONT_SIZE_STEP })}
             disabled={settings.fontSize <= FONT_SIZE_MIN}
             aria-label="减小字号"
-            className="w-14 h-11 rounded-xl border text-lg disabled:opacity-30 active:opacity-50 transition-opacity"
+            className="!w-14 !h-11 !rounded-xl !p-0 border text-lg !text-current disabled:opacity-30 active:opacity-50 transition-opacity"
             style={{ borderColor: 'rgba(128,128,128,0.4)' }}
           >
             A−
-          </button>
+          </Button>
           <span className="text-sm tabular-nums" style={{ opacity: 0.7 }}>{settings.fontSize}%</span>
-          <button
+          <Button
+            variant="ghost"
             onClick={() => onChange({ fontSize: settings.fontSize + FONT_SIZE_STEP })}
             disabled={settings.fontSize >= FONT_SIZE_MAX}
             aria-label="增大字号"
-            className="w-14 h-11 rounded-xl border text-xl disabled:opacity-30 active:opacity-50 transition-opacity"
+            className="!w-14 !h-11 !rounded-xl !p-0 border text-xl !text-current disabled:opacity-30 active:opacity-50 transition-opacity"
             style={{ borderColor: 'rgba(128,128,128,0.4)' }}
           >
             A＋
-          </button>
+          </Button>
         </div>
 
         {/* 主题 */}
@@ -74,14 +77,13 @@ export function FontSettingsPanel({
             const spec = READER_THEMES[name];
             const active = settings.theme === name;
             return (
-              <button
+              <Button
                 key={name}
+                variant="ghost"
                 onClick={() => onChange({ theme: name })}
                 aria-label={`主题-${spec.label}`}
                 aria-pressed={active}
-                className={`w-11 h-11 rounded-full border transition-transform ${
-                  active ? 'ring-2 ring-offset-2 ring-blue-500 scale-110' : ''
-                }`}
+                className={`!w-11 !h-11 !rounded-full !p-0 border transition-transform !text-current ${active ? 'ring-2 ring-offset-2 ring-blue-500 scale-110' : ''}`}
                 style={{ background: spec.background, borderColor: 'rgba(128,128,128,0.4)' }}
               />
             );
@@ -93,18 +95,19 @@ export function FontSettingsPanel({
           {LINE_HEIGHT_OPTIONS.map(lh => {
             const active = settings.lineHeight === lh;
             return (
-              <button
+              <Button
                 key={lh}
+                variant="ghost"
                 onClick={() => onChange({ lineHeight: lh })}
                 aria-pressed={active}
-                className={`px-5 py-2 rounded-full text-sm border transition-colors ${active ? 'font-semibold' : ''}`}
+                className={`!h-auto !px-5 !py-2 !rounded-full text-sm border transition-colors !text-current ${active ? 'font-semibold' : ''}`}
                 style={{
                   borderColor: 'rgba(128,128,128,0.4)',
                   background: active ? 'rgba(0,122,255,0.15)' : 'transparent',
                 }}
               >
                 {LINE_HEIGHT_LABELS[lh]}
-              </button>
+              </Button>
             );
           })}
         </div>

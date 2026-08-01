@@ -3,12 +3,12 @@ import express from 'express';
 import request from 'supertest';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import { initDatabase } from '../db/init.js';
 import { createAuthRouter } from './auth.js';
 import { createBooksRouter } from './books.js';
 import { createCategoriesRouter } from './categories.js';
 import { createProgressRouter } from './progress.js';
+import { createBookmarksRouter } from './bookmarks.js';
 import healthRouter from './health.js';
 import { errorHandler } from '../middleware/errorHandler.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -19,7 +19,6 @@ describe('API Integration', () => {
   const testDataDir = path.join('/tmp', testId);
   let app: express.Express;
   let authToken: string;
-  let testUserId: string;
 
   beforeAll(async () => {
     // Create test data directory
@@ -42,7 +41,6 @@ describe('API Integration', () => {
       .send({ email: `youmu88@gmail.com`, password: 'test123456', displayName: '测试用户' });
     expect(registerRes.status).toBe(201);
     authToken = registerRes.body.data.token;
-    testUserId = registerRes.body.data.userId;
   });
 
   afterAll(() => {
@@ -173,8 +171,6 @@ describe('API Integration', () => {
 
   // ── Books ──
   describe('Books API', () => {
-    let bookId: string;
-
     it('GET /api/books should return empty list initially', async () => {
       const res = await request(app)
         .get('/api/books')

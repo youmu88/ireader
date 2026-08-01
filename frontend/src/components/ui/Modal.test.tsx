@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { Modal, ConfirmProvider, confirm } from './Modal';
+import { Button } from './Button';
 
 describe('Modal', () => {
   it('open 时渲染 title 与 children', () => {
@@ -72,7 +73,7 @@ describe('Modal', () => {
 
   it('渲染 footer', () => {
     render(
-      <Modal open onClose={() => {}} footer={<button>底部按钮</button>}>
+      <Modal open onClose={() => {}} footer={<Button>底部按钮</Button>}>
         x
       </Modal>,
     );

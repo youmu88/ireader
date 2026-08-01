@@ -4,12 +4,12 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { sql } from 'drizzle-orm';
-import { books, bookChapters, readingProgress, ttsGenerationJobs, ttsSettings, ttsCache, userBookRefs, globalBooks } from '../db/schema.js';
+import { books, bookChapters, readingProgress, ttsGenerationJobs, ttsSettings, ttsCache, globalBooks } from '../db/schema.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { parseBook, getChapterContent, parseTxt } from '../parser/index.js';
 import { getBookCacheStats } from '../services/contentCacheService.js';
-import { computeFileHash, findGlobalBookByHash, createGlobalBook, createUserBookRef, findUserActiveBookRef, removeUserBookRef } from '../services/globalResourceService.js';
+import { computeFileHash, findGlobalBookByHash, createGlobalBook, createUserBookRef, removeUserBookRef } from '../services/globalResourceService.js';
 import crypto from 'crypto';
 
 // computeFileHash 已迁移到 globalResourceService.js
@@ -1068,9 +1068,8 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       // 对每组重复书籍：保留最早创建的，删除其他
       for (const [, group] of groups) {
         if (group.length <= 1) continue;
-        // 按创建时间排序，保留最早创建的
+        // 按创建时间排序，保留最早创建的（group[0] 即保留项）
         group.sort((a: any, b: any) => a.createdAt.localeCompare(b.createdAt));
-        const keep = group[0];
         const duplicates = group.slice(1);
 
         for (const dup of duplicates) {

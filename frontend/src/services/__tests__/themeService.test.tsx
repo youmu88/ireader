@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ThemeProvider, useTheme } from '../themeService';
+import { Button } from '../../components/ui/Button';
 
 // ── matchMedia mock 辅助 ──
 function createMatchMediaMock(prefersDark: boolean) {
@@ -46,9 +47,9 @@ function ThemeTestConsumer() {
   return (
     <div>
       <span data-testid="theme-value">{theme}</span>
-      <button data-testid="btn-toggle" onClick={toggleTheme}>Toggle</button>
-      <button data-testid="btn-light" onClick={() => setTheme('light')}>Light</button>
-      <button data-testid="btn-dark" onClick={() => setTheme('dark')}>Dark</button>
+      <Button data-testid="btn-toggle" onClick={toggleTheme} variant="ghost" className="!w-auto !h-auto !px-2 !py-1">Toggle</Button>
+      <Button data-testid="btn-light" onClick={() => setTheme('light')} variant="ghost" className="!w-auto !h-auto !px-2 !py-1">Light</Button>
+      <Button data-testid="btn-dark" onClick={() => setTheme('dark')} variant="ghost" className="!w-auto !h-auto !px-2 !py-1">Dark</Button>
     </div>
   );
 }

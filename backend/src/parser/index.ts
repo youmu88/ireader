@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import { parseEpub, normalizeHtmlText, type EpubParseResult } from './epub.js';
-import { parseTxt, getChapterContent, type TxtParseResult } from './txt.js';
+import { parseEpub, normalizeHtmlText } from './epub.js';
+import { parseTxt, getChapterContent } from './txt.js';
 
 export { parseEpub, parseTxt, getChapterContent, normalizeHtmlText };
 export type { EpubParseResult, EpubMeta, EpubChapter } from './epub.js';

@@ -17,7 +17,6 @@
 
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 import { initDatabase } from '../db/init.js';
 import { v4 as uuidv4 } from 'uuid';
 import { sql } from 'drizzle-orm';
@@ -35,7 +34,6 @@ const TTS_CACHE_DIR = process.env.TTS_CACHE_DIR || path.join(DATA_DIR, 'tts-cach
 
 // youmu88 百妖谱的已知信息
 const YOUMU88_ID = '217a5172-a73e-4e9e-b58d-6e186464b118';
-const YOUMU88_LOCAL_BOOK_ID = 'de7ffc7b-31d5-474a-b4e2-781e52f941d0';
 const YOUMU88_GLOBAL_BOOK_ID = '7ba1fba9-207f-4f01-943e-e9660d7c2946';
 const VOICE = 'zh-CN-XiaoxiaoNeural';
 const SPEED = 1.0;

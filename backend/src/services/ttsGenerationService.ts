@@ -9,7 +9,6 @@ import crypto from 'crypto';
 import { sql, inArray, and, eq } from 'drizzle-orm';
 import { ttsGenerationJobs, ttsGenerationSegments, contentSegments, bookChapters, ttsSettings, books } from '../db/schema.js';
 import { ensureBookSegments } from './contentSegmentService.js';
-import { synthesize } from './ttsProxyService.js';
 import { saveToCache } from './ttsCacheService.js';
 import { parseTxt, getChapterContent, normalizeHtmlText } from '../parser/index.js';
 import path from 'path';

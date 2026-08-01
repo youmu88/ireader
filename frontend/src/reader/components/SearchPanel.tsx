@@ -6,6 +6,8 @@
  */
 import { useEffect, useState } from 'react';
 import type { SearchResult } from '../searchBook';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
 
 export interface SearchPanelProps {
   open: boolean;
@@ -101,13 +103,13 @@ export function SearchPanel({
             className="flex-1 bg-transparent outline-none text-[16px] placeholder:opacity-40"
           />
           {query && (
-            <button onClick={() => setQuery('')} aria-label="清空搜索" className="p-1.5 rounded-full active:opacity-40" style={{ opacity: 0.5 }}>
+            <IconButton variant="ghost" onClick={() => setQuery('')} aria-label="清空搜索" className="!w-auto !h-auto !p-1.5 !rounded-full !text-current active:opacity-40" style={{ opacity: 0.5 }}>
               &times;
-            </button>
+            </IconButton>
           )}
-          <button onClick={handleClose} className="text-[15px] text-blue-500 px-1 active:opacity-40">
+          <Button variant="ghost" onClick={handleClose} className="!h-auto !px-1 !rounded-none !text-current text-[15px] text-blue-500 active:opacity-40">
             取消
-          </button>
+          </Button>
         </div>
 
         {/* 结果区 */}
@@ -122,10 +124,11 @@ export function SearchPanel({
             <p className="px-5 py-10 text-sm text-center" style={{ opacity: 0.5 }}>未找到「{query}」</p>
           )}
           {query && !searching && results.map((r, i) => (
-            <button
+            <Button
               key={`${r.cfi}-${i}`}
+              variant="ghost"
               onClick={() => onSelect(r)}
-              className="w-full text-left px-5 py-3 border-b active:opacity-40 transition-opacity"
+              className="!w-full !justify-start !h-auto !rounded-none !px-5 !py-3 border-b !text-current active:opacity-40 transition-opacity"
               style={{ borderColor: 'rgba(128,128,128,0.15)' }}
             >
               <p className="text-[15px] leading-relaxed">
@@ -134,7 +137,7 @@ export function SearchPanel({
               <p className="text-xs mt-1" style={{ opacity: 0.5 }}>
                 {chapterLabelOf?.(r.chapterHref) ?? r.chapterHref}
               </p>
-            </button>
+            </Button>
           ))}
         </div>
       </div>

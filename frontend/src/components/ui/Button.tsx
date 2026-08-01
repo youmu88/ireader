@@ -16,7 +16,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   active?: boolean;
   /** 内容水平对齐，默认 center；row 等全宽场景用 start；between 用于两端对齐 */
   justify?: 'center' | 'start' | 'between';
-  children: ReactNode;
+  children?: ReactNode;
 }
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {

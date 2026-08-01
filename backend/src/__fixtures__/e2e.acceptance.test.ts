@@ -37,7 +37,6 @@ import { createProgressRouter } from '../routes/progress.js';
 import { createTtsRouter } from '../routes/tts.js';
 import healthRouter from '../routes/health.js';
 import { errorHandler } from '../middleware/errorHandler.js';
-import { v4 as uuidv4 } from 'uuid';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.resolve(__dirname, 'samples');

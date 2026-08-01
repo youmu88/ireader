@@ -6,6 +6,8 @@
  * workaround：nav 外层加 translateZ(0) 强制独立合成层，滚动时由合成器固定位置。
  */
 
+import { Button } from '../ui/Button';
+
 /** Dock 页签定义 */
 export interface DockTab {
   id: string;
@@ -82,11 +84,12 @@ export function Dock({ tabs, currentPath, onNavigate }: DockProps) {
               );
               return (
                 <div key={tab.id} className="flex flex-col items-center gap-0.5">
-                  <button
+                  <Button
+                    variant="ghost"
                     type="button"
                     data-active={active ? 'true' : 'false'}
                     onClick={() => onNavigate?.(tab.id)}
-                    className="relative flex flex-col items-center gap-0.5 rounded-full px-5 py-1.5 tap-icon transition-transform active:scale-90"
+                    className="relative !flex !flex-col items-center gap-0.5 !rounded-full !px-5 !py-1.5 tap-icon transition-transform active:scale-90 !text-current"
                     aria-label={tab.label}
                     aria-current={active ? 'page' : undefined}
                     style={{ color: active ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}
@@ -98,7 +101,7 @@ export function Dock({ tabs, currentPath, onNavigate }: DockProps) {
                         active ? 'bg-ios-primary opacity-100' : 'opacity-0'
                       }`}
                     />
-                  </button>
+                  </Button>
                 </div>
               );
             })}

@@ -33,7 +33,7 @@ export async function cacheFullBook(
   db: any,
   bookId: string,
   userId: string,
-  dataDir: string,
+  _dataDir: string,
 ): Promise<{ cached: number; failed: number }> {
   const book = db.select().from(books).where(sql`id = ${bookId} AND user_id = ${userId}`).get();
   if (!book) throw new Error('图书不存在');

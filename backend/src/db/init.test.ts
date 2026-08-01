@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { initDatabase } from './init.js';
-import { books, bookChapters, categories, readingProgress, settings, ttsSettings, users } from './schema.js';
+import { books, categories, ttsSettings, users } from './schema.js';
 import { sql } from 'drizzle-orm';
 import fs from 'fs';
 import path from 'path';

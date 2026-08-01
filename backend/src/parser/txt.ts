@@ -88,9 +88,6 @@ export function parseTxt(filePath: string): TxtParseResult {
   }
 
   // Detect chapters
-  let currentOffset = 0;
-  let chapterStart = 0;
-  let chapterTitle = '前言';
   let chapterOrder = 0;
 
   // Check if we can detect chapter boundaries
