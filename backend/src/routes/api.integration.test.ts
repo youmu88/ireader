@@ -33,6 +33,7 @@ describe('API Integration', () => {
     app.use('/api/books', createBooksRouter(db, testDataDir));
     app.use('/api/categories', createCategoriesRouter(db));
     app.use('/api', createProgressRouter(db));
+    app.use('/api', createBookmarksRouter(db));
     app.use(errorHandler);
 
     // Register test user and get token

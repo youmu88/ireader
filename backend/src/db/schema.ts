@@ -225,6 +225,23 @@ export const ttsRefs = sqliteTable('tts_refs', {
   createdAt: text('created_at').notNull(),
 });
 
+// ── 书签表（云同步用：按 用户+书 维度，cfi 为定位键） ──
+export const bookmarks = sqliteTable('bookmarks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
+  /** 书签锚点 CFI（定位键，同一本书+用户内唯一） */
+  cfi: text('cfi').notNull(),
+  /** 锚点处文本摘要 */
+  excerpt: text('excerpt'),
+  /** 所属章节 href */
+  chapterHref: text('chapter_href'),
+  /** 全局页码（locations 就绪时记录） */
+  globalPage: integer('global_page'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
 // ===== 类型导出 =====
 
 export type User = typeof users.$inferSelect;
@@ -262,3 +279,6 @@ export type NewTtsGlobalResource = typeof ttsGlobalResources.$inferInsert;
 
 export type TtsRef = typeof ttsRefs.$inferSelect;
 export type NewTtsRef = typeof ttsRefs.$inferInsert;
+
+export type Bookmark = typeof bookmarks.$inferSelect;
+export type NewBookmark = typeof bookmarks.$inferInsert;
