@@ -199,6 +199,8 @@ export interface ShelfCacheMeta {
   format: 'epub' | 'txt';
   hasCover: boolean;
   cachedAt: number;
+  /** 最近阅读时间（ISO），用于离线书架按最近阅读排序 */
+  lastReadAt?: string | null;
 }
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
@@ -1297,6 +1299,7 @@ export async function cacheShelfBooksMeta(
     author: string | null;
     coverPath: string | null;
     format: 'epub' | 'txt';
+    lastReadAt?: string | null;
   }>,
 ): Promise<void> {
   try {
@@ -1316,6 +1319,7 @@ export async function cacheShelfBooksMeta(
         format: book.format,
         hasCover: !!book.coverPath,
         cachedAt: now,
+        lastReadAt: book.lastReadAt || null,
       };
       if (existingMeta) {
         await store.put({ ...existingMeta, ...shelfMeta });
@@ -1346,6 +1350,7 @@ export async function getOfflineShelfBooks(): Promise<ShelfCacheMeta[]> {
         format: m.format || 'epub',
         hasCover: m.hasCover || false,
         cachedAt: m.cachedAt || 0,
+        lastReadAt: m.lastReadAt || null,
       } as ShelfCacheMeta))
       .sort((a, b) => b.cachedAt - a.cachedAt);
   } catch {

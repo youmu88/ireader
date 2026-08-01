@@ -1,5 +1,5 @@
 {
-  "name": "iReader",
+  "name": "iReader - 图书阅读与听书",
   "icons": [
     {
       "src": "icon.svg",
@@ -19,5 +19,10 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "short_name": "iReader",
+  "display": "standalone",
+  "start_url": "/",
+  "theme_color": "#3b82f6",
+  "background_color": "#ffffff"
 }

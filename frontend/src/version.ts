@@ -49,5 +49,6 @@
  * 2.49.0 (2026-08-01): [FEATURE] 阅读器滚动模式重构 — 由 scrolled-doc（单章节整页替换）切换为 scrolled-continuous（连续滚动）：相邻章节拼接进同一滚动容器，滚到底自然进下一章、滚到顶回上一章，跨章节无缝衔接（典型阅读器行为）；点按桥接改用 hooks.content 官方扩展点直挂内容文档 pointer 事件，根治「点击屏幕弹出菜单」失效
  * 2.49.1 (2026-08-01): [BUGFIX] 修复连续滚动失效 — renderTo 补 manager:'continuous'（epub.js 仅凭 flow:'scrolled-continuous' 会回退 DefaultViewManager 单章模式，表现为只能看一章）；点按桥接三路保障（hooks.content + getContents + relocated 重绑）+ click 兜底防双触发
  * 2.49.2 (2026-08-01): [BUGFIX] 根治点击弹出菜单失效 — renderTo 补 allowScriptedContent:true。根因：epub.js iframe 默认 sandbox="allow-same-origin"（无 allow-scripts），WebKit bug 218086 证实此类 sandbox iframe 内事件无法被父页面 contentDocument 监听器捕获，历次 pointer/click 直挂在 iOS 全部失效；补 allow-scripts 后父页面可正常监听 iframe 内点击
+ * 2.50.0 (2026-08-01): [FEATURE+FIX] 阅读器全屏能力（PWA standalone+iOS meta+菜单全屏按钮）｜书架排序统一为最近阅读优先→书名次级（前后端+离线缓存 lastReadAt）｜Dock 加 translateZ(0) 规避 iOS Safari fixed+backdrop-filter 滚动错位｜阅读器卸载时 flush 进度到服务端（保障书架最近阅读排序实时更新）
  */
-export const APP_VERSION = '2.49.2';
+export const APP_VERSION = '2.50.0';

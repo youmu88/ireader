@@ -1,5 +1,11 @@
 /** Dock 页签定义 */
 
+/**
+ * iOS Safari 已知问题：页面任意祖先/同级含 backdrop-filter（毛玻璃顶栏 SafeGlass、Dock 自身毛玻璃）时，
+ * position:fixed 元素在滚动过程中会渲染错位（WebKit bug，表现为 dock 被带到页面中间）。
+ * workaround：nav 外层加 translateZ(0) 强制独立合成层，滚动时由合成器固定位置。
+ */
+
 /** Dock 页签定义 */
 export interface DockTab {
   id: string;
@@ -55,6 +61,7 @@ export function Dock({ tabs, currentPath, onNavigate }: DockProps) {
       data-testid="dock"
       aria-label="底部导航"
       className="fixed bottom-0 left-0 right-0 z-40"
+      style={{ transform: 'translateZ(0)' }}
     >
       {/* 毛玻璃容器 */}
       <div className="backdrop-blur-2xl bg-white/70 dark:bg-black/60 border-t border-black/5 dark:border-white/10"

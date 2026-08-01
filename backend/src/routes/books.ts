@@ -494,20 +494,19 @@ export function createBooksRouter(db: any, dataDir: string): Router {
         lastReadMap = new Map(lastReadRows.map((r: { bookId: string; lastReadAt: string }) => [r.bookId, r.lastReadAt]));
       }
       
-      // 3. Attach lastReadAt and sort: pinned DESC → lastReadAt DESC → createdAt DESC
+      // 3. Attach lastReadAt and sort: pinned DESC → lastReadAt DESC → title ASC
+      // 最近阅读优先：读过的书按 lastReadAt 降序，未读的（无记录）按书名升序兜底
       const enriched = allBooks.map(b => ({
         ...b,
         lastReadAt: lastReadMap.get(b.id) || null,
       }));
       enriched.sort((a, b) => {
-        // pinned first
         if ((a.pinned || 0) !== (b.pinned || 0)) {
           return (b.pinned || 0) - (a.pinned || 0);
         }
-        // then by lastReadAt DESC
-        const aTime = a.lastReadAt || a.createdAt;
-        const bTime = b.lastReadAt || b.createdAt;
-        return bTime.localeCompare(aTime);
+        const readCmp = (b.lastReadAt || '').localeCompare(a.lastReadAt || '');
+        if (readCmp !== 0) return readCmp;
+        return (a.title || '').localeCompare(b.title || '', 'zh-CN');
       });
       
       res.json({ success: true, data: enriched });

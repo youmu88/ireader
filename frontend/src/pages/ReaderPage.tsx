@@ -60,6 +60,7 @@ export default function ReaderPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [chromeVisible, setChromeVisible] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
   const [fontOpen, setFontOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -172,6 +173,17 @@ export default function ReaderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId]);
 
+  // ── 全屏状态同步：跟随浏览器 fullscreenchange（含 iOS Safari 前缀事件） ──
+  useEffect(() => {
+    const sync = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', sync);
+    document.addEventListener('webkitfullscreenchange', sync);
+    return () => {
+      document.removeEventListener('fullscreenchange', sync);
+      document.removeEventListener('webkitfullscreenchange', sync);
+    };
+  }, []);
+
   // ── 设置变化实时应用到 rendition（不重建 DOM） ──
   useEffect(() => {
     controllerRef.current?.applySettings(settings);
@@ -224,6 +236,22 @@ export default function ReaderPage() {
     void controllerRef.current?.goTo(result.cfi);
   }, []);
 
+  // ── 全屏切换：支持 Fullscreen API 的平台进入沉浸式全屏；iOS Safari 不支持时给出引导 ──
+  const handleToggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen?.().catch(() => {});
+      return;
+    }
+    const el = document.documentElement as HTMLElement & { requestFullscreen?: () => Promise<void> };
+    if (typeof el.requestFullscreen === 'function') {
+      el.requestFullscreen().catch(() => {
+        toast.info('当前浏览器不支持网页全屏，可添加到主屏幕获得沉浸阅读');
+      });
+    } else {
+      toast.info('请使用浏览器「添加到主屏幕」打开，即可全屏阅读');
+    }
+  }, []);
+
   // ── 错误态（含 TXT 暂不支持提示） ──
   if (error) {
     return (
@@ -265,6 +293,8 @@ export default function ReaderPage() {
           bookmarked={isBookmarked(location?.cfi)}
           onToggleBookmark={handleToggleBookmark}
           onOpenSearch={() => setSearchOpen(true)}
+          fullscreenActive={isFullscreen}
+          onToggleFullscreen={handleToggleFullscreen}
         />
         <ReaderBottomBar
           location={location}

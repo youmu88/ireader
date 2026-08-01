@@ -31,6 +31,16 @@ interface Book {
   lastReadAt: string | null;
 }
 
+/** 书架排序：置顶优先 → 最近阅读（lastReadAt 降序）→ 书名升序兜底（未读/无记录时按书名排列） */
+export function sortShelfBooks(books: Book[]): Book[] {
+  return [...books].sort((a, b) => {
+    if ((a.pinned || 0) !== (b.pinned || 0)) return (b.pinned || 0) - (a.pinned || 0);
+    const readCmp = (b.lastReadAt || '').localeCompare(a.lastReadAt || '');
+    if (readCmp !== 0) return readCmp;
+    return (a.title || '').localeCompare(b.title || '', 'zh-CN');
+  });
+}
+
 interface BookStats {
   readingPercentage: number;
   voiceGenerationRate: number;
@@ -262,7 +272,7 @@ useEffect(() => {
             categoryId: null,
             pinned: 0,
             parseError: null,
-            lastReadAt: null,
+            lastReadAt: b.lastReadAt || null,
             createdAt: new Date(b.cachedAt).toISOString(),
           })));
           setCategories([]);
@@ -287,7 +297,7 @@ useEffect(() => {
           categoryId: null,
           pinned: 0,
           parseError: null,
-          lastReadAt: null,
+          lastReadAt: b.lastReadAt || null,
           createdAt: new Date(b.cachedAt).toISOString(),
         })));
         setCategories([]);
@@ -372,13 +382,9 @@ useEffect(() => {
   });
 
   // ── Split into pinned / others for two-section display ──
-  // 最近阅读排序：按 lastReadAt 降序（最近读的在前），无阅读记录的排在后
-  const pinnedBooks = filteredBooks
-    .filter(b => b.pinned)
-    .sort((a, b) => (b.lastReadAt || '').localeCompare(a.lastReadAt || ''));
-  const otherBooks = filteredBooks
-    .filter(b => !b.pinned)
-    .sort((a, b) => (b.lastReadAt || '').localeCompare(a.lastReadAt || ''));
+  // 最近阅读优先：lastReadAt 降序（最近读的在前），无阅读记录的按书名升序兜底（见 sortShelfBooks）
+  const pinnedBooks = sortShelfBooks(filteredBooks.filter(b => b.pinned));
+  const otherBooks = sortShelfBooks(filteredBooks.filter(b => !b.pinned));
 
   // Categorize books for sidebar count
   const categoryCount = new Map<string, number>();

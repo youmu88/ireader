@@ -108,11 +108,17 @@ export function useReaderProgress({ bookId, saveDelay = 800 }: UseReaderProgress
     }, saveDelay);
   }, [saveDelay, sendNow]);
 
-  // 卸载 flush：取消待发请求，将 pending 位置同步写入 localStorage（可靠）
+  // 卸载 flush：取消待发请求，将 pending 位置写入 localStorage（可靠）并 fire-and-forget 同步服务端
+  // （服务端 lastReadAt 依赖 progress PUT 的 updatedAt，若退出阅读器不落库，书架「最近阅读」排序将无法更新）
   useEffect(() => () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (pendingRef.current) saveLocalPosition(bookId, pendingRef.current);
-  }, [bookId]);
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    if (pending) {
+      saveLocalPosition(bookId, pending);
+      void sendNow(pending);
+    }
+  }, [bookId, sendNow]);
 
   return { loadInitialCfi, scheduleSave };
 }

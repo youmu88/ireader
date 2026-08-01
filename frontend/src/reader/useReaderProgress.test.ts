@@ -154,11 +154,15 @@ describe('scheduleSave', () => {
     expect(axiosMocks.put).not.toHaveBeenCalled();
   });
 
-  it('卸载时将 pending 位置 flush 到 localStorage', () => {
+  it('卸载时将 pending 位置写入 localStorage 并同步服务端（书架最近阅读排序依赖服务端 lastReadAt）', async () => {
     const { result, unmount } = renderHook(() => useReaderProgress({ bookId: BOOK_ID }));
     act(() => { result.current.scheduleSave(loc('epubcfi(pending)')); });
     unmount();
     expect(loadLocalPosition(BOOK_ID)?.cfi).toBe('epubcfi(pending)');
-    expect(axiosMocks.put).not.toHaveBeenCalled();
+    // fire-and-forget：卸载后立即发出 PUT，确保退出阅读器后书架 lastReadAt 及时更新
+    await vi.advanceTimersByTimeAsync(0);
+    expect(axiosMocks.put).toHaveBeenCalledTimes(1);
+    expect(axiosMocks.put.mock.calls[0][0]).toBe(`/api/books/${BOOK_ID}/progress`);
+    expect(axiosMocks.put.mock.calls[0][1].cfi).toBe('epubcfi(pending)');
   });
 });

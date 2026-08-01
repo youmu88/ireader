@@ -17,6 +17,9 @@ export interface ReaderMenuBarProps {
   bookmarked?: boolean;
   onToggleBookmark?: () => void;
   onOpenSearch?: () => void;
+  /** 全屏状态（Fullscreen API 生效中）与切换回调（可选，不传则不渲染按钮） */
+  fullscreenActive?: boolean;
+  onToggleFullscreen?: () => void;
 }
 
 const BookmarkIcon = ({ filled }: { filled: boolean }) =>
@@ -40,6 +43,8 @@ export function ReaderMenuBar({
   bookmarked = false,
   onToggleBookmark,
   onOpenSearch,
+  fullscreenActive = false,
+  onToggleFullscreen,
 }: ReaderMenuBarProps) {
   return (
     <div
@@ -81,6 +86,29 @@ export function ReaderMenuBar({
               <circle cx="11" cy="11" r="7" />
               <line x1="16.5" y1="16.5" x2="21" y2="21" />
             </svg>
+          </button>
+        )}
+        {onToggleFullscreen && (
+          <button
+            onClick={onToggleFullscreen}
+            aria-label={fullscreenActive ? '退出全屏' : '全屏'}
+            className="p-2.5 rounded-lg active:opacity-40 transition-opacity"
+          >
+            {fullscreenActive ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M8 3v3a2 2 0 0 1-2 2H3" />
+                <path d="M21 8h-3a2 2 0 0 1-2-2V3" />
+                <path d="M3 16h3a2 2 0 0 1 2 2v3" />
+                <path d="M16 21v-3a2 2 0 0 1 2-2h3" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+                <path d="M21 8h-3a2 2 0 0 1-2-2V3" />
+                <path d="M3 16h3a2 2 0 0 1 2 2v3" />
+                <path d="M16 21v-3a2 2 0 0 1 2-2h3" />
+              </svg>
+            )}
           </button>
         )}
         <button
