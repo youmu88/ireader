@@ -98,6 +98,8 @@ export class EpubBookController {
   /** 点按桥接：已绑定 pointer 的 iframe 内容文档（hooks.content 每次触发时去重，防重复绑定） */
   private tapBoundDocs = new Set<Document>();
   private tapStart: { x: number; y: number } | null = null;
+  /** 最近一次点按触发时间戳（click 兜底事件去重：pointerup 刚触发过则忽略 click） */
+  private lastTapAt = 0;
 
   /** 加载书籍并渲染。返回目录树。 */
   async load(source: string | ArrayBuffer, container: HTMLElement, options: LoadOptions = {}): Promise<TocItem[]> {
@@ -116,13 +118,15 @@ export class EpubBookController {
     this.rendition = this.book.renderTo(container, {
       width: '100%',
       height: '100%',
-      // 连续滚动模式：epub.js 把相邻章节拼接进同一滚动容器，滚到底自然进下一章、滚到顶回上一章
+      // 连续滚动模式：flow 与 manager 必须成对指定，epub.js 才选用 ContinuousViewManager
+      // （多章节拼接进同一滚动容器）；只传 flow 会回退 DefaultViewManager 单章替换模式（表现为只能看一章）
       flow: 'scrolled-continuous',
+      manager: 'continuous',
       spread: 'none',
     });
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
-    // 点按桥接：hooks.content 在每次章节内容加载后触发，直挂新文档 pointer（文档持续存在，绑定稳定）
+    // 点按桥接：hooks.content 在每次章节 view 内容加载后触发 + getContents 兜底 + relocated 重绑
     this.bindTap();
     await this.rendition.display(options.initialCfi || undefined);
 
@@ -146,8 +150,9 @@ export class EpubBookController {
     this.rendition = this.book.renderTo(container, {
       width: '100%',
       height: '100%',
-      // 连续滚动模式：与 EPUB 一致，章节拼接进同一滚动容器，滚动无缝衔接
+      // 连续滚动模式：与 EPUB 一致，flow+manager 成对指定启用 ContinuousViewManager（多章拼接）
       flow: 'scrolled-continuous',
+      manager: 'continuous',
       spread: 'none',
     });
     this.applySettings(settings);
@@ -264,43 +269,46 @@ export class EpubBookController {
       loc.globalPage = Math.max(1, Math.min(total, Math.ceil(p * total)));
     }
     this.lastLocation = loc;
+    // 章节切换（含连续滚动滚动到新章节）后：重新直挂点按桥接到最新内容文档（Set 去重幂等）
+    this.bindTap();
     for (const cb of this.listeners) cb(loc);
   }
 
   /**
-   * 点按桥接：直挂 iframe 内容文档 pointer 事件。
-   *  - hooks.content 是 epub.js 官方扩展点，每次章节 view 内容加载完成后触发（含后续连续加载的新章节）；
-   *    连续滚动模式下 view 文档持续存在，绑定一次长期有效，根治「跨章节后点击失效」。
-   *  - getContents 兜底：hooks 注册前已存在的内容立即绑定。
+   * 点按桥接：直挂 iframe 内容文档 pointer 事件（位移识别区分点击与滚动）。
+   * 三路保障，根治「点击屏幕弹出菜单」：
+   *  1. hooks.content — epub.js 官方扩展点，每次章节 view 内容加载完成后触发（含后续连续加载的新章节）；
+   *  2. getContents 兜底 — hooks 注册前已存在的内容立即绑定；
+   *  3. relocated 重绑 — 章节切换后再次扫描最新内容文档（幂等）。
+   *  同时绑定 pointerup + click 双事件：pointer 不可用（老浏览器）时 click 兜底；时间戳去重防双触发。
    */
   private bindTap(): void {
     if (!this.rendition) return;
     this.rendition.hooks?.content?.register(contents => {
-      const doc = contents?.document;
-      if (doc && !this.tapBoundDocs.has(doc)) {
-        this.tapBoundDocs.add(doc);
-        doc.addEventListener('pointerdown', this.handleTapStart, { passive: true });
-        doc.addEventListener('pointerup', this.handleTapEnd, { passive: true });
-      }
+      this.attachTapDoc(contents?.document);
     });
     const existing = this.rendition.getContents?.() ?? [];
-    for (const c of existing) {
-      const doc = c.document;
-      if (doc && !this.tapBoundDocs.has(doc)) {
-        this.tapBoundDocs.add(doc);
-        doc.addEventListener('pointerdown', this.handleTapStart, { passive: true });
-        doc.addEventListener('pointerup', this.handleTapEnd, { passive: true });
-      }
-    }
+    for (const c of existing) this.attachTapDoc(c.document);
+  }
+
+  /** 为单个内容文档直挂点按监听（幂等：已绑定的文档跳过） */
+  private attachTapDoc(doc: Document | undefined): void {
+    if (!doc || this.tapBoundDocs.has(doc)) return;
+    this.tapBoundDocs.add(doc);
+    doc.addEventListener('pointerdown', this.handleTapStart, { passive: true });
+    doc.addEventListener('pointerup', this.handleTapEnd, { passive: true });
+    doc.addEventListener('click', this.handleTapClick);
   }
 
   private unbindTap(): void {
     for (const doc of this.tapBoundDocs) {
       doc.removeEventListener('pointerdown', this.handleTapStart);
       doc.removeEventListener('pointerup', this.handleTapEnd);
+      doc.removeEventListener('click', this.handleTapClick);
     }
     this.tapBoundDocs.clear();
     this.tapStart = null;
+    this.lastTapAt = 0;
   }
 
   /** pointerdown 记录起始坐标（用于与滚动/拖动区分） */
@@ -308,7 +316,7 @@ export class EpubBookController {
     this.tapStart = { x: e.clientX, y: e.clientY };
   };
 
-  /** pointerup 位移 < 10px 视为点按（滚动/拖动的 pointerup 位移大，不触发） */
+  /** pointerup 位移 < 10px 视为点按（滚动/拖动的 pointerup 位移大，不触发）；触发后记录时间戳供 click 去重 */
   private handleTapEnd = (e: PointerEvent): void => {
     const start = this.tapStart;
     this.tapStart = null;
@@ -316,6 +324,14 @@ export class EpubBookController {
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
     if (Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
+    this.lastTapAt = Date.now();
+    this.emitTap();
+  };
+
+  /** click 兜底（pointer 事件不可用的环境）；若 pointerup 刚触发过（<400ms）则忽略防双触发 */
+  private handleTapClick = (): void => {
+    if (Date.now() - this.lastTapAt < 400) return;
+    this.lastTapAt = Date.now();
     this.emitTap();
   };
 
