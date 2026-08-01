@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
-import { subscribeGlobalPlayer, getGlobalPlayerSnapshot, getDefaultPlayer, getLastPlaybackFromLocalStorage, type PlayerState } from '../services/ttsPlayer';
 import UploadQueue, { type UploadQueueStats, type UploadQueueHandle } from '../components/UploadQueue';
 import { APP_VERSION } from '../version';
 import {
@@ -219,34 +218,6 @@ useEffect(() => {
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
-  const [globalTtsInfo, setGlobalTtsInfo] = useState<{
-    state: PlayerState;
-    bookId?: string;
-    bookTitle?: string;
-    chapterTitle?: string;
-    progress: number;
-  } | null>(() => {
-    // 优先使用实时播放器状态，空闲时从 localStorage 恢复上次播放记录
-    const snapshot = getGlobalPlayerSnapshot();
-    if (snapshot) return snapshot;
-    const lastPlayback = getLastPlaybackFromLocalStorage();
-    if (lastPlayback) {
-      return {
-        state: 'paused' as PlayerState,
-        bookId: lastPlayback.bookId,
-        bookTitle: lastPlayback.bookTitle,
-        chapterTitle: lastPlayback.chapterTitle,
-        progress: lastPlayback.progress,
-      };
-    }
-    return null;
-  });
-
-  useEffect(() => {
-    const unsub = subscribeGlobalPlayer((info) => setGlobalTtsInfo(info));
-    return unsub;
-  }, []);
-
   useEffect(() => {
     loadData();
   }, []);
@@ -451,7 +422,7 @@ useEffect(() => {
 
   return (
     <>
-    <div className={`max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-8 ${globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId ? 'pb-28' : ''}`}>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
       {/* iOS 大标题区域 */}
       <div className="mb-5 sm:mb-8">
         {/* 标题行 */}
@@ -762,12 +733,6 @@ useEffect(() => {
                   </Link>
                   {/* Action buttons - desktop hover only, mobile via long-press */}
                   <div className="hidden sm:flex absolute top-2 right-2 gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {/* 正在播放指示器 */}
-                    {globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId === book.id && (
-                      <div className="absolute top-2 left-2 z-10">
-                        <span className="bg-ios-success text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">🔊</span>
-                      </div>
-                    )}
                     <IconButton variant="primary" size="xs" className="w-7 h-7" onClick={(e) => handleEditBook(book, e)} title="编辑信息">✎</IconButton>
                     <IconButton variant="danger" size="xs" className="w-7 h-7" onClick={(e) => handleDelete(book, e)} title="删除图书">✕</IconButton>
                   </div>
@@ -882,11 +847,6 @@ useEffect(() => {
                       )}
                     </Link>
                     <div className="hidden sm:flex absolute top-2 right-2 gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {globalTtsInfo?.state !== 'idle' && globalTtsInfo?.bookId === book.id && (
-                        <div className="absolute top-2 left-2 z-10">
-                          <span className="bg-ios-success text-white text-xs px-1.5 py-0.5 rounded-full shadow-lg animate-pulse flex items-center gap-0.5">🔊</span>
-                        </div>
-                      )}
                       <IconButton variant="warning" size="xs" className="w-7 h-7" onClick={(e) => handleTogglePin(book, e)} title={book.pinned ? '取消置顶' : '置顶'}>{book.pinned ? '📌' : '📍'}</IconButton>
                       <IconButton variant="primary" size="xs" className="w-7 h-7" onClick={(e) => handleEditBook(book, e)} title="编辑信息">✎</IconButton>
                       <IconButton variant="danger" size="xs" className="w-7 h-7" onClick={(e) => handleDelete(book, e)} title="删除图书">✕</IconButton>
@@ -937,95 +897,6 @@ useEffect(() => {
         onClose={closeQueue}
       />
 
-      {globalTtsInfo?.bookId && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 glass-bar">
-          {/* 进度条 */}
-          <div className="max-w-7xl mx-auto">
-            <div className="h-0.5" style={{ background: 'var(--color-border)' }}>
-              <div
-                className="h-full transition-all duration-300"
-                style={{ width: `${Math.round(globalTtsInfo.progress * 100)}%`, background: 'var(--color-primary)' }}
-              />
-            </div>
-          </div>
-          <div className="flex items-center gap-3 px-5 py-3 max-w-7xl mx-auto">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold truncate" style={{ color: 'var(--color-text)' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="inline mr-1.5" style={{ color: 'var(--color-primary)' }}>
-                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                  <line x1="12" y1="19" x2="12" y2="23" />
-                  <line x1="8" y1="23" x2="16" y2="23" />
-                </svg>
-                {globalTtsInfo.bookTitle || '正在播放'}
-              </p>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-                  {globalTtsInfo.state === 'playing' ? '播放中' : globalTtsInfo.state === 'paused' ? '已暂停' : '上次听到'}
-                </span>
-                <span className="text-xs font-semibold" style={{ color: 'var(--color-primary)' }}>
-                  {Math.round(globalTtsInfo.progress * 100)}%
-                </span>
-              </div>
-            </div>
-            <IconButton
-              onClick={async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const player = getDefaultPlayer();
-                if (player.currentBookId === globalTtsInfo.bookId) {
-                  if (globalTtsInfo.state === 'playing') player.pause();
-                  else if (globalTtsInfo.state === 'paused') player.resume();
-                } else {
-                  try {
-                    const lastPlayback = getLastPlaybackFromLocalStorage();
-                    if (!lastPlayback || lastPlayback.bookId !== globalTtsInfo.bookId) return;
-                    const [chaptersRes] = await Promise.all([
-                      axios.get(`/api/books/${globalTtsInfo.bookId}/chapters`),
-                    ]);
-                    const chapters = chaptersRes.data.data || [];
-                    if (chapters.length === 0) return;
-                    let targetChapter = chapters[0];
-                    if (lastPlayback.chapterId) {
-                      const saved = chapters.find((c: any) => c.id === lastPlayback.chapterId);
-                      if (saved) targetChapter = saved;
-                    }
-                    const contentRes = await axios.get(`/api/books/${globalTtsInfo.bookId}/chapters/${targetChapter.id}/content`);
-                    const content = contentRes.data.data;
-                    if (!content) return;
-                    player.init({
-                      bookId: globalTtsInfo.bookId,
-                      bookTitle: globalTtsInfo.bookTitle || lastPlayback.bookTitle,
-                    });
-                    const contentText = content.text || content.content || content;
-                    const isHtml = typeof contentText === 'string' && /<[a-z][\s\S]*?>/i.test(contentText);
-                    await player.load(contentText, isHtml, targetChapter.id);
-                    if (lastPlayback.currentIndex > 0) {
-                      await player.jumpToSegment(lastPlayback.currentIndex);
-                    }
-                    await player.play();
-                  } catch { /* 恢复播放失败时静默处理 */ }
-                }
-              }}
-              variant="primary"
-              size="lg"
-              className="shadow-lg"
-              aria-label={globalTtsInfo.state === 'playing' ? '暂停' : '播放'}
-            >
-              {globalTtsInfo.state === 'playing' ? (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="6" y="4" width="4" height="16" rx="1" />
-                  <rect x="14" y="4" width="4" height="16" rx="1" />
-                </svg>
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <polygon points="5 3 19 12 5 21 5 3" />
-                </svg>
-              )}
-            </IconButton>
-          </div>
-        </div>
-      )}
     </>
   );
 }

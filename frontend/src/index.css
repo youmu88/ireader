@@ -715,3 +715,13 @@ body,
   }
 }
 
+
+/* ── 阅读器翻页动画（Apple Books 风格滑入，作用于 epub 容器包装层） ── */
+@keyframes reader-page-next {
+  from { transform: translateX(24px); opacity: 0.35; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes reader-page-prev {
+  from { transform: translateX(-24px); opacity: 0.35; }
+  to { transform: translateX(0); opacity: 1; }
+}

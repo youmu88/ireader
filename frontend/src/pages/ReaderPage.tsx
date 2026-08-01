@@ -1,551 +1,238 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { getCachedChapterContent } from '../services/offlineCacheService';
+/**
+ * ReaderPage — Apple Books 风格 EPUB 阅读页
+ *
+ * 组装：书籍加载（离线包优先）→ EpubBookController → 点按层 / Chrome / 面板。
+ * 交互：点按左右 1/4 翻页（带滑动动画），点按中央显隐工具栏；
+ *       TXT 书籍显示暂不支持提示；翻页动画加在包装层，不重建 epub iframe。
+ */
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
-import EpubViewer from '../components/EpubViewer';
-import WxReaderView, { type WxReaderViewHandle } from '../components/WxReaderView';
-import { ReaderTopBar } from '../components/ReaderTopBar';
-import { ReaderControlPanel } from '../components/ReaderControlPanel';
-import { TocDrawer } from '../components/TocDrawer';
-import { SearchOverlay } from '../components/SearchOverlay';
-import { TtsOverlay } from '../components/TtsOverlay';
-import { useReaderSettings } from '../reader/hooks/useReaderSettings';
-import { useOfflineFallback } from '../reader/hooks/useOfflineFallback';
-import { useProgressRestore } from '../reader/hooks/useProgressRestore';
-import { useProgressPersistence } from '../reader/position/useProgressPersistence';
-import { useReadingPosition } from '../reader/position/useReadingPosition';
-import { useReaderInteraction } from '../interaction/useReaderInteraction';
-import { useCacheManager } from '../reader/hooks/useCacheManager';
-import { useTtsSession } from '../reader/hooks/useTtsSession';
-import { getDefaultPlayer } from '../services/ttsPlayer';
-import { useAuth } from '../contexts/AuthContext';
-import { stripHtml } from '../reader/utils/stripHtml';
-import { toast, confirm, Button, IconButton } from '../components/ui';
-import type { Chapter } from '../reader/types';
+import { EpubBookController } from '../reader/EpubBookController';
+import { READER_THEMES } from '../reader/theme';
+import type { ReaderLocation, TocItem } from '../reader/types';
+import { useReaderSettings } from '../reader/useReaderSettings';
+import { useReaderProgress } from '../reader/useReaderProgress';
+import { ReaderChrome } from '../reader/components/ReaderChrome';
+import { ReaderTopBar } from '../reader/components/ReaderTopBar';
+import { ReaderBottomBar } from '../reader/components/ReaderBottomBar';
+import { FontSettingsPanel } from '../reader/components/FontSettingsPanel';
+import { TocPanel } from '../reader/components/TocPanel';
+import { getCachedEpubArchive } from '../services/offlineCacheService';
+import { getToken } from '../services/authService';
+import { Button } from '../components/ui';
 
-interface Book {
+interface BookMeta {
   id: string;
   title: string;
   author: string | null;
   format: 'epub' | 'txt';
-  status: 'processing' | 'ready' | 'failed';
 }
 
-function ReaderPage() {
-  const { bookId } = useParams<{ bookId: string }>();
+export default function ReaderPage() {
+  const { bookId = '' } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
-  const { isOfflineMode, exitOfflineMode } = useAuth();
-  const offlineFallback = useOfflineFallback();
-  const progressRestore = useProgressRestore();
-  const [book, setBook] = useState<Book | null>(null);
-  const [chapters, setChapters] = useState<Chapter[]>([]);
-  const { position: readingPosition, setPosition, updatePosition } = useReadingPosition(null);
-  const { saveImmediate, flush: flushProgress, syncVersion } = useProgressPersistence(readingPosition, { bookId, totalChapters: chapters.length });
-  const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
-  const [txtContent, setTxtContent] = useState<string>('');
+  const [book, setBook] = useState<BookMeta | null>(null);
+  const [toc, setToc] = useState<TocItem[]>([]);
+  const [location, setLocation] = useState<ReaderLocation | null>(null);
+  const [locationsReady, setLocationsReady] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [, setChapterLoading] = useState(false);
-  const [showToc, setShowToc] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const settings = useReaderSettings();
-  const { fontSize, setFontSize, fontFamily, setFontFamily, lineHeight, setLineHeight, letterSpacing, readingMode, setReadingMode } = settings;
+  const [chromeVisible, setChromeVisible] = useState(false);
+  const [tocOpen, setTocOpen] = useState(false);
+  const [fontOpen, setFontOpen] = useState(false);
 
-  const [pageIndex, setPageIndex] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-  const charOffsetRatioRef = useRef<number>(0);
-  const epubPageControlRef = useRef<{ prev: () => void; next: () => void } | null>(null);
-  const epubChapterNavRef = useRef<((chapterIndex: number) => Promise<void>) | null>(null);
-  const epubCfiRef = useRef<string | null>(null);
-  const epubChapterRatioRef = useRef<number>(0);
+  const viewerRef = useRef<HTMLDivElement>(null);
+  const viewerWrapRef = useRef<HTMLDivElement>(null);
+  const controllerRef = useRef<EpubBookController | null>(null);
+  const turnDirRef = useRef<'next' | 'prev' | null>(null);
+  const [turnAnim, setTurnAnim] = useState<{ dir: 'next' | 'prev'; seq: number } | null>(null);
 
-  // ── 悬浮UI控制 ──
-  const [showUi, setShowUi] = useState(false);
-  const showUiRef = useRef(false);
-  useEffect(() => { showUiRef.current = showUi; }, [showUi]);
-  const [selectedText, setSelectedText] = useState('');
-  const txtPageRef = useRef<HTMLDivElement>(null);
+  const { settings, updateSettings } = useReaderSettings();
+  const { loadInitialCfi, scheduleSave } = useReaderProgress({ bookId });
+  const themeSpec = READER_THEMES[settings.theme];
 
-  const chaptersRef = useRef(chapters);
-  const currentChapterRef = useRef(currentChapter);
-  const goToNextChapterRef = useRef<((_fromAutoScroll?: boolean) => Promise<void>) | null>(null);
-  const goToPrevChapterRef = useRef<(() => Promise<void>) | null>(null);
-  const navigateToChapterRef = useRef<((chapter: Chapter, _append?: boolean) => Promise<void>) | null>(null);
-  const txtScrollRef = useRef<HTMLDivElement | null>(null);
-  const txtReaderViewRef = useRef<WxReaderViewHandle>(null);
-  const currentBookIdRef = useRef<string | undefined>(bookId);
-  const [pendingScrollRestorePct, setPendingScrollRestorePct] = useState<number | null>(null);
-  const accumulatedIdsRef = useRef<Set<string>>(new Set());
-  const preloadedChaptersRef = useRef<Map<string, { content: string }>>(new Map());
-  const [displayChapter, setDisplayChapter] = useState<Chapter | null>(null);
-
-  // ── 搜索浮层开关 ──
-  const [showSearch, setShowSearch] = useState(false);
-  const showSearchRef = useRef(false);
-  useEffect(() => { showSearchRef.current = showSearch; }, [showSearch]);
-  const showTocRef = useRef(false);
-  useEffect(() => { showTocRef.current = showToc; }, [showToc]);
-
-  // ── 章节预加载 ──
-  const preloadNextChapters = useCallback(async (currentChapterId: string) => {
-    if (!chapters.length) return;
-    const idx = chapters.findIndex(c => c.id === currentChapterId);
-    if (idx < 0) return;
-    const isEpub = book?.format === 'epub';
-    const preloadTasks = [];
-    for (let i = 1; i <= 3; i++) {
-      const next = chapters[idx + i];
-      if (next && !preloadedChaptersRef.current.has(next.id)) {
-        preloadTasks.push(
-          axios.get(`/api/books/${bookId}/chapters/${next.id}/content`)
-            .then(res => {
-              const rawContent = res.data.data?.content || '';
-              preloadedChaptersRef.current.set(next.id, { content: isEpub ? stripHtml(rawContent) : rawContent });
-            })
-            .catch(() => {})
-        );
-      }
-    }
-    await Promise.all(preloadTasks);
-  }, [chapters, bookId, book]);
-
-  // ── 章节导航 ──
-  const navigateToChapter = async (chapter: Chapter, _append?: boolean) => {
-    setShowToc(false);
-    if (book?.format === 'epub') {
-      const spineIndex = chapters.indexOf(chapter);
-      if (spineIndex >= 0 && epubChapterNavRef.current) await epubChapterNavRef.current(spineIndex);
-      await loadChapterContent(chapter, undefined, true);
-    } else {
-      await loadChapterContent(chapter, undefined, undefined, _append);
-    }
-    setPosition({ bookId: bookId!, chapterId: chapter.id, chapterIndex: chapter.order, ratio: 0 });
-  };
-  navigateToChapterRef.current = navigateToChapter;
-
-  // ── TTS 会话（useTtsSession hook） ──
-  const ttsSession = useTtsSession({
-    bookId, book, chapters, currentChapter, loading, txtContent,
-    txtScrollRef, preloadedChaptersRef, currentBookIdRef, accumulatedIdsRef,
-    setCurrentChapter, setDisplayChapter, setTxtContent,
-    preloadNextChapters, setPosition, saveImmediate, flushProgress,
-    navigateToChapter,
-  });
-  const { ttsState, ttsProgress, ttsSegmentText, ttsError, activeSegmentIndex, ttsSpeed, ttsVoice } = ttsSession;
-  const { handleStartTTS, handleStopTTS, handlePauseTTS, handleResumeTTS, handleTTSSeek, handleSetSleepTimer } = ttsSession;
-
-  // ── 播放倍速（本地 playbackRate，不影响缓存身份） ──
-  const [playbackRate, setPlaybackRate] = useState(() => getDefaultPlayer().getPlaybackRate());
-  const handlePlaybackRateChange = useCallback((rate: number) => {
-    setPlaybackRate(rate);
-    getDefaultPlayer().setPlaybackRate(rate);
-  }, []);
-
-  // ── 缓存管理（useCacheManager hook） ──
-  const cache = useCacheManager({ bookId, book, chapters, currentChapter, ttsVoice, ttsSpeed });
-
-  // ── 阅读区交互装配 ──
-  const ttsStateRef = useRef(ttsState);
-  useEffect(() => { ttsStateRef.current = ttsState; }, [ttsState]);
-
-  const toggleFloatMenu = useCallback(() => {
-    if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current) return;
-    if (book?.format === 'txt') setSelectedText(window.getSelection()?.toString().trim() ?? '');
-    setShowUi(v => !v);
-  }, [book?.format]);
-
-  const closeMenu = useCallback(() => setShowUi(false), []);
-
-  const performPageTurnRef = useRef<(direction: 'prev' | 'next') => Promise<void>>(async (direction) => {
-    await txtReaderViewRef.current?.performPageTurn(direction);
-  });
-  const [isPageTurning] = useState(false);
-  const readingModeRef = useRef(readingMode);
-  const isPageTurningRef = useRef(isPageTurning);
-  useEffect(() => { readingModeRef.current = readingMode; }, [readingMode]);
-  useEffect(() => { isPageTurningRef.current = isPageTurning; }, [isPageTurning]);
-
-  const interaction = useReaderInteraction({
-    enabled: () => (
-      !showTocRef.current && !showSearchRef.current
-    ),
-    navigate: (direction) => {
-      // 仅 TXT 分页模式支持手势翻页；滚动模式由原生滚动处理
-      if (readingModeRef.current === 'paginated' && book?.format === 'txt'
-        && !showUiRef.current && !isPageTurningRef.current && ttsStateRef.current === 'idle') {
-        performPageTurnRef.current(direction === 'next' ? 'next' : 'prev');
-      }
-    },
-    tap: () => {
-      if (ttsStateRef.current !== 'idle') return;
-      if (showUiRef.current) closeMenu();
-      else if (showTocRef.current) setShowToc(false);
-      else toggleFloatMenu();
-    },
-  });
-
-  /** 桌面端键盘翻页快捷键 */
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-      const ae = document.activeElement as HTMLElement | null;
-      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
-      if (ttsStateRef.current !== 'idle' || showSearchRef.current || showTocRef.current || isPageTurningRef.current) return;
-      e.preventDefault();
-      const next = e.key === 'ArrowRight';
-      if (book?.format === 'epub') {
-        if (next) epubPageControlRef.current?.next(); else epubPageControlRef.current?.prev();
-      } else {
-        performPageTurnRef.current(next ? 'next' : 'prev');
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [book?.format]);
-
-  // Load book and chapters
+  // ── 加载书籍并初始化渲染 ──
   useEffect(() => {
     if (!bookId) return;
-    currentBookIdRef.current = bookId;
-    loadBook();
-  }, [bookId]);
+    let cancelled = false;
+    const controller = new EpubBookController();
+    controllerRef.current = controller;
 
-  // autoPlayTts=1：从书架底部栏续播时自动启动 TTS
-  const [searchParams] = useSearchParams();
-  const autoPlayTtsTriggered = useRef(false);
-  useEffect(() => {
-    if (autoPlayTtsTriggered.current) return;
-    if (!currentChapter || !book) return;
-    if (searchParams.get('autoPlayTts') !== '1') return;
-    autoPlayTtsTriggered.current = true;
-    const timer = setTimeout(() => { handleStartTTS(); }, 500);
-    return () => clearTimeout(timer);
-  }, [currentChapter, book, searchParams]);
+    (async () => {
+      const res = await axios.get(`/api/books/${bookId}`);
+      const meta = res.data?.data as BookMeta | null;
+      if (!meta) throw new Error('书籍不存在');
+      if (cancelled) return;
+      setBook(meta);
 
-  const [isReparsing, setIsReparsing] = useState(false);
-  const handleReparse = useCallback(async () => {
-    if (!bookId || !book || book.format !== 'epub' || isReparsing) return;
-    const ok = await confirm({
-      title: '重新解析确认',
-      message: '重新解析将刷新全部章节信息，确定继续？',
-      confirmText: '重新解析',
-    });
-    if (!ok) return;
-    setIsReparsing(true);
-    try {
-      await axios.post(`/api/books/${bookId}/reparse`);
-      const [bookRes, chaptersRes] = await Promise.all([
-        axios.get(`/api/books/${bookId}`),
-        axios.get(`/api/books/${bookId}/chapters`),
-      ]);
-      const newBookData = bookRes.data?.data;
-      const newChapters = chaptersRes.data?.data || [];
-      if (newBookData) setBook(newBookData);
-      if (newChapters.length > 0) {
-        setChapters(newChapters);
-        const stillExists = newChapters.some((c: Chapter) => c.id === currentChapter?.id);
-        if (!stillExists && currentChapter) await loadChapterContent(newChapters[0], undefined, newBookData?.format === 'epub');
-      }
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || '章节刷新失败，请稍后重试');
-    } finally {
-      setIsReparsing(false);
-    }
-  }, [bookId, book, isReparsing, currentChapter]);
-
-  const loadBook = async () => {
-    const triggerBookId = bookId;
-    try {
-      setLoading(true);
-      const isOffline = offlineFallback.isOffline(isOfflineMode);
-      let bookData: any = null;
-      let chaptersData: any[] = [];
-      if (!isOffline) {
-        try {
-          const [bookRes, chaptersRes] = await Promise.all([
-            axios.get(`/api/books/${bookId}`, { timeout: 15000 }),
-            axios.get(`/api/books/${bookId}/chapters`, { timeout: 15000 }),
-          ]);
-          bookData = bookRes.data.data;
-          chaptersData = chaptersRes.data.data || [];
-        } catch { /* 网络请求失败或超时 → 尝试离线降级 */ }
-      }
-      if (!bookData || !chaptersData.length) {
-        const offlineData = await offlineFallback.loadOffline(bookId!);
-        if (offlineData.book) bookData = offlineData.book;
-        if (offlineData.chapters.length > 0) chaptersData = offlineData.chapters;
-      }
-      if (currentBookIdRef.current !== triggerBookId) return;
-      if (!bookData || !chaptersData.length) {
-        setError(!isOffline ? '加载图书失败' : '当前为离线状态，且该书未缓存到本地');
+      if (meta.format !== 'epub') {
+        setError('该书籍为 TXT 格式，新版阅读器暂不支持，敬请期待');
         setLoading(false);
         return;
       }
-      setBook(bookData);
-      setChapters(chaptersData);
-      const isEpub = bookData.format === 'epub';
-      const progressResult = await progressRestore.restore(bookId!, chaptersData, isOffline);
-      const targetChapter = progressResult?.targetChapter || chaptersData[0];
-      if (currentBookIdRef.current !== triggerBookId) return;
-      if (progressResult?.progressVersion != null) syncVersion(progressResult.progressVersion);
-      if (targetChapter) {
-        if (isEpub) {
-          if (progressResult?.cfi) epubCfiRef.current = progressResult.cfi;
-        } else {
-          if (progressResult && progressResult.restoreRatio > 0) charOffsetRatioRef.current = progressResult.restoreRatio;
-          const rawPageIdx = progressResult?.rawProgress?.pageIndex;
-          if (rawPageIdx != null) {
-            const restorePct = rawPageIdx / 10000;
-            if (restorePct > 0) setPendingScrollRestorePct(restorePct);
-          }
-        }
-        await loadChapterContent(targetChapter, undefined, isEpub);
-        // ⭐ 初始加载必须设置 position，否则 updatePosition 全部静默丢弃
-        setPosition({
-          bookId: bookId!,
-          chapterId: targetChapter.id,
-          chapterIndex: targetChapter.order,
-          ratio: progressResult?.restoreRatio ?? 0,
-        });
-        preloadNextChapters(targetChapter.id);
-      }
-      cache.checkCacheStatus();
-    } catch (err: any) {
-      setError(err.response?.data?.error || '加载图书失败');
-    } finally {
+
+      const initialCfi = await loadInitialCfi();
+      // 离线包优先：有本地 epub 归档直接用 ArrayBuffer，避免网络请求
+      const archive = await getCachedEpubArchive(bookId).catch(() => undefined);
+      const source: string | ArrayBuffer = archive?.data ?? `/api/books/${bookId}/file`;
+      const token = getToken();
+      const requestHeaders = typeof source === 'string' && token
+        ? { Authorization: `Bearer ${token}` }
+        : undefined;
+
+      const tocItems = await controller.load(source, viewerRef.current!, {
+        initialCfi,
+        requestHeaders,
+        settings,
+      });
+      if (cancelled) return;
+
+      setToc(tocItems);
       setLoading(false);
-    }
-  };
-
-  const loadChapterContent = async (chapter: Chapter, _offset?: number, _isEpub?: boolean, _append?: boolean, _forcePlainText?: boolean) => {
-    try {
-      const isEpub = _isEpub ?? (book?.format === 'epub');
-      const preloaded = preloadedChaptersRef.current.get(chapter.id);
-      if (!preloaded) {
-        setTxtContent('');
-        if (!_append) setChapterLoading(true);
-      }
-      setCurrentChapter(chapter);
-      if (!_append) setDisplayChapter(chapter);
-      preloadNextChapters(chapter.id);
-      let content: string;
-      if (preloaded) {
-        content = preloaded.content;
-        preloadedChaptersRef.current.delete(chapter.id);
-      } else {
-        const cachedContent = await getCachedChapterContent(bookId!, chapter.id);
-        if (cachedContent) {
-          content = isEpub ? stripHtml(cachedContent) : cachedContent;
-          if (!_append) setChapterLoading(false);
-        } else {
-          if (!_append) setChapterLoading(true);
-          const res = await axios.get(`/api/books/${bookId}/chapters/${chapter.id}/content`, { timeout: 15000 });
-          const rawContent = res.data.data?.content || '';
-          content = isEpub ? stripHtml(rawContent) : rawContent;
-          if (!_append) setChapterLoading(false);
+      controller.onLocationChange(loc => {
+        setLocation(loc);
+        scheduleSave(loc);
+        // 翻页完成后播放滑动动画（初始定位不播放）
+        if (turnDirRef.current) {
+          setTurnAnim({ dir: turnDirRef.current, seq: Date.now() });
+          turnDirRef.current = null;
         }
-      }
-      const displayContent = content || `「${chapter.title}」内容暂未加载，请尝试使用目录切换或联系管理员。`;
-      if (_append && !accumulatedIdsRef.current.has(chapter.id)) {
-        accumulatedIdsRef.current.add(chapter.id);
-        setTxtContent(prev => prev + '\n\n' + chapter.title + '\n' + '─'.repeat(30) + '\n\n' + displayContent);
-      } else {
-        accumulatedIdsRef.current.clear();
-        accumulatedIdsRef.current.add(chapter.id);
-        setTxtContent(displayContent);
-      }
-    } catch {
-      setError('加载章节内容失败');
-      setChapterLoading(false);
-    }
-  };
+      });
+      // 全局页码异步生成，完成后底栏切换为「第 X 页，共 Y 页」
+      void controller.generateLocations().then(() => {
+        if (!cancelled) setLocationsReady(true);
+      });
+    })().catch(err => {
+      if (cancelled) return;
+      console.error('书籍加载失败:', err);
+      setError('书籍加载失败，请稍后重试');
+      setLoading(false);
+    });
 
-  const goToNextChapter = async (_fromAutoScroll?: boolean) => {
-    if (!currentChapter) return;
-    const idx = chapters.findIndex((c) => c.id === currentChapter.id);
-    if (idx < chapters.length - 1) await navigateToChapter(chapters[idx + 1], _fromAutoScroll);
-  };
-  goToNextChapterRef.current = goToNextChapter;
+    return () => {
+      cancelled = true;
+      controller.destroy();
+      controllerRef.current = null;
+    };
+    // 仅随书籍切换重建；settings 初始值在 load 时传入，后续由下方 effect 实时应用
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookId]);
 
-  const goToPrevChapter = async () => {
-    if (!currentChapter) return;
-    const idx = chapters.findIndex((c) => c.id === currentChapter.id);
-    if (idx > 0) await navigateToChapter(chapters[idx - 1]);
-  };
-  goToPrevChapterRef.current = goToPrevChapter;
+  // ── 设置变化实时应用到 rendition（不重建 DOM） ──
+  useEffect(() => {
+    controllerRef.current?.applySettings(settings);
+  }, [settings]);
 
-  useEffect(() => { chaptersRef.current = chapters; }, [chapters]);
-  useEffect(() => { currentChapterRef.current = currentChapter; }, [currentChapter]);
+  // ── 翻页滑动动画：relocated 后触发，操作包装层 style，不重建 epub 容器 ──
+  useEffect(() => {
+    const el = viewerWrapRef.current;
+    if (!el || !turnAnim) return;
+    el.style.animation = 'none';
+    void el.offsetWidth; // 强制 reflow 以重启动画
+    el.style.animation = `${turnAnim.dir === 'next' ? 'reader-page-next' : 'reader-page-prev'} 0.2s ease-out`;
+  }, [turnAnim]);
 
-  if (loading) {
-    return (
-      <div className="h-screen flex flex-col" style={{background: 'var(--color-bg)'}}>
-        <ReaderTopBar title="" onBack={() => navigate('/')} readingMode="scroll" onToggleReadingMode={() => {}} />
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-lg" style={{color: 'var(--color-text-muted)'}}>加载中...</p>
-        </div>
-      </div>
-    );
-  }
+  const handlePrev = useCallback(() => {
+    turnDirRef.current = 'prev';
+    void controllerRef.current?.prev();
+  }, []);
 
+  const handleNext = useCallback(() => {
+    turnDirRef.current = 'next';
+    void controllerRef.current?.next();
+  }, []);
+
+  const handleTocSelect = useCallback((href: string) => {
+    setTocOpen(false);
+    void controllerRef.current?.goTo(href);
+  }, []);
+
+  const handleSeek = useCallback((percentage: number) => {
+    controllerRef.current?.goToPercentage(percentage);
+  }, []);
+
+  // ── 错误态（含 TXT 暂不支持提示） ──
   if (error) {
     return (
-      <div className="h-screen flex flex-col" style={{background: 'var(--color-bg)'}}>
-        <ReaderTopBar title="" onBack={() => navigate('/')} readingMode="scroll" onToggleReadingMode={() => {}} />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-ios-danger mb-4">{error}</p>
-            <div className="flex flex-col items-center gap-3">
-              <Button onClick={() => { setError(null); loadBook(); }}>重试</Button>
-              {isOfflineMode && (
-                <>
-                  <Button onClick={() => navigate('/login', { replace: true })} variant="secondary" size="sm">返回登录页</Button>
-                  <Button onClick={exitOfflineMode} variant="danger" size="sm">退出离线模式</Button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
+      <div className="fixed inset-0 flex flex-col items-center justify-center gap-5 bg-ios-bg px-8">
+        <p className="text-ios-text text-center leading-relaxed">{error}</p>
+        <Button variant="secondary" onClick={() => navigate('/')}>返回书库</Button>
       </div>
     );
   }
 
   return (
-    <div className="reader-root h-[100dvh]" style={{background: 'var(--color-bg)'}}>
-      <div className="h-full relative">
-        <div className="h-full flex flex-col">
-          <div ref={interaction.attachElement} className="flex-1 flex overflow-hidden relative">
-            {showToc && (
-              <TocDrawer chapters={chapters} currentChapterId={currentChapter?.id} onNavigate={(ch) => navigateToChapter(ch)} bookFormat={book?.format} onReparse={handleReparse} isReparsing={isReparsing} />
-            )}
+    <div className="fixed inset-0 overflow-hidden" style={{ background: themeSpec.background }}>
+      {/* epub.js 渲染区（翻页动画作用于包装层，不重建内部 iframe） */}
+      <div ref={viewerWrapRef} className="absolute inset-0">
+        <div ref={viewerRef} className="absolute inset-0" />
+      </div>
 
-            <TtsOverlay ttsError={ttsError} onDismissError={() => ttsSession.setTtsError(null)} ttsState={ttsState} ttsSegmentText={ttsSegmentText} />
-
-            {book?.format === 'epub' && (
-              <EpubViewer
-                bookId={book.id} fileUrl={`/api/books/${book.id}/file/`} readingMode={readingMode}
-                fontSize={fontSize} fontFamily={fontFamily} lineHeight={lineHeight} letterSpacing={letterSpacing}
-                initialCfi={epubCfiRef.current} pageControlRef={epubPageControlRef} chapterNavRef={epubChapterNavRef}
-                onTap={closeMenu} interactionBlocked={showUi || showToc || showSearch || ttsState !== 'idle'}
-                onSelectionTextChange={setSelectedText}
-                onLocationChange={(cfi, chapterRatio) => {
-                  epubCfiRef.current = cfi;
-                  if (typeof chapterRatio === 'number') epubChapterRatioRef.current = chapterRatio;
-                  if (currentBookIdRef.current) updatePosition({ ratio: epubChapterRatioRef.current ?? 0, cfi });
-                }}
-                onPrevChapter={() => goToPrevChapterRef.current?.()}
-                onNextChapter={() => goToNextChapterRef.current?.()}
-              />
-            )}
-
-            {book?.format === 'txt' && (
-              <WxReaderView
-                ref={txtReaderViewRef} content={txtContent} chapterTitle={(displayChapter || currentChapter)?.title || ''}
-                readingMode={readingMode} fontSize={fontSize} lineHeight={lineHeight} letterSpacing={letterSpacing} fontFamily={fontFamily}
-                ttsSegments={null} activeSegmentIndex={activeSegmentIndex} searchResults={[]}
-                onProgress={(ratio) => { charOffsetRatioRef.current = ratio; updatePosition(readingMode === 'scroll' ? { ratio, scrollRatio: ratio } : { ratio }); }}
-                onBoundary={(dir) => { if (dir === 'next') goToNextChapterRef.current?.(); else goToPrevChapterRef.current?.(); }}
-                onPageInfo={(page, total) => { setPageIndex(page); setTotalPages(total); updatePosition({ page, pageCount: total }); }}
-                initialScrollRatio={pendingScrollRestorePct} isPageTurning={isPageTurning}
-                onScrollContainerReady={(el) => { txtScrollRef.current = el; }}
-                onOpenToc={() => { closeMenu(); setShowToc(true); }}
-              />
-            )}
-
-            <SearchOverlay
-              visible={showSearch} onClose={() => setShowSearch(false)} chapters={chapters}
-              bookId={bookId!} bookFormat={book?.format || 'txt'}
-              onJump={async (result) => {
-                setShowSearch(false);
-                const targetChapter = chapters[result.chapterIdx];
-                if (!targetChapter) return;
-                await loadChapterContent(targetChapter, undefined, undefined, false, true);
-                setTimeout(() => {
-                  requestAnimationFrame(() => {
-                    const container = txtScrollRef.current;
-                    if (!container) return;
-                    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
-                    let charCount = 0;
-                    while (walker.nextNode()) {
-                      const node = walker.currentNode as Text;
-                      const nodeLen = node.textContent?.length || 0;
-                      if (charCount + nodeLen > result.offset) {
-                        const targetOffset = result.offset - charCount;
-                        const range = document.createRange();
-                        range.setStart(node, targetOffset);
-                        range.setEnd(node, Math.min(nodeLen, targetOffset + 10));
-                        const rect = range.getBoundingClientRect();
-                        if (rect) container.scrollBy({ top: rect.top - container.clientHeight / 3, behavior: 'smooth' });
-                        break;
-                      }
-                      charCount += nodeLen;
-                    }
-                  });
-                }, 100);
-              }}
-              getPreloadedContent={(chId) => preloadedChaptersRef.current.get(chId)?.content}
+      {loading && (
+        <div
+          className="absolute inset-0 z-20 flex items-center justify-center"
+          style={{ background: themeSpec.background, color: themeSpec.color }}
+        >
+          <div className="text-center">
+            <div
+              className="animate-spin rounded-full h-8 w-8 border-b-2 mx-auto mb-4"
+              style={{ borderColor: themeSpec.color }}
             />
+            <p className="text-sm" style={{ opacity: 0.6 }}>正在打开书籍…</p>
           </div>
         </div>
+      )}
 
-        <IconButton onClick={(e) => { e.stopPropagation(); toggleFloatMenu(); }}
-          variant="ghost" size="lg"
-          className="absolute bottom-6 left-6 z-35 opacity-50 hover:opacity-80"
-          style={{ background: 'rgba(128,128,128,0.5)' }} aria-label="菜单" title="菜单">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-          </svg>
-        </IconButton>
+      {/* 点按层：左 1/4 上一页 · 中央显隐工具栏 · 右 1/4 下一页 */}
+      {!loading && (
+        <div className="absolute inset-0 z-10 flex" data-testid="tap-zones">
+          <button className="w-1/4 h-full" onClick={handlePrev} aria-label="上一页" />
+          <button className="flex-1 h-full" onClick={() => setChromeVisible(v => !v)} aria-label="显示或隐藏工具栏" />
+          <button className="w-1/4 h-full" onClick={handleNext} aria-label="下一页" />
+        </div>
+      )}
 
-        {showUi && (
-          <ReaderControlPanel
+      <ReaderChrome
+        visible={chromeVisible}
+        top={
+          <ReaderTopBar
+            title={book?.title ?? ''}
+            chromeBackground={themeSpec.chromeBackground}
+            chromeColor={themeSpec.chromeColor}
             onBack={() => navigate('/')}
-            onSearch={() => { setShowSearch(true); closeMenu(); }}
-            onToggleToc={() => { setShowToc(v => !v); closeMenu(); }}
-            showToc={showToc}
-            chapterTitle={(displayChapter || currentChapter)?.title || book?.title || ''}
-            ttsState={ttsState} ttsProgress={ttsProgress}
-            onStartTTS={handleStartTTS} onPauseTTS={handlePauseTTS} onResumeTTS={handleResumeTTS} onStopTTS={handleStopTTS}
-            onSeek={handleTTSSeek}
-            onPrevChapter={() => goToPrevChapterRef.current?.()} onNextChapter={() => goToNextChapterRef.current?.()}
-            sleepTimerMinutes={ttsSession.sleepTimerMinutes} onSetSleepTimer={handleSetSleepTimer}
-            playbackRate={playbackRate} onPlaybackRateChange={handlePlaybackRateChange}
-            fontSize={fontSize} setFontSize={setFontSize} lineHeight={lineHeight} setLineHeight={setLineHeight}
-            fontFamily={fontFamily} setFontFamily={setFontFamily} readingMode={readingMode}
-            onToggleReadingMode={() => {
-              if (readingMode === 'scroll') {
-                const scrollEl = txtPageRef.current;
-                if (scrollEl && scrollEl.scrollHeight > 0) {
-                  const r = Math.min(1, Math.max(0, scrollEl.scrollTop / scrollEl.scrollHeight));
-                  charOffsetRatioRef.current = r;
-                  updatePosition({ ratio: r, scrollRatio: r });
-                }
-                setReadingMode('paginated');
-              } else {
-                setReadingMode('scroll');
-              }
-            }}
-            currentChapterIndex={currentChapter ? chapters.findIndex(c => c.id === currentChapter.id) : -1}
-            totalChapters={chapters.length} bookFormat={book?.format}
-            pageIndex={pageIndex} totalPages={totalPages}
-            onPageTurn={(dir) => performPageTurnRef.current(dir)}
-            selectedText={selectedText}
-            onCopy={async () => {
-              const text = selectedText || window.getSelection()?.toString().trim() || '';
-              if (!text) return;
-              try {
-                await navigator.clipboard.writeText(text);
-                toast.success('已复制到剪贴板'); setSelectedText(''); window.getSelection()?.removeAllRanges(); closeMenu();
-              } catch { /* Clipboard API unavailable */ }
-            }}
-            cachingInProgress={cache.cachingInProgress} cacheProgressText={cache.cacheProgressText} cacheStatus={cache.cacheStatus}
-            onCacheChapter={cache.handleCacheCurrentChapter} onCacheFullBook={cache.handleCacheFullBook}
-            onClearTextCache={cache.handleClearTextCache} onClearAudioCache={cache.handleClearAudioCache}
-            onClose={closeMenu}
+            onOpenToc={() => setTocOpen(true)}
+            onOpenFontSettings={() => setFontOpen(true)}
           />
-        )}
-      </div>
+        }
+        bottom={
+          <ReaderBottomBar
+            location={location}
+            locationsReady={locationsReady}
+            chromeBackground={themeSpec.chromeBackground}
+            chromeColor={themeSpec.chromeColor}
+            onSeek={handleSeek}
+          />
+        }
+      />
+
+      <TocPanel
+        open={tocOpen}
+        toc={toc}
+        currentHref={location?.chapterHref}
+        chromeBackground={themeSpec.chromeBackground}
+        chromeColor={themeSpec.chromeColor}
+        onSelect={handleTocSelect}
+        onClose={() => setTocOpen(false)}
+      />
+      <FontSettingsPanel
+        open={fontOpen}
+        settings={settings}
+        chromeBackground={themeSpec.chromeBackground}
+        chromeColor={themeSpec.chromeColor}
+        onChange={updateSettings}
+        onClose={() => setFontOpen(false)}
+      />
     </div>
   );
 }
-
-export default ReaderPage;
