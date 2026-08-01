@@ -1,8 +1,9 @@
 /**
  * ReaderTopBar — 阅读器顶栏（Apple Books 风格）
  *
- * 布局：‹ 书库（返回） | 书名（居中截断） | 目录 · aA
+ * 布局：‹ 书库（返回） | 书名（居中截断） | 书签 · 搜索 · 目录 · aA
  * 颜色随阅读主题（chromeBackground/chromeColor 由 ReaderPage 按主题注入）。
+ * 书签/搜索按钮仅在提供对应回调时渲染（向后兼容）。
  */
 
 export interface ReaderTopBarProps {
@@ -12,7 +13,22 @@ export interface ReaderTopBarProps {
   onBack: () => void;
   onOpenToc: () => void;
   onOpenFontSettings: () => void;
+  /** 当前页是否已加书签（控制图标实心/空心） */
+  bookmarked?: boolean;
+  onToggleBookmark?: () => void;
+  onOpenSearch?: () => void;
 }
+
+const BookmarkIcon = ({ filled }: { filled: boolean }) =>
+  filled ? (
+    <svg width="18" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.9L5 21V4a1 1 0 0 1 1-1z" />
+    </svg>
+  ) : (
+    <svg width="18" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.9L5 21V4a1 1 0 0 1 1-1z" />
+    </svg>
+  );
 
 export function ReaderTopBar({
   title,
@@ -21,6 +37,9 @@ export function ReaderTopBar({
   onBack,
   onOpenToc,
   onOpenFontSettings,
+  bookmarked = false,
+  onToggleBookmark,
+  onOpenSearch,
 }: ReaderTopBarProps) {
   return (
     <div
@@ -38,6 +57,24 @@ export function ReaderTopBar({
       </button>
       <p className="flex-1 text-center text-[15px] font-medium truncate px-2">{title}</p>
       <div className="flex items-center">
+        {onToggleBookmark && (
+          <button
+            onClick={onToggleBookmark}
+            aria-label={bookmarked ? '移除书签' : '添加书签'}
+            aria-pressed={bookmarked}
+            className="p-2.5 rounded-lg active:opacity-40 transition-opacity"
+          >
+            <BookmarkIcon filled={bookmarked} />
+          </button>
+        )}
+        {onOpenSearch && (
+          <button onClick={onOpenSearch} aria-label="搜索" className="p-2.5 rounded-lg active:opacity-40 transition-opacity">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <line x1="16.5" y1="16.5" x2="21" y2="21" />
+            </svg>
+          </button>
+        )}
         <button onClick={onOpenToc} aria-label="目录" className="p-2.5 rounded-lg active:opacity-40 transition-opacity">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <line x1="4" y1="6" x2="20" y2="6" />

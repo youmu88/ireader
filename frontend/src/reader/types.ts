@@ -13,6 +13,8 @@ export interface ReaderSettings {
   theme: ReaderTheme;
   /** 行高 */
   lineHeight: number;
+  /** 垂直滚动模式（true=上下滚动，false=左右翻页） */
+  scrollMode: boolean;
 }
 
 /** 目录项（自 epub.js navigation.toc 递归映射） */

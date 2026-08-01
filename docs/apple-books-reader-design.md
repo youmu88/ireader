@@ -97,3 +97,18 @@ src/pages/ReaderPage.tsx         # 组装：加载 → controller → chrome/面
 - [x] 迭代3：UI 组件（Chrome/TopBar/BottomBar/FontPanel/TocPanel + 单测）
 - [x] 迭代4：ReaderPage 组装 + 路由接回 + TXT 提示（+ 集成测试）
 - [x] 迭代5：全量验证（tsc + vitest 137 全绿）+ 版本 2.44.0 + 归档
+
+## 8. 迭代2 完成记录（2.45.0 · 2026-08-01）
+
+| 功能 | 实现 | 测试 |
+|------|------|------|
+| 垂直滚动模式 | rendition.flow 切换 + aA 面板开关 + 滚动模式禁用左右点按翻页区 | settings/controller 单测 |
+| 书签 | useBookmarks（localStorage 按书持久化，CFI 唯一键 toggle）+ 顶栏书签按钮（当前页状态+toast）+ TocPanel 目录/书签双 tab + controller.getExcerptAt 摘要提取 | 10 hook + 4 面板 + 1 集成 |
+| 全书搜索 | searchBook（spine 逐章 TreeWalker 遍历 + Range→CFI 可跳转，逐章 unload 控内存，单章失败不中断）+ 全屏 SearchPanel（300ms 防抖即输即搜 + mark 高亮 + 章节标题反查） | 9 算法 + 8 面板 + 1 集成 |
+| 仿真翻页 | translateX 平移升级为 CSS 3D 书页翻转（rotateY±32° 书脊侧为轴 + perspective 1600px 景深） | 集成回归 |
+
+**curl 技术结论（双独立来源验证）**：
+- epub.js 无官方/社区成熟 curl 翻页插件（GitHub issue #510：“no plugins close to this”）
+- StPageFlip/page-flip 需离散 HTML 元素/图片作为页面输入，与 epub.js 连续流渲染模型（iframe+CSS columns）不兼容，集成=自研分页引擎；且 npm page-flip@2.0.7 已 5 年未维护
+- 本项目历史三次自研分页（2.5.1/2.6.0/2.7.0）均失败回滚
+- 决策：采用 CSS 3D 翻转逼近；真 curl 自研分页属架构级改动，建议单独立项评估

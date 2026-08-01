@@ -83,3 +83,45 @@ describe('TocPanel', () => {
     expect(screen.getByText('本书暂无目录')).toBeDefined();
   });
 });
+
+describe('TocPanel 书签 tab', () => {
+  const BOOKMARKS = [
+    { id: 'bm1', cfi: 'epubcfi(a)', excerpt: '山不在高，有仙则名', globalPage: 12, createdAt: '2026-08-01T10:00:00Z' },
+    { id: 'bm2', cfi: 'epubcfi(b)', excerpt: '', globalPage: 30, createdAt: '2026-08-01T11:00:00Z' },
+  ];
+
+  it('传入 bookmarks 时显示 tab 头；不传则不显示（向后兼容）', () => {
+    const { unmount } = render(
+      <TocPanel open toc={TOC} chromeBackground="#fff" chromeColor="#000" onSelect={() => {}} onClose={() => {}} />,
+    );
+    expect(screen.queryByRole('tablist')).toBeNull();
+    unmount();
+    renderPanel({ bookmarks: [] });
+    expect(screen.getByRole('tablist')).toBeDefined();
+  });
+
+  it('切换书签 tab：渲染书签列表（摘要/页码），空摘要显示占位', () => {
+    renderPanel({ bookmarks: BOOKMARKS });
+    fireEvent.click(screen.getByRole('tab', { name: /书签/ }));
+    expect(screen.getByText('山不在高，有仙则名')).toBeDefined();
+    expect(screen.getByText('（无摘要）')).toBeDefined();
+    expect(screen.getByText(/第 12 页/)).toBeDefined();
+  });
+
+  it('点击书签触发 onSelectBookmark；点击删除触发 onRemoveBookmark', () => {
+    const onSelectBookmark = vi.fn();
+    const onRemoveBookmark = vi.fn();
+    renderPanel({ bookmarks: BOOKMARKS, onSelectBookmark, onRemoveBookmark });
+    fireEvent.click(screen.getByRole('tab', { name: /书签/ }));
+    fireEvent.click(screen.getByText('山不在高，有仙则名'));
+    expect(onSelectBookmark).toHaveBeenCalledWith(BOOKMARKS[0]);
+    fireEvent.click(screen.getByLabelText('删除书签-山不在高，有仙则名'));
+    expect(onRemoveBookmark).toHaveBeenCalledWith('bm1');
+  });
+
+  it('书签为空时显示引导文案', () => {
+    renderPanel({ bookmarks: [] });
+    fireEvent.click(screen.getByRole('tab', { name: /书签/ }));
+    expect(screen.getByText(/暂无书签/)).toBeDefined();
+  });
+});

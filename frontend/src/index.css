@@ -716,13 +716,16 @@ body,
 }
 
 
-/* ── 阅读器翻页动画（Apple Books 风格滑入，作用于 epub 容器包装层） ── */
-/* 维护注意：动画时长/缓动须与 ReaderPage.tsx 中 turnAnim 的 `0.2s ease-out` 保持一致 */
+/* ── 阅读器翻页动画（CSS 3D 书页翻转，作用于 epub 容器包装层） ── */
+/* 维护注意：动画时长/缓动须与 ReaderPage.tsx 中 turnAnim 的 `0.28s ease-out` 保持一致；
+   3D 景深（perspective: 1600px）由 ReaderPage 最外层容器提供。
+   说明：此为仿真 curl 的零架构风险逼近（书脊侧为轴 rotateY 翻入）；
+   真纸张弯曲 curl 需自研分页引擎（epub.js 无现成插件，page-flip 需离散页面 DOM）。 */
 @keyframes reader-page-next {
-  from { transform: translateX(24px); opacity: 0.35; }
-  to { transform: translateX(0); opacity: 1; }
+  from { transform: rotateY(-32deg); transform-origin: left center; opacity: 0.55; }
+  to { transform: rotateY(0deg); transform-origin: left center; opacity: 1; }
 }
 @keyframes reader-page-prev {
-  from { transform: translateX(-24px); opacity: 0.35; }
-  to { transform: translateX(0); opacity: 1; }
+  from { transform: rotateY(32deg); transform-origin: right center; opacity: 0.55; }
+  to { transform: rotateY(0deg); transform-origin: right center; opacity: 1; }
 }

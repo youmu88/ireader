@@ -9,6 +9,7 @@
  */
 import type { ReaderLocation, ReaderSettings, TocItem } from './types';
 import { buildRenditionTheme, DEFAULT_READER_SETTINGS, READER_THEMES } from './theme';
+import { searchBook, type SearchableBook, type SearchResult } from './searchBook';
 
 // ── epub.js 运行时类型（动态 import，避免测试/SSR 环境直接加载） ──
 interface EpubNavigationTocItem {
@@ -22,6 +23,8 @@ interface EpubBook {
   ready: Promise<unknown>;
   loaded: { navigation: Promise<{ toc: EpubNavigationTocItem[] }> };
   renderTo(el: HTMLElement, opts: Record<string, unknown>): EpubRendition;
+  /** 将 CFI 解析为 DOM Range（书签摘要提取用；epub.js book.getRange） */
+  getRange?(cfi: string): Promise<Range>;
   locations: {
     generate(charsPerLocation?: number): Promise<unknown>;
     length(): number;
@@ -36,6 +39,8 @@ interface EpubRendition {
   next(): Promise<unknown>;
   prev(): Promise<unknown>;
   on(event: string, cb: (...args: any[]) => void): void;
+  /** 切换流模式：'paginated' 左右翻页 / 'scrolled-doc' 垂直滚动 */
+  flow(mode: string): void;
   themes: {
     register(name: string, styles: unknown): void;
     select(name: string): void;
@@ -84,7 +89,7 @@ export class EpubBookController {
     this.rendition = this.book.renderTo(container, {
       width: '100%',
       height: '100%',
-      flow: 'paginated',
+      flow: settings.scrollMode ? 'scrolled-doc' : 'paginated',
       spread: 'none',
     });
     this.applySettings(settings);
@@ -122,6 +127,31 @@ export class EpubBookController {
     if (!this.book || !this.locationsReady) return;
     const clamped = Math.min(1, Math.max(0, p));
     void this.rendition?.display(this.book.locations.cfiFromPercentage(clamped));
+  }
+
+  /** 切换翻页/滚动流模式（epub.js rendition.flow 自动回到相近位置并触发 relocated） */
+  setFlow(scrollMode: boolean): void {
+    this.rendition?.flow(scrollMode ? 'scrolled-doc' : 'paginated');
+  }
+
+  /** 提取 CFI 锚点处文本摘要（书签用；失败/无 CFI 返回空串） */
+  async getExcerptAt(cfi: string, len = 60): Promise<string> {
+    if (!cfi || !this.book?.getRange) return '';
+    try {
+      const range = await this.book.getRange(cfi);
+      const node = range?.startContainer;
+      const own = (node?.textContent ?? '').slice(range?.startOffset ?? 0).trim();
+      const text = own || (node?.parentElement?.textContent ?? '');
+      return text.replace(/\s+/g, ' ').trim().slice(0, len);
+    } catch {
+      return '';
+    }
+  }
+
+  /** 全书搜索（spine 逐章遍历；空查询/未加载返回空数组） */
+  async search(query: string, onProgress?: (done: number, total: number) => void): Promise<SearchResult[]> {
+    if (!this.book || !query.trim()) return [];
+    return searchBook(this.book as unknown as SearchableBook, query.trim(), { onProgress });
   }
 
   /** 应用排版设置（主题色 + 行距 + 字号），不重建 DOM */

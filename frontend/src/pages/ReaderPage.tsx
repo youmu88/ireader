@@ -13,20 +13,33 @@ import { READER_THEMES } from '../reader/theme';
 import type { ReaderLocation, TocItem } from '../reader/types';
 import { useReaderSettings } from '../reader/useReaderSettings';
 import { useReaderProgress } from '../reader/useReaderProgress';
+import { useBookmarks, type BookmarkItem } from '../reader/useBookmarks';
 import { ReaderChrome } from '../reader/components/ReaderChrome';
 import { ReaderTopBar } from '../reader/components/ReaderTopBar';
 import { ReaderBottomBar } from '../reader/components/ReaderBottomBar';
 import { FontSettingsPanel } from '../reader/components/FontSettingsPanel';
 import { TocPanel } from '../reader/components/TocPanel';
+import { SearchPanel } from '../reader/components/SearchPanel';
+import type { SearchResult } from '../reader/searchBook';
 import { getCachedEpubArchive } from '../services/offlineCacheService';
 import { getToken } from '../services/authService';
-import { Button } from '../components/ui';
+import { Button, toast } from '../components/ui';
 
 interface BookMeta {
   id: string;
   title: string;
   author: string | null;
   format: 'epub' | 'txt';
+}
+
+/** 目录树递归反查章节标题（搜索结果归属展示；href 去 fragment 匹配） */
+function findTocLabel(items: TocItem[], href: string): string | undefined {
+  for (const item of items) {
+    if (item.href === href || item.href.split('#')[0] === href) return item.label;
+    const sub = findTocLabel(item.subitems ?? [], href);
+    if (sub) return sub;
+  }
+  return undefined;
 }
 
 export default function ReaderPage() {
@@ -41,6 +54,9 @@ export default function ReaderPage() {
   const [chromeVisible, setChromeVisible] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
   const [fontOpen, setFontOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
 
   const viewerRef = useRef<HTMLDivElement>(null);
   const viewerWrapRef = useRef<HTMLDivElement>(null);
@@ -50,6 +66,7 @@ export default function ReaderPage() {
 
   const { settings, updateSettings } = useReaderSettings();
   const { loadInitialCfi, scheduleSave } = useReaderProgress({ bookId });
+  const { bookmarks, isBookmarked, toggle: toggleBookmark, remove: removeBookmark } = useBookmarks(bookId);
   const themeSpec = READER_THEMES[settings.theme];
 
   // ── 加载书籍并初始化渲染 ──
@@ -124,13 +141,18 @@ export default function ReaderPage() {
     controllerRef.current?.applySettings(settings);
   }, [settings]);
 
+  // ── 滚动模式切换：rendition.flow 实时切换，自动回到相近位置 ──
+  useEffect(() => {
+    controllerRef.current?.setFlow(settings.scrollMode);
+  }, [settings.scrollMode]);
+
   // ── 翻页滑动动画：relocated 后触发，操作包装层 style，不重建 epub 容器 ──
   useEffect(() => {
     const el = viewerWrapRef.current;
     if (!el || !turnAnim) return;
     el.style.animation = 'none';
     void el.offsetWidth; // 强制 reflow 以重启动画
-    el.style.animation = `${turnAnim.dir === 'next' ? 'reader-page-next' : 'reader-page-prev'} 0.2s ease-out`;
+    el.style.animation = `${turnAnim.dir === 'next' ? 'reader-page-next' : 'reader-page-prev'} 0.28s ease-out`;
   }, [turnAnim]);
 
   const handlePrev = useCallback(() => {
@@ -152,6 +174,44 @@ export default function ReaderPage() {
     controllerRef.current?.goToPercentage(percentage);
   }, []);
 
+  // ── 书签：切换当前页书签（提取摘要 → toggle → toast 反馈） ──
+  const handleToggleBookmark = useCallback(async () => {
+    const loc = controllerRef.current?.currentLocation;
+    if (!loc) return;
+    const excerpt = (await controllerRef.current?.getExcerptAt(loc.cfi)) ?? '';
+    const result = toggleBookmark(loc, excerpt);
+    if (result === 'added') toast.success('已添加书签');
+    else if (result === 'removed') toast.success('已移除书签');
+  }, [toggleBookmark]);
+
+  const handleSelectBookmark = useCallback((item: BookmarkItem) => {
+    setTocOpen(false);
+    void controllerRef.current?.goTo(item.cfi);
+  }, []);
+
+  // ── 全书搜索：空查询清结果；seq 防竞态（旧搜索结果被新搜索覆盖时丢弃） ──
+  const searchSeqRef = useRef(0);
+  const handleSearch = useCallback(async (query: string) => {
+    const seq = ++searchSeqRef.current;
+    if (!query.trim()) {
+      setSearchResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    try {
+      const results = (await controllerRef.current?.search(query)) ?? [];
+      if (searchSeqRef.current === seq) setSearchResults(results);
+    } finally {
+      if (searchSeqRef.current === seq) setSearching(false);
+    }
+  }, []);
+
+  const handleSelectSearchResult = useCallback((result: SearchResult) => {
+    setSearchOpen(false);
+    void controllerRef.current?.goTo(result.cfi);
+  }, []);
+
   // ── 错误态（含 TXT 暂不支持提示） ──
   if (error) {
     return (
@@ -163,7 +223,7 @@ export default function ReaderPage() {
   }
 
   return (
-    <div className="fixed inset-0 overflow-hidden" style={{ background: themeSpec.background }}>
+    <div className="fixed inset-0 overflow-hidden" style={{ background: themeSpec.background, perspective: '1600px' }}>
       {/* epub.js 渲染区（翻页动画作用于包装层，不重建内部 iframe） */}
       <div ref={viewerWrapRef} className="absolute inset-0">
         <div ref={viewerRef} className="absolute inset-0" />
@@ -184,12 +244,16 @@ export default function ReaderPage() {
         </div>
       )}
 
-      {/* 点按层：左 1/4 上一页 · 中央显隐工具栏 · 右 1/4 下一页 */}
+      {/* 点按层：左 1/4 上一页 · 中央显隐工具栏 · 右 1/4 下一页（滚动模式下禁用左右翻页区） */}
       {!loading && (
         <div className="absolute inset-0 z-10 flex" data-testid="tap-zones">
-          <button className="w-1/4 h-full" onClick={handlePrev} aria-label="上一页" />
+          {!settings.scrollMode && (
+            <button className="w-1/4 h-full" onClick={handlePrev} aria-label="上一页" />
+          )}
           <button className="flex-1 h-full" onClick={() => setChromeVisible(v => !v)} aria-label="显示或隐藏工具栏" />
-          <button className="w-1/4 h-full" onClick={handleNext} aria-label="下一页" />
+          {!settings.scrollMode && (
+            <button className="w-1/4 h-full" onClick={handleNext} aria-label="下一页" />
+          )}
         </div>
       )}
 
@@ -203,6 +267,9 @@ export default function ReaderPage() {
             onBack={() => navigate('/')}
             onOpenToc={() => setTocOpen(true)}
             onOpenFontSettings={() => setFontOpen(true)}
+            bookmarked={isBookmarked(location?.cfi)}
+            onToggleBookmark={handleToggleBookmark}
+            onOpenSearch={() => setSearchOpen(true)}
           />
         }
         bottom={
@@ -224,6 +291,9 @@ export default function ReaderPage() {
         chromeColor={themeSpec.chromeColor}
         onSelect={handleTocSelect}
         onClose={() => setTocOpen(false)}
+        bookmarks={bookmarks}
+        onSelectBookmark={handleSelectBookmark}
+        onRemoveBookmark={removeBookmark}
       />
       <FontSettingsPanel
         open={fontOpen}
@@ -232,6 +302,17 @@ export default function ReaderPage() {
         chromeColor={themeSpec.chromeColor}
         onChange={updateSettings}
         onClose={() => setFontOpen(false)}
+      />
+      <SearchPanel
+        open={searchOpen}
+        chromeBackground={themeSpec.chromeBackground}
+        chromeColor={themeSpec.chromeColor}
+        searching={searching}
+        results={searchResults}
+        onSearch={handleSearch}
+        onSelect={handleSelectSearchResult}
+        onClose={() => setSearchOpen(false)}
+        chapterLabelOf={href => findTocLabel(toc, href)}
       />
     </div>
   );

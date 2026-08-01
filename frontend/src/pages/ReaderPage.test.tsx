@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ReaderPage from './ReaderPage';
@@ -16,6 +16,9 @@ const controllerMocks = vi.hoisted(() => {
     prev: vi.fn().mockResolvedValue(undefined),
     goTo: vi.fn(),
     goToPercentage: vi.fn(),
+    setFlow: vi.fn(),
+    search: vi.fn().mockResolvedValue([]),
+    getExcerptAt: vi.fn().mockResolvedValue(''),
     applySettings: vi.fn(),
     onLocationChange: vi.fn().mockReturnValue(() => {}),
     generateLocations: vi.fn().mockResolvedValue(500),
@@ -32,6 +35,12 @@ vi.mock('../services/offlineCacheService', () => ({
 }));
 vi.mock('../services/authService', () => ({ getToken: vi.fn().mockReturnValue('test-token') }));
 vi.mock('../services/deviceId', () => ({ getDeviceId: vi.fn().mockReturnValue('device-1') }));
+
+// toast 真实实现依赖 ToastProvider 容器，集成测试环境未挂载，替换为 mock（Button 等其余导出保持真实）
+vi.mock('../components/ui', async importOriginal => {
+  const actual = await importOriginal<typeof import('../components/ui')>();
+  return { ...actual, toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } };
+});
 
 const renderReader = () =>
   render(
@@ -59,6 +68,8 @@ beforeEach(() => {
   controllerMocks.instance.onLocationChange.mockReturnValue(() => {});
   controllerMocks.instance.generateLocations.mockResolvedValue(500);
   offlineMocks.getCachedEpubArchive.mockResolvedValue(undefined);
+  controllerMocks.instance.getExcerptAt.mockResolvedValue('');
+  (controllerMocks.instance as Record<string, unknown>).currentLocation = null;
   axiosMocks.put.mockResolvedValue({ data: { success: true, conflict: false, data: { progressVersion: 2 } } });
   localStorage.clear();
 });
@@ -134,5 +145,50 @@ describe('ReaderPage', () => {
     renderReader();
     expect(await screen.findByText('书籍加载失败，请稍后重试')).toBeDefined();
     expect(screen.getByText('返回书库')).toBeDefined();
+  });
+
+  it('书签：顶栏按钮切换当前页书签并持久化到 localStorage', async () => {
+    mockBook('epub');
+    let locationCb: ((loc: unknown) => void) | undefined;
+    controllerMocks.instance.onLocationChange.mockImplementation((cb: (loc: unknown) => void) => {
+      locationCb = cb;
+      return () => {};
+    });
+    (controllerMocks.instance as Record<string, unknown>).currentLocation = {
+      cfi: 'epubcfi(/6/4)', percentage: null, pageInChapter: 2, pagesInChapter: 9, chapterHref: 'ch1.xhtml',
+    };
+    controllerMocks.instance.getExcerptAt.mockResolvedValue('书签摘要');
+    renderReader();
+    await screen.findByTestId('tap-zones');
+    // 模拟 epub.js relocated：驱动 location state（书签按钮状态依赖它）
+    act(() => {
+      locationCb?.({
+        cfi: 'epubcfi(/6/4)', percentage: null, pageInChapter: 2, pagesInChapter: 9, chapterHref: 'ch1.xhtml',
+      });
+    });
+    fireEvent.click(screen.getByLabelText('显示或隐藏工具栏'));
+    fireEvent.click(screen.getByLabelText('添加书签'));
+    await screen.findByLabelText('移除书签');
+    const stored = JSON.parse(localStorage.getItem('ireader_bookmarks_book-1')!);
+    expect(stored).toHaveLength(1);
+    expect(stored[0].cfi).toBe('epubcfi(/6/4)');
+    expect(stored[0].excerpt).toBe('书签摘要');
+  });
+
+  it('全书搜索：面板输入触发搜索，点击结果跳转并关闭', async () => {
+    mockBook('epub');
+    controllerMocks.instance.search.mockResolvedValue([
+      { cfi: 'epubcfi(/6/8!/2/1:5)', excerpt: '命中摘要文本', chapterHref: 'ch1.xhtml' },
+    ]);
+    renderReader();
+    await screen.findByTestId('tap-zones');
+    fireEvent.click(screen.getByLabelText('显示或隐藏工具栏'));
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }));
+    // 面板内输入关键词（防抖 300ms 后触发 controller.search）
+    fireEvent.change(screen.getByLabelText('搜索全书'), { target: { value: '关键词' } });
+    const hit = await screen.findByText('命中摘要文本');
+    expect(controllerMocks.instance.search).toHaveBeenCalledWith('关键词');
+    fireEvent.click(hit);
+    expect(controllerMocks.instance.goTo).toHaveBeenCalledWith('epubcfi(/6/8!/2/1:5)');
   });
 });

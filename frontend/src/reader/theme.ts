@@ -48,7 +48,7 @@ export const READER_THEMES: Record<ReaderTheme, ReaderThemeSpec> = {
 
 export const READER_THEME_ORDER: ReaderTheme[] = ['white', 'sepia', 'gray', 'black'];
 
-export const DEFAULT_READER_SETTINGS: ReaderSettings = { fontSize: 100, theme: 'white', lineHeight: 1.75 };
+export const DEFAULT_READER_SETTINGS: ReaderSettings = { fontSize: 100, theme: 'white', lineHeight: 1.75, scrollMode: false };
 
 export const FONT_SIZE_MIN = 60;
 export const FONT_SIZE_MAX = 200;
