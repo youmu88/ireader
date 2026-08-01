@@ -112,3 +112,16 @@ src/pages/ReaderPage.tsx         # 组装：加载 → controller → chrome/面
 - StPageFlip/page-flip 需离散 HTML 元素/图片作为页面输入，与 epub.js 连续流渲染模型（iframe+CSS columns）不兼容，集成=自研分页引擎；且 npm page-flip@2.0.7 已 5 年未维护
 - 本项目历史三次自研分页（2.5.1/2.6.0/2.7.0）均失败回滚
 - 决策：采用 CSS 3D 翻转逼近；真 curl 自研分页属架构级改动，建议单独立项评估
+
+## 9. TXT 支持（2.46.0 · 2026-08-01）
+
+去除新阅读器对 TXT 的“暂不支持”限制，改为 EPUB/TXT 统一渲染管线：
+
+| 层 | 实现 |
+|----|------|
+| buildTxtFeed | 纯函数：TXT 章节文本 → epub.js HTML Feed（XHTML <section> 骨架，<p> 段落化，HTML 转义防注入，空章过滤） |
+| EpubBookController.loadTxt | 以 HTML Feed 方式构造 epub.js book（sections 数组即书源），spine 连续多章，CFI 定位与 EPUB 同构 |
+| ReaderPage 分流 | format==='txt' 时拉取章节清单 → 逐章取正文 → loadTxt 渲染，复用既有翻页/主题/字号/滚动/进度/书签/搜索全能力 |
+
+技术要点：TXT 不重复实现独立渲染引擎，而是将纯文本标准化为 epub.js 可渲染的 HTML Feed，使全部阅读器能力天然对 TXT 生效，系统复杂度保持可控。
+- 新增 7 个 buildTxtFeed 单测 + 1 个 TXT 组装集成测试更新，全部 182 测试通过，tsc 全绿

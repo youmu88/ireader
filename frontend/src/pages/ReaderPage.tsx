@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
-import { EpubBookController } from '../reader/EpubBookController';
+import { EpubBookController, type TxtFeedSectionInput } from '../reader/EpubBookController';
 import { READER_THEMES } from '../reader/theme';
 import type { ReaderLocation, TocItem } from '../reader/types';
 import { useReaderSettings } from '../reader/useReaderSettings';
@@ -83,8 +83,46 @@ export default function ReaderPage() {
       if (cancelled) return;
       setBook(meta);
 
+      // TXT/EPUB 共用：设置目录，绑定位置监听（驱动位置+翻页动画），异步生成全局页码
+      const attachReader = (tocItems?: TocItem[]) => {
+        if (tocItems) setToc(tocItems);
+        setLoading(false);
+        controller.onLocationChange(loc => {
+          setLocation(loc);
+          scheduleSave(loc);
+          if (turnDirRef.current) {
+            setTurnAnim({ dir: turnDirRef.current, seq: Date.now() });
+            turnDirRef.current = null;
+          }
+        });
+        void controller.generateLocations().then(() => {
+          if (!cancelled) setLocationsReady(true);
+        });
+      };
+
+      if (meta.format === 'txt') {
+        // TXT：拉取章节清单 → 逐章取正文 → 以 HTML Feed 渲染（复用全套阅读管线）
+        const chaptersRes = await axios.get(`/api/books/${bookId}/chapters`);
+        const chapters: { id: string; title: string; href: string | null }[] = chaptersRes.data?.data || [];
+        const initialCfiTxt = await loadInitialCfi();
+        const feedInputs: TxtFeedSectionInput[] = [];
+        for (const ch of chapters) {
+          const contentRes = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`);
+          const raw = contentRes.data?.data;
+          const text = typeof raw === 'string' ? raw : raw?.text ?? raw?.content ?? '';
+          feedInputs.push({ id: ch.id, title: ch.title || `第${feedInputs.length + 1}部分`, text: String(text) });
+        }
+        const tocItemsTxt = await controller.loadTxt(feedInputs, viewerRef.current!, {
+          initialCfi: initialCfiTxt,
+          settings,
+        });
+        if (cancelled) return;
+        attachReader(tocItemsTxt);
+        return;
+      }
+
       if (meta.format !== 'epub') {
-        setError('该书籍为 TXT 格式，新版阅读器暂不支持，敬请期待');
+        setError('该书籍格式暂不支持');
         setLoading(false);
         return;
       }
@@ -104,22 +142,9 @@ export default function ReaderPage() {
         settings,
       });
       if (cancelled) return;
-
+      // 注册位置监听 + 页码生成（TXT/EPUB 共用）
       setToc(tocItems);
-      setLoading(false);
-      controller.onLocationChange(loc => {
-        setLocation(loc);
-        scheduleSave(loc);
-        // 翻页完成后播放滑动动画（初始定位不播放）
-        if (turnDirRef.current) {
-          setTurnAnim({ dir: turnDirRef.current, seq: Date.now() });
-          turnDirRef.current = null;
-        }
-      });
-      // 全局页码异步生成，完成后底栏切换为「第 X 页，共 Y 页」
-      void controller.generateLocations().then(() => {
-        if (!cancelled) setLocationsReady(true);
-      });
+      attachReader();
     })().catch(err => {
       if (cancelled) return;
       console.error('书籍加载失败:', err);

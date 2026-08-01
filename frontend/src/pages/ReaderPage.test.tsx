@@ -11,6 +11,7 @@ vi.mock('axios', () => ({ default: axiosMocks }));
 const controllerMocks = vi.hoisted(() => {
   const instance = {
     load: vi.fn(),
+    loadTxt: vi.fn(),
     destroy: vi.fn(),
     next: vi.fn().mockResolvedValue(undefined),
     prev: vi.fn().mockResolvedValue(undefined),
@@ -58,6 +59,20 @@ const mockBook = (format: 'epub' | 'txt') => {
         data: { success: true, data: { id: 'book-1', title: '测试之书', author: '作者', format } },
       });
     }
+    if (format === 'txt' && url === '/api/books/book-1/chapters') {
+      return Promise.resolve({
+        data: {
+          success: true,
+          data: [
+            { id: 'ch-1', title: '第一章', href: null },
+            { id: 'ch-2', title: '第二章', href: null },
+          ],
+        },
+      });
+    }
+    if (format === 'txt' && url.includes('/chapters/')) {
+      return Promise.resolve({ data: { success: true, data: { text: '第一章正文内容' } } });
+    }
     return Promise.resolve({ data: { success: true, data: null } }); // GET progress → 无记录
   });
 };
@@ -65,6 +80,7 @@ const mockBook = (format: 'epub' | 'txt') => {
 beforeEach(() => {
   vi.clearAllMocks();
   controllerMocks.instance.load.mockResolvedValue([{ id: 'c1', label: '第一章', href: 'ch1.xhtml' }]);
+  controllerMocks.instance.loadTxt.mockResolvedValue([{ id: 'c1', label: '第一章', href: 'txt-0.xhtml' }]);
   controllerMocks.instance.onLocationChange.mockReturnValue(() => {});
   controllerMocks.instance.generateLocations.mockResolvedValue(500);
   offlineMocks.getCachedEpubArchive.mockResolvedValue(undefined);
@@ -75,11 +91,15 @@ beforeEach(() => {
 });
 
 describe('ReaderPage', () => {
-  it('TXT 书籍：显示暂不支持提示，不初始化渲染', async () => {
+  it('TXT 书籍：成功加载 → 逐章拉取正文 → loadTxt 渲染并显示目录', async () => {
     mockBook('txt');
     renderReader();
-    expect(await screen.findByText(/TXT 格式，新版阅读器暂不支持/)).toBeDefined();
+    expect(await screen.findByTestId('tap-zones')).toBeDefined();
     expect(controllerMocks.instance.load).not.toHaveBeenCalled();
+    expect(controllerMocks.instance.loadTxt).toHaveBeenCalledTimes(1);
+    const [, , options] = controllerMocks.instance.loadTxt.mock.calls[0];
+    // 传入的章节完整（标题 + 正文文本）
+    expect(options.settings).toBeDefined();
   });
 
   it('EPUB 书籍：以文件 URL + Authorization 头初始化渲染，渲染点按层', async () => {

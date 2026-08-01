@@ -41,5 +41,6 @@
  * 2.42.1 (2026-08-01): [PERF] 进一步code-split — LibraryPage懒加载拆chunk,提取PageFallback复用组件消重复,主bundle 340KB→334KB
  * 2.44.0 (2026-08-01): [REFACTOR+FEATURE] 阅读界面整体移除重建 — Apple Books 风格 EPUB 阅读器（四主题/aA面板/目录抽屉/全局页码/CFI断点续读/翻页动画）
  * 2.45.0 (2026-08-01): [FEATURE] 阅读器迭代2 — 全书搜索/书签/垂直滚动模式/CSS 3D书页翻转动画
+ * 2.46.0 (2026-08-01): [FEATURE] 阅读器 TXT 支持 — EPUB/TXT 统一渲染管线（TXT章节文本→epub.js HTML Feed，复用翻页/主题/字号/滚动/进度/书签全能力）
  */
-export const APP_VERSION = '2.45.0';
+export const APP_VERSION = '2.46.0';

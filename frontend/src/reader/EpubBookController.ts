@@ -10,6 +10,7 @@
 import type { ReaderLocation, ReaderSettings, TocItem } from './types';
 import { buildRenditionTheme, DEFAULT_READER_SETTINGS, READER_THEMES } from './theme';
 import { searchBook, type SearchableBook, type SearchResult } from './searchBook';
+import { buildTxtFeed } from './buildTxtFeed';
 
 // ── epub.js 运行时类型（动态 import，避免测试/SSR 环境直接加载） ──
 interface EpubNavigationTocItem {
@@ -58,6 +59,13 @@ export interface LoadOptions {
   settings?: ReaderSettings;
 }
 
+/** TXT 章节输入（loadTxt 用） */
+export interface TxtFeedSectionInput {
+  id: string;
+  title: string;
+  text: string;
+}
+
 type LocationListener = (loc: ReaderLocation) => void;
 
 function mapTocItem(item: EpubNavigationTocItem, indexPath: string): TocItem {
@@ -96,6 +104,34 @@ export class EpubBookController {
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
     await this.rendition.display(options.initialCfi || undefined);
 
+    const nav = await this.book.loaded.navigation;
+    return (nav.toc || []).map((item, i) => mapTocItem(item, String(i)));
+  }
+
+  /**
+   * 以 epub.js HTML Feed 方式加载 TXT（章节文本 → 渲染）。返回目录树。
+   * 复用既有渲染/翻页/主题/进度/滚动/书签/搜索全套管线；CFI 定位与 EPUB 同构。
+   */
+  async loadTxt(chapters: TxtFeedSectionInput[], container: HTMLElement, options: LoadOptions = {}): Promise<TocItem[]> {
+    const ePub = (await import('epubjs')).default;
+    const settings = options.settings ?? DEFAULT_READER_SETTINGS;
+    const feed = buildTxtFeed(chapters);
+
+    // epub.js 支持以「章节数组」作为书源：每项 { id, href, html（XHTML 字符串） }
+    this.book = (ePub as unknown as (src: unknown, opts: unknown) => EpubBook)(feed.sections, {});
+    await this.book.ready;
+
+    this.rendition = this.book.renderTo(container, {
+      width: '100%',
+      height: '100%',
+      flow: settings.scrollMode ? 'scrolled-doc' : 'paginated',
+      spread: 'none',
+    });
+    this.applySettings(settings);
+    this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
+    await this.rendition.display(options.initialCfi || undefined);
+
+    // TXT Feed 无 navigation.toc：由章节构建目录（href 为 section href）
     const nav = await this.book.loaded.navigation;
     return (nav.toc || []).map((item, i) => mapTocItem(item, String(i)));
   }
