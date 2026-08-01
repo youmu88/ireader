@@ -46,5 +46,6 @@
  * 2.47.1 (2026-08-01): [FIX] 打开书籍卡死/加载失败 — epub.js URL 源补尾部斜杠走目录流式模式（按需请求 zip 内部条目），替代整包 zip binary 下载超时
  * 2.48.0 (2026-08-01): [REFACTOR] 阅读界面布局修复 — ①阅读页不再渲染底部 Dock（消除遮挡空白）②顶栏菜单移入底栏（顺序：返回书库｜目录｜书名｜书签·搜索·aA）③删除左右翻页模式与翻页动画，固定垂直滚动④删除全屏点按层，正文点击改用 epub.js click 桥接显隐底栏（修复滚动手势被拦截）
  * 2.48.1 (2026-08-01): [BUGFIX] EPUB 内部资源 401 — epub.js iframe 子资源（图片/CSS/字体）无法附加 Authorization header，后端 /api/books/:id/file/* 由 requireAuth 放宽为 optionalAuth（带 token 仍校验归属，无 token 放行；整书下载 /:id/file 保持鉴权）
+ * 2.49.0 (2026-08-01): [FEATURE] 阅读器滚动模式重构 — 由 scrolled-doc（单章节整页替换）切换为 scrolled-continuous（连续滚动）：相邻章节拼接进同一滚动容器，滚到底自然进下一章、滚到顶回上一章，跨章节无缝衔接（典型阅读器行为）；点按桥接改用 hooks.content 官方扩展点直挂内容文档 pointer 事件，根治「点击屏幕弹出菜单」失效
  */
-export const APP_VERSION = '2.48.0';
+export const APP_VERSION = '2.49.0';

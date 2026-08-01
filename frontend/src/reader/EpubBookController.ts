@@ -1,11 +1,14 @@
 /**
  * EpubBookController — epub.js 封装
  *
- * 职责：加载/渲染/翻页/跳转/主题/全局页码/事件桥接，对 UI 层屏蔽 epub.js 细节。
+ * 职责：加载/渲染/跳转/主题/全局页码/事件桥接，对 UI 层屏蔽 epub.js 细节。
  *  - 进度用 CFI（relocated 事件），刷新/重进严格回到同一位置
- *  - 翻页用 rendition.next()/prev()，基于整书连续 spine
+ *  - 渲染用 scrolled-continuous（连续滚动）：epub.js 将相邻章节拼接进同一滚动容器，
+ *    滚动到底自然进入下一章、滚到顶回到上一章——典型阅读器的无缝衔接，无需手动 next/prev
  *  - 主题/字号/行距用 themes 实时生效，不重建 DOM
  *  - 全局页码用 book.locations（异步生成，就绪前仅暴露章节内页码）
+ *  - 点按桥接用 rendition.hooks.content（官方扩展点）直挂 iframe 内容文档 pointer 事件：
+ *    连续滚动模式下文档持续存在，绑定稳定，根治「点击屏幕弹出菜单」问题
  */
 import type { ReaderLocation, ReaderSettings, TocItem } from './types';
 import { buildRenditionTheme, DEFAULT_READER_SETTINGS, READER_THEMES } from './theme';
@@ -37,12 +40,18 @@ interface EpubBook {
 
 interface EpubRendition {
   display(target?: string): Promise<unknown>;
-  /** 切换到下一章（章节自动衔接用；已至末章时静默） */
+  /** 切换到下一章（兼容 epub.js API；连续滚动模式下滚动自然衔接，极少使用） */
   next(): Promise<unknown>;
-  /** 切换到上一章（向上滚动衔接用；已至首章时静默） */
+  /** 切换到上一章（兼容 epub.js API；连续滚动模式下滚动自然衔接，极少使用） */
   prev(): Promise<unknown>;
-  /** 当前已渲染章节的内容（点按桥接直挂用：Contents.document 即 iframe 内容文档） */
+  /** 当前已渲染章节的内容（Contents.document 即 iframe 内容文档） */
   getContents?(): { document?: Document }[];
+  /** 官方扩展点：每次章节 view 内容加载完成后触发（直挂内容文档事件的最稳时机） */
+  hooks?: {
+    content?: {
+      register(cb: (contents: { document?: Document }) => void): void;
+    };
+  };
   on(event: string, cb: (...args: any[]) => void): void;
   themes: {
     register(name: string, styles: unknown): void;
@@ -86,19 +95,9 @@ export class EpubBookController {
   private tapListeners = new Set<() => void>();
   private locationsReady = false;
   private lastLocation: ReaderLocation | null = null;
-  /** 章节自动衔接：监听渲染层滚动容器，接近章节末尾自动加载下一章（scrolled-doc 单章节渲染） */
-  private scrollEl: HTMLElement | null = null;
-  private autoNextLocked = false;
-  private autoNextBound = false;
-  /** 向上滚动衔接：标记「已请求上一章，需在 relocated 后滚到新章节末尾」保持阅读连续 */
-  private pendingPrevScrollToBottom = false;
-  /** 跨章节过渡动画：记录当前章节 href，切换时播放 280ms 淡入（区别于章节内滚动） */
-  private chapterTransitionTimer: ReturnType<typeof setTimeout> | null = null;
-  /** 点按桥接：直挂 iframe 内容文档的 pointer 事件（绕过 epub.js click 桥接，移动端 click 合成不可靠） */
+  /** 点按桥接：已绑定 pointer 的 iframe 内容文档（hooks.content 每次触发时去重，防重复绑定） */
   private tapBoundDocs = new Set<Document>();
   private tapStart: { x: number; y: number } | null = null;
-  /** 章节衔接阈值：滚动到章节顶部/底部 140px 内触发上一章/下一章 */
-  private static readonly CHAPTER_BOUNDARY = 140;
 
   /** 加载书籍并渲染。返回目录树。 */
   async load(source: string | ArrayBuffer, container: HTMLElement, options: LoadOptions = {}): Promise<TocItem[]> {
@@ -117,17 +116,15 @@ export class EpubBookController {
     this.rendition = this.book.renderTo(container, {
       width: '100%',
       height: '100%',
-      // 固定垂直滚动模式（scrolled-doc：单章节 iframe 垂直滚动；章节衔接由 Controller 监听滚动自动 next 实现）
-      flow: 'scrolled-doc',
+      // 连续滚动模式：epub.js 把相邻章节拼接进同一滚动容器，滚到底自然进下一章、滚到顶回上一章
+      flow: 'scrolled-continuous',
       spread: 'none',
     });
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
-    await this.rendition.display(options.initialCfi || undefined);
-    this.bindAutoNext();
-    // 点按桥接：直挂 iframe 内容文档 pointer 事件（epub.js click 桥接在 scrolled-doc 重建场景不可靠，
-    // 且移动端 click 合成有延迟/丢失；pointerdown+up 位移识别最稳）
+    // 点按桥接：hooks.content 在每次章节内容加载后触发，直挂新文档 pointer（文档持续存在，绑定稳定）
     this.bindTap();
+    await this.rendition.display(options.initialCfi || undefined);
 
     const nav = await this.book.loaded.navigation;
     return (nav.toc || []).map((item, i) => mapTocItem(item, String(i)));
@@ -135,7 +132,7 @@ export class EpubBookController {
 
   /**
    * 以 epub.js HTML Feed 方式加载 TXT（章节文本 → 渲染）。返回目录树。
-   * 复用既有渲染/翻页/主题/进度/滚动/书签/搜索全套管线；CFI 定位与 EPUB 同构。
+   * 复用既有渲染/主题/进度/滚动/书签/搜索全套管线；CFI 定位与 EPUB 同构。
    */
   async loadTxt(chapters: TxtFeedSectionInput[], container: HTMLElement, options: LoadOptions = {}): Promise<TocItem[]> {
     const ePub = (await import('epubjs')).default;
@@ -149,15 +146,14 @@ export class EpubBookController {
     this.rendition = this.book.renderTo(container, {
       width: '100%',
       height: '100%',
-      // 固定垂直滚动模式（scrolled-doc：单章节 iframe 垂直滚动；章节衔接由 Controller 监听滚动自动 next 实现）
-      flow: 'scrolled-doc',
+      // 连续滚动模式：与 EPUB 一致，章节拼接进同一滚动容器，滚动无缝衔接
+      flow: 'scrolled-continuous',
       spread: 'none',
     });
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
-    await this.rendition.display(options.initialCfi || undefined);
-    this.bindAutoNext();
     this.bindTap();
+    await this.rendition.display(options.initialCfi || undefined);
 
     // TXT Feed 无 navigation.toc：由章节构建目录（href 为 section href）
     const nav = await this.book.loaded.navigation;
@@ -222,7 +218,7 @@ export class EpubBookController {
     };
   }
 
-  /** 订阅正文点击（epub.js 将 iframe 内 click 桥接到 rendition；用于显隐工具栏，不在滚动容器上叠加拦截层）。返回退订函数。 */
+  /** 订阅正文点按（用于显隐底部菜单）。返回退订函数。 */
   onTap(cb: () => void): () => void {
     this.tapListeners.add(cb);
     return () => {
@@ -239,12 +235,7 @@ export class EpubBookController {
   }
 
   destroy(): void {
-    this.unbindAutoNext();
     this.unbindTap();
-    if (this.chapterTransitionTimer) {
-      clearTimeout(this.chapterTransitionTimer);
-      this.chapterTransitionTimer = null;
-    }
     this.rendition?.destroy();
     this.book?.destroy();
     this.rendition = null;
@@ -255,70 +246,6 @@ export class EpubBookController {
   }
 
   // ── 内部 ──────────────────────────────────────────────
-
-  /**
-   * 绑定渲染层滚动容器（epub.js manager.container），滚动到章节边界时自动衔接上/下一章：
-   *  - 接近章节末尾（剩余 < 140px）→ 加载下一章
-   *  - 接近章节开头（距顶 < 140px）→ 加载上一章，并滚到上一章末尾（保持阅读连续）
-   * 仅作衔接，不叠加覆盖层、不拦截滚动手势；已绑定幂等。
-   */
-  private bindAutoNext(): void {
-    if (this.autoNextBound || !this.rendition) return;
-    const manager = (this.rendition as unknown as { manager?: { container?: HTMLElement } }).manager;
-    const el = manager?.container;
-    if (!el) return;
-    this.scrollEl = el;
-    el.addEventListener('scroll', this.handleAutoChapterScroll, { passive: true });
-    this.autoNextBound = true;
-  }
-
-  private unbindAutoNext(): void {
-    if (this.scrollEl) {
-      this.scrollEl.removeEventListener('scroll', this.handleAutoChapterScroll);
-      this.scrollEl = null;
-    }
-    this.autoNextBound = false;
-    this.autoNextLocked = false;
-    this.pendingPrevScrollToBottom = false;
-  }
-
-  /** 滚动到章节边界自动衔接：接近末尾 → next；接近开头 → prev（随后滚到新章节末尾保持连续阅读） */
-  private handleAutoChapterScroll = (): void => {
-    const el = this.scrollEl;
-    if (!el || this.autoNextLocked || !this.rendition) return;
-    const boundary = EpubBookController.CHAPTER_BOUNDARY;
-
-    // 章节内正常滚动（既不在开头也不在末尾）→ 不处理
-    if (el.scrollTop + el.clientHeight < el.scrollHeight - boundary && el.scrollTop > boundary) return;
-
-    // 接近章节末尾 → 加载下一章
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - boundary) {
-      this.autoNextLocked = true;
-      void (this.rendition.next() as Promise<unknown>)
-        .catch(() => undefined)
-        .finally(() => {
-          // 等 relocated（章节切换完成）后解锁，避免滚动事件风暴连发
-          setTimeout(() => {
-            this.autoNextLocked = false;
-          }, 400);
-        });
-      return;
-    }
-
-    // 接近章节开头 → 加载上一章；relocated 后滚动到新章节末尾（向上阅读保持连续）
-    if (el.scrollTop <= boundary) {
-      this.autoNextLocked = true;
-      this.pendingPrevScrollToBottom = true;
-      void (this.rendition.prev() as Promise<unknown>)
-        .catch(() => undefined)
-        .finally(() => {
-          setTimeout(() => {
-            this.autoNextLocked = false;
-            this.pendingPrevScrollToBottom = false;
-          }, 400);
-        });
-    }
-  };
 
   private handleRelocated(raw: unknown): void {
     const start = (raw as { start?: any })?.start ?? {};
@@ -337,58 +264,33 @@ export class EpubBookController {
       loc.globalPage = Math.max(1, Math.min(total, Math.ceil(p * total)));
     }
     this.lastLocation = loc;
-
-    // 向上衔接：切换完成（新章节已渲染）后滚动到新章节末尾，保持「上一章末尾 → 本章开头」阅读连续
-    if (this.pendingPrevScrollToBottom) {
-      this.pendingPrevScrollToBottom = false;
-      this.scrollToChapterBottom();
-    }
-
-    // 章节切换（href 变化）→ 播放 280ms 跨章节过渡动画，与章节内滚动区分
-    this.playChapterTransitionIfChanged(start.href);
-
     for (const cb of this.listeners) cb(loc);
   }
 
-  /** 将渲染层滚动容器滚到当前章节末尾（向上衔接上一章后调用，保证连续阅读） */
-  private scrollToChapterBottom(): void {
-    const el = this.scrollEl;
-    if (!el) return;
-    // 新章节 iframe 刚替换，DOM 尚未完全布局；用两帧后再滚动，确保 scrollHeight 正确
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
-    });
-  }
-
-  /** 章节 href 变化时播放跨章节过渡动画（280ms 淡入；区别于章节内滚动，更丝滑） */
-  private playChapterTransitionIfChanged(href: string): void {
-    const el = this.scrollEl;
-    if (!el || !href || href === el.dataset.chapterHref) return;
-    el.dataset.chapterHref = href;
-    el.classList.remove('reader-chapter-transition');
-    // 强制重排以重启动画
-    void el.offsetWidth;
-    el.classList.add('reader-chapter-transition');
-    if (this.chapterTransitionTimer) clearTimeout(this.chapterTransitionTimer);
-    this.chapterTransitionTimer = setTimeout(() => {
-      el.classList.remove('reader-chapter-transition');
-      this.chapterTransitionTimer = null;
-    }, 300);
-  }
-
-  /** 点按桥接：直挂当前 iframe 内容文档 pointer 事件（epub.js click 桥接在 scrolled-doc 重建场景不可靠，
-   *  且移动端 click 合成有 300ms 延迟/丢失；pointerdown+up 位移识别最稳）。返回退订函数。 */
+  /**
+   * 点按桥接：直挂 iframe 内容文档 pointer 事件。
+   *  - hooks.content 是 epub.js 官方扩展点，每次章节 view 内容加载完成后触发（含后续连续加载的新章节）；
+   *    连续滚动模式下 view 文档持续存在，绑定一次长期有效，根治「跨章节后点击失效」。
+   *  - getContents 兜底：hooks 注册前已存在的内容立即绑定。
+   */
   private bindTap(): void {
     if (!this.rendition) return;
-    const contents = this.rendition.getContents?.() ?? [];
-    for (const c of contents) {
+    this.rendition.hooks?.content?.register(contents => {
+      const doc = contents?.document;
+      if (doc && !this.tapBoundDocs.has(doc)) {
+        this.tapBoundDocs.add(doc);
+        doc.addEventListener('pointerdown', this.handleTapStart, { passive: true });
+        doc.addEventListener('pointerup', this.handleTapEnd, { passive: true });
+      }
+    });
+    const existing = this.rendition.getContents?.() ?? [];
+    for (const c of existing) {
       const doc = c.document;
-      if (!doc || this.tapBoundDocs.has(doc)) continue;
-      this.tapBoundDocs.add(doc);
-      doc.addEventListener('pointerdown', this.handleTapStart, { passive: true });
-      doc.addEventListener('pointerup', this.handleTapEnd, { passive: true });
+      if (doc && !this.tapBoundDocs.has(doc)) {
+        this.tapBoundDocs.add(doc);
+        doc.addEventListener('pointerdown', this.handleTapStart, { passive: true });
+        doc.addEventListener('pointerup', this.handleTapEnd, { passive: true });
+      }
     }
   }
 

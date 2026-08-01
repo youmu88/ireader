@@ -715,30 +715,3 @@ body,
   }
 }
 
-/* ═══════════════════════════════════════
-   阅读器：跨章节过渡动画（280ms）
-   章节自动衔接（滚到底加载下一章 / 滚到顶加载上一章）时，
-   对渲染层滚动容器播放淡入 + 轻微上移，与章节内滚动区分，衔接更丝滑。
-   由 EpubBookController 在 relocated 检测到章节 href 变化时添加 class。
-   ═══════════════════════════════════════ */
-.reader-chapter-transition {
-  animation: reader-chapter-in 0.28s ease-out;
-}
-@keyframes reader-chapter-in {
-  0% {
-    opacity: 0.35;
-    transform: translateY(14px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .reader-chapter-transition {
-    animation: none !important;
-    transform: none !important;
-    opacity: 1 !important;
-  }
-}
-
