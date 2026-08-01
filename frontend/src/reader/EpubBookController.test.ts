@@ -246,23 +246,6 @@ describe('EpubBookController', () => {
     expect(mocks.rendition.hooks.content.register).toHaveBeenCalled();
   });
 
-  it('getExcerptAt：提取 CFI 锚点处文本摘要（压缩空白、限长）', async () => {
-    await controller.load('url', container);
-    mocks.book.getRange.mockResolvedValue({
-      startContainer: { textContent: '从前有座山，  山里有座庙', parentElement: null },
-      startOffset: 8,
-    });
-    const excerpt = await controller.getExcerptAt('epubcfi(x)', 6);
-    expect(mocks.book.getRange).toHaveBeenCalledWith('epubcfi(x)');
-    expect(excerpt).toBe('山里有座庙');
-  });
-
-  it('getExcerptAt：无 CFI / getRange 失败时返回空串', async () => {
-    await controller.load('url', container);
-    expect(await controller.getExcerptAt('')).toBe('');
-    mocks.book.getRange.mockRejectedValue(new Error('bad cfi'));
-    expect(await controller.getExcerptAt('epubcfi(bad)')).toBe('');
-  });
 
   it('destroy：销毁 rendition 与 book 并清理状态', async () => {
     await controller.load('url', container);

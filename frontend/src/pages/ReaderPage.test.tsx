@@ -16,7 +16,6 @@ const controllerMocks = vi.hoisted(() => {
     goTo: vi.fn(),
     goToPercentage: vi.fn(),
     search: vi.fn().mockResolvedValue([]),
-    getExcerptAt: vi.fn().mockResolvedValue(''),
     applySettings: vi.fn(),
     onLocationChange: vi.fn().mockReturnValue(() => {}),
     onTap: vi.fn().mockReturnValue(() => {}),
@@ -90,8 +89,8 @@ beforeEach(() => {
   });
   controllerMocks.instance.generateLocations.mockResolvedValue(500);
   offlineMocks.getCachedEpubArchive.mockResolvedValue(undefined);
-  controllerMocks.instance.getExcerptAt.mockResolvedValue('');
   (controllerMocks.instance as Record<string, unknown>).currentLocation = null;
+
   axiosMocks.put.mockResolvedValue({ data: { success: true, conflict: false, data: { progressVersion: 2 } } });
   localStorage.clear();
 });
@@ -145,7 +144,7 @@ describe('ReaderPage', () => {
     expect(screen.getByTestId('reader-chrome-bottom').className).toContain('translate-y-full');
   });
 
-  it('底栏菜单顺序：返回书库 → 目录 → 书名 → 书签/搜索/aA', async () => {
+  it('底栏菜单顺序：目录 → 书名 → 搜索/aA（不含返回书架/书签/全屏）', async () => {
     mockBook('epub');
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
@@ -153,8 +152,9 @@ describe('ReaderPage', () => {
     const bar = screen.getByTestId('reader-menu-bar');
     const texts = Array.from(bar.querySelectorAll('button, p')).map(el => el.textContent ?? '');
     const idx = (s: string) => texts.findIndex(t => t.includes(s));
-    expect(idx('书库')).toBeGreaterThanOrEqual(0);
-    expect(idx('书库')).toBeLessThan(idx('测试之书'));
+    expect(idx('书库')).toBe(-1);
+    expect(idx('添加书签')).toBe(-1);
+    expect(idx('全屏')).toBe(-1);
     expect(idx('aA')).toBeGreaterThan(idx('测试之书'));
   });
 
@@ -182,34 +182,6 @@ describe('ReaderPage', () => {
     expect(screen.getByText('返回书库')).toBeDefined();
   });
 
-  it('书签：底栏按钮切换当前页书签并持久化到 localStorage', async () => {
-    mockBook('epub');
-    let locationCb: ((loc: unknown) => void) | undefined;
-    controllerMocks.instance.onLocationChange.mockImplementation((cb: (loc: unknown) => void) => {
-      locationCb = cb;
-      return () => {};
-    });
-    (controllerMocks.instance as Record<string, unknown>).currentLocation = {
-      cfi: 'epubcfi(/6/4)', percentage: null, pageInChapter: 2, pagesInChapter: 9, chapterHref: 'ch1.xhtml',
-    };
-    controllerMocks.instance.getExcerptAt.mockResolvedValue('书签摘要');
-    mockBook('epub');
-    renderReader();
-    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
-    // 模拟 epub.js relocated：驱动 location state（书签按钮状态依赖它）
-    act(() => {
-      locationCb?.({
-        cfi: 'epubcfi(/6/4)', percentage: null, pageInChapter: 2, pagesInChapter: 9, chapterHref: 'ch1.xhtml',
-      });
-    });
-    act(() => tapCb?.());
-    fireEvent.click(screen.getByLabelText('添加书签'));
-    await screen.findByLabelText('移除书签');
-    const stored = JSON.parse(localStorage.getItem('ireader_bookmarks_book-1')!);
-    expect(stored).toHaveLength(1);
-    expect(stored[0].cfi).toBe('epubcfi(/6/4)');
-    expect(stored[0].excerpt).toBe('书签摘要');
-  });
 
   it('全书搜索：面板输入触发搜索，点击结果跳转并关闭', async () => {
     mockBook('epub');

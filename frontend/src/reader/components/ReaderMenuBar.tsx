@@ -1,9 +1,10 @@
 /**
  * ReaderMenuBar — 阅读器底部菜单栏（自顶栏迁移，仅保留底部）
  *
- * 顺序：‹ 返回书库 | 目录 | 书名（居中截断） | 书签 · 搜索 · aA
+ * 顺序：目录 | 书名（居中截断） | 搜索 · aA
  * 颜色随阅读主题（chromeBackground/chromeColor 由 ReaderPage 按主题注入）。
- * 书签/搜索按钮仅在提供对应回调时渲染（向后兼容）。
+ * 搜索按钮仅在提供对应回调时渲染（向后兼容）。
+ * 返回书架/书签/全屏按钮已于 2.51.0 移除（返回靠系统手势/浏览器后退）。
  */
 
 import { Button } from '../../components/ui/Button';
@@ -13,41 +14,18 @@ export interface ReaderMenuBarProps {
   title: string;
   chromeBackground: string;
   chromeColor: string;
-  onBack: () => void;
   onOpenToc: () => void;
   onOpenFontSettings: () => void;
-  /** 当前页是否已加书签（控制图标实心/空心） */
-  bookmarked?: boolean;
-  onToggleBookmark?: () => void;
   onOpenSearch?: () => void;
-  /** 全屏状态（Fullscreen API 生效中）与切换回调（可选，不传则不渲染按钮） */
-  fullscreenActive?: boolean;
-  onToggleFullscreen?: () => void;
 }
-
-const BookmarkIcon = ({ filled }: { filled: boolean }) =>
-  filled ? (
-    <svg width="18" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.9L5 21V4a1 1 0 0 1 1-1z" />
-    </svg>
-  ) : (
-    <svg width="18" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.9L5 21V4a1 1 0 0 1 1-1z" />
-    </svg>
-  );
 
 export function ReaderMenuBar({
   title,
   chromeBackground,
   chromeColor,
-  onBack,
   onOpenToc,
   onOpenFontSettings,
-  bookmarked = false,
-  onToggleBookmark,
   onOpenSearch,
-  fullscreenActive = false,
-  onToggleFullscreen,
 }: ReaderMenuBarProps) {
   return (
     <div
@@ -55,16 +33,6 @@ export function ReaderMenuBar({
       className="flex items-center h-14 px-2 backdrop-blur-xl border-t"
       style={{ background: chromeBackground, color: chromeColor, borderColor: 'rgba(128,128,128,0.25)' }}
     >
-      <Button
-        variant="ghost"
-        onClick={onBack}
-        className="!h-auto !px-2 !py-1.5 !rounded-lg !gap-0.5 text-[15px] !text-current active:opacity-40 transition-opacity"
-      >
-        <svg width="11" height="18" viewBox="0 0 12 20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M10 2 L2 10 L10 18" />
-        </svg>
-        书库
-      </Button>
       <IconButton
         variant="ghost"
         onClick={onOpenToc}
@@ -79,17 +47,6 @@ export function ReaderMenuBar({
       </IconButton>
       <p className="flex-1 text-center text-[15px] font-medium truncate px-2">{title}</p>
       <div className="flex items-center">
-        {onToggleBookmark && (
-          <IconButton
-            variant="ghost"
-            onClick={onToggleBookmark}
-            aria-label={bookmarked ? '移除书签' : '添加书签'}
-            aria-pressed={bookmarked}
-            className="!w-auto !h-auto !p-2.5 !rounded-lg !text-current active:opacity-40 transition-opacity"
-          >
-            <BookmarkIcon filled={bookmarked} />
-          </IconButton>
-        )}
         {onOpenSearch && (
           <IconButton
             variant="ghost"
@@ -101,30 +58,6 @@ export function ReaderMenuBar({
               <circle cx="11" cy="11" r="7" />
               <line x1="16.5" y1="16.5" x2="21" y2="21" />
             </svg>
-          </IconButton>
-        )}
-        {onToggleFullscreen && (
-          <IconButton
-            variant="ghost"
-            onClick={onToggleFullscreen}
-            aria-label={fullscreenActive ? '退出全屏' : '全屏'}
-            className="!w-auto !h-auto !p-2.5 !rounded-lg !text-current active:opacity-40 transition-opacity"
-          >
-            {fullscreenActive ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M8 3v3a2 2 0 0 1-2 2H3" />
-                <path d="M21 8h-3a2 2 0 0 1-2-2V3" />
-                <path d="M3 16h3a2 2 0 0 1 2 2v3" />
-                <path d="M16 21v-3a2 2 0 0 1 2-2h3" />
-              </svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M8 3H5a2 2 0 0 0-2 2v3" />
-                <path d="M21 8h-3a2 2 0 0 1-2-2V3" />
-                <path d="M3 16h3a2 2 0 0 1 2 2v3" />
-                <path d="M16 21v-3a2 2 0 0 1 2-2h3" />
-              </svg>
-            )}
           </IconButton>
         )}
         <Button

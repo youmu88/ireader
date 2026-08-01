@@ -195,19 +195,6 @@ export class EpubBookController {
     void this.rendition?.display(this.book.locations.cfiFromPercentage(clamped));
   }
 
-  /** 提取 CFI 锚点处文本摘要（书签用；失败/无 CFI 返回空串） */
-  async getExcerptAt(cfi: string, len = 60): Promise<string> {
-    if (!cfi || !this.book?.getRange) return '';
-    try {
-      const range = await this.book.getRange(cfi);
-      const node = range?.startContainer;
-      const own = (node?.textContent ?? '').slice(range?.startOffset ?? 0).trim();
-      const text = own || (node?.parentElement?.textContent ?? '');
-      return text.replace(/\s+/g, ' ').trim().slice(0, len);
-    } catch {
-      return '';
-    }
-  }
 
   /** 全书搜索（spine 逐章遍历；空查询/未加载返回空数组） */
   async search(query: string, onProgress?: (done: number, total: number) => void): Promise<SearchResult[]> {

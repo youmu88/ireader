@@ -17,7 +17,6 @@ import { createAuthRouter } from './routes/auth.js';
 import { createBooksRouter } from './routes/books.js';
 import { createCategoriesRouter } from './routes/categories.js';
 import { createProgressRouter } from './routes/progress.js';
-import { createBookmarksRouter } from './routes/bookmarks.js';
 import { createTtsRouter } from './routes/tts.js';
 import { config } from 'dotenv';
 
@@ -68,7 +67,6 @@ app.use('/api/auth', createAuthRouter(db));
 app.use('/api/books', createBooksRouter(db, DATA_DIR));
 app.use('/api/categories', createCategoriesRouter(db));
 app.use('/api', createProgressRouter(db));
-app.use('/api', createBookmarksRouter(db));
 app.use('/api/tts', createTtsRouter(db, DATA_DIR));
 
 // SPA fallback (for client-side routing)

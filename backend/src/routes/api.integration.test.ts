@@ -8,7 +8,6 @@ import { createAuthRouter } from './auth.js';
 import { createBooksRouter } from './books.js';
 import { createCategoriesRouter } from './categories.js';
 import { createProgressRouter } from './progress.js';
-import { createBookmarksRouter } from './bookmarks.js';
 import healthRouter from './health.js';
 import { errorHandler } from '../middleware/errorHandler.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -32,7 +31,6 @@ describe('API Integration', () => {
     app.use('/api/books', createBooksRouter(db, testDataDir));
     app.use('/api/categories', createCategoriesRouter(db));
     app.use('/api', createProgressRouter(db));
-    app.use('/api', createBookmarksRouter(db));
     app.use(errorHandler);
 
     // Register test user and get token

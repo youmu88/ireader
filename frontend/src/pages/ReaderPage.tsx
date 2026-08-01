@@ -4,6 +4,7 @@
  * 组装：书籍加载（离线包优先）→ EpubBookController → 底栏 Chrome / 面板。
  * 交互：正文垂直滚动阅读（滚动容器上无覆盖层，滚动手势直达）；点按正文（epub.js click 桥接）显隐底栏；
  *       TXT 书籍复用同一渲染管线（HTML Feed）。
+ * 2.51.0：菜单精简为 目录|书名|搜索·aA（返回书架靠系统手势/浏览器后退；书签功能整体下线）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -13,7 +14,6 @@ import { READER_THEMES } from '../reader/theme';
 import type { ReaderLocation, TocItem } from '../reader/types';
 import { useReaderSettings } from '../reader/useReaderSettings';
 import { useReaderProgress } from '../reader/useReaderProgress';
-import { useBookmarks, type BookmarkItem } from '../reader/useBookmarks';
 import { ReaderChrome } from '../reader/components/ReaderChrome';
 import { ReaderMenuBar } from '../reader/components/ReaderMenuBar';
 import { ReaderBottomBar } from '../reader/components/ReaderBottomBar';
@@ -23,7 +23,7 @@ import { SearchPanel } from '../reader/components/SearchPanel';
 import type { SearchResult } from '../reader/searchBook';
 import { getCachedEpubArchive } from '../services/offlineCacheService';
 import { getToken } from '../services/authService';
-import { Button, toast } from '../components/ui';
+import { Button } from '../components/ui';
 
 interface BookMeta {
   id: string;
@@ -60,7 +60,6 @@ export default function ReaderPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [chromeVisible, setChromeVisible] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
   const [fontOpen, setFontOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -72,7 +71,6 @@ export default function ReaderPage() {
 
   const { settings, updateSettings } = useReaderSettings();
   const { loadInitialCfi, scheduleSave } = useReaderProgress({ bookId });
-  const { bookmarks, isBookmarked, toggle: toggleBookmark, remove: removeBookmark } = useBookmarks(bookId);
   const themeSpec = READER_THEMES[settings.theme];
 
   // ── 加载书籍并初始化渲染 ──
@@ -173,16 +171,6 @@ export default function ReaderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId]);
 
-  // ── 全屏状态同步：跟随浏览器 fullscreenchange（含 iOS Safari 前缀事件） ──
-  useEffect(() => {
-    const sync = () => setIsFullscreen(Boolean(document.fullscreenElement));
-    document.addEventListener('fullscreenchange', sync);
-    document.addEventListener('webkitfullscreenchange', sync);
-    return () => {
-      document.removeEventListener('fullscreenchange', sync);
-      document.removeEventListener('webkitfullscreenchange', sync);
-    };
-  }, []);
 
   // ── 设置变化实时应用到 rendition（不重建 DOM） ──
   useEffect(() => {
@@ -198,20 +186,6 @@ export default function ReaderPage() {
     controllerRef.current?.goToPercentage(percentage);
   }, []);
 
-  // ── 书签：切换当前页书签（提取摘要 → toggle → toast 反馈） ──
-  const handleToggleBookmark = useCallback(async () => {
-    const loc = controllerRef.current?.currentLocation;
-    if (!loc) return;
-    const excerpt = (await controllerRef.current?.getExcerptAt(loc.cfi)) ?? '';
-    const result = toggleBookmark(loc, excerpt);
-    if (result === 'added') toast.success('已添加书签');
-    else if (result === 'removed') toast.success('已移除书签');
-  }, [toggleBookmark]);
-
-  const handleSelectBookmark = useCallback((item: BookmarkItem) => {
-    setTocOpen(false);
-    void controllerRef.current?.goTo(item.cfi);
-  }, []);
 
   // ── 全书搜索：空查询清结果；seq 防竞态（旧搜索结果被新搜索覆盖时丢弃） ──
   const searchSeqRef = useRef(0);
@@ -236,21 +210,6 @@ export default function ReaderPage() {
     void controllerRef.current?.goTo(result.cfi);
   }, []);
 
-  // ── 全屏切换：支持 Fullscreen API 的平台进入沉浸式全屏；iOS Safari 不支持时给出引导 ──
-  const handleToggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen?.().catch(() => {});
-      return;
-    }
-    const el = document.documentElement as HTMLElement & { requestFullscreen?: () => Promise<void> };
-    if (typeof el.requestFullscreen === 'function') {
-      el.requestFullscreen().catch(() => {
-        toast.info('当前浏览器不支持网页全屏，可添加到主屏幕获得沉浸阅读');
-      });
-    } else {
-      toast.info('请使用浏览器「添加到主屏幕」打开，即可全屏阅读');
-    }
-  }, []);
 
   // ── 错误态（含 TXT 暂不支持提示） ──
   if (error) {
@@ -287,14 +246,9 @@ export default function ReaderPage() {
           title={book?.title ?? ''}
           chromeBackground={themeSpec.chromeBackground}
           chromeColor={themeSpec.chromeColor}
-          onBack={() => navigate('/')}
           onOpenToc={() => setTocOpen(true)}
           onOpenFontSettings={() => setFontOpen(true)}
-          bookmarked={isBookmarked(location?.cfi)}
-          onToggleBookmark={handleToggleBookmark}
           onOpenSearch={() => setSearchOpen(true)}
-          fullscreenActive={isFullscreen}
-          onToggleFullscreen={handleToggleFullscreen}
         />
         <ReaderBottomBar
           location={location}
@@ -313,9 +267,6 @@ export default function ReaderPage() {
         chromeColor={themeSpec.chromeColor}
         onSelect={handleTocSelect}
         onClose={() => setTocOpen(false)}
-        bookmarks={bookmarks}
-        onSelectBookmark={handleSelectBookmark}
-        onRemoveBookmark={removeBookmark}
       />
       <FontSettingsPanel
         open={fontOpen}

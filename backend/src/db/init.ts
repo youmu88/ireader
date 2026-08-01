@@ -227,18 +227,6 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
         created_at TEXT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS bookmarks (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
-        cfi TEXT NOT NULL,
-        excerpt TEXT,
-        chapter_href TEXT,
-        global_page INTEGER,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        UNIQUE(user_id, book_id, cfi)
-      );
   `);
 
   // ── 全局引用系统迁移：创建索引 ──
