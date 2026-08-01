@@ -50,6 +50,6 @@
  * 2.49.1 (2026-08-01): [BUGFIX] 修复连续滚动失效 — renderTo 补 manager:'continuous'（epub.js 仅凭 flow:'scrolled-continuous' 会回退 DefaultViewManager 单章模式，表现为只能看一章）；点按桥接三路保障（hooks.content + getContents + relocated 重绑）+ click 兜底防双触发
  * 2.49.2 (2026-08-01): [BUGFIX] 根治点击弹出菜单失效 — renderTo 补 allowScriptedContent:true。根因：epub.js iframe 默认 sandbox="allow-same-origin"（无 allow-scripts），WebKit bug 218086 证实此类 sandbox iframe 内事件无法被父页面 contentDocument 监听器捕获，历次 pointer/click 直挂在 iOS 全部失效；补 allow-scripts 后父页面可正常监听 iframe 内点击
  * 2.50.0 (2026-08-01): [FEATURE+FIX] 阅读器全屏能力（PWA standalone+iOS meta+菜单全屏按钮）｜书架排序统一为最近阅读优先→书名次级（前后端+离线缓存 lastReadAt）｜Dock 加 translateZ(0) 规避 iOS Safari fixed+backdrop-filter 滚动错位｜阅读器卸载时 flush 进度到服务端（保障书架最近阅读排序实时更新）
- * 2.51.0 (2026-08-01): [REFACTOR] 阅读菜单精简 — 移除返回书架/书签/全屏按钮及相关逻辑：ReaderMenuBar 仅剩 目录|书名|搜索·aA；TocPanel 去书签 tab 回归纯目录；删除 useBookmarks hook、EpubBookController.getExcerptAt、后端 bookmarks 路由/表；返回书架靠系统手势/浏览器后退（PWA/iOS meta 全屏配置保留）
+ * 2.51.1 (2026-08-01): [BUGFIX] 书架排序加固 — 后端 lastReadMap 查询补 userId 过滤（消除全表扫描跨用户隐患）；前后端排序改用时间戳数值比较（已读按 lastReadAt 降序在前，未读按书名升序在后，不受 ISO 格式/locale 影响）；新增未读多本排序/混合场景前端测试
  */
-export const APP_VERSION = '2.51.0';
+export const APP_VERSION = '2.51.1';

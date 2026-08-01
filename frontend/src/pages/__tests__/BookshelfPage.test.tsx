@@ -53,4 +53,25 @@ describe('sortShelfBooks', () => {
     const sorted = sortShelfBooks(books);
     expect(sorted.map(b => b.id)).toEqual(['y', 'x', 'z']);
   });
+
+  it('未读书籍之间严格按名称升序（多本未读场景）', () => {
+    const books = [
+      mkBook({ id: 'c', title: 'Z书', lastReadAt: null }),
+      mkBook({ id: 'a', title: 'A书', lastReadAt: null }),
+      mkBook({ id: 'b', title: 'M书', lastReadAt: null }),
+    ];
+    const sorted = sortShelfBooks(books);
+    expect(sorted.map(b => b.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('混合场景：已读按时间降序在前，未读按名称升序在后，未读不混入已读区间', () => {
+    const books = [
+      mkBook({ id: 'u2', title: '乙书', lastReadAt: null }),
+      mkBook({ id: 'r1', title: 'X书', lastReadAt: '2026-08-01T10:00:00Z' }),
+      mkBook({ id: 'u1', title: '甲书', lastReadAt: null }),
+      mkBook({ id: 'r2', title: 'Y书', lastReadAt: '2026-09-01T10:00:00Z' }),
+    ];
+    const sorted = sortShelfBooks(books);
+    expect(sorted.map(b => b.id)).toEqual(['r2', 'r1', 'u1', 'u2']);
+  });
 });

@@ -489,6 +489,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
           lastReadAt: sql<string>`MAX(${readingProgress.updatedAt})`.as('lastReadAt'),
         })
           .from(readingProgress)
+          .where(sql`user_id = ${userId}`)
           .groupBy(readingProgress.bookId)
           .all();
         lastReadMap = new Map(lastReadRows.map((r: { bookId: string; lastReadAt: string }) => [r.bookId, r.lastReadAt]));
@@ -504,8 +505,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
         if ((a.pinned || 0) !== (b.pinned || 0)) {
           return (b.pinned || 0) - (a.pinned || 0);
         }
-        const readCmp = (b.lastReadAt || '').localeCompare(a.lastReadAt || '');
-        if (readCmp !== 0) return readCmp;
+        // lastReadAt 降序：已读（有效时间戳）在前，未读（-Infinity）在后；相同则按书名升序
+        const ta = a.lastReadAt ? Date.parse(a.lastReadAt) : -Infinity;
+        const tb = b.lastReadAt ? Date.parse(b.lastReadAt) : -Infinity;
+        if (tb !== ta) return tb - ta;
         return (a.title || '').localeCompare(b.title || '', 'zh-CN');
       });
       

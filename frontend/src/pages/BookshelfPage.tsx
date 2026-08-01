@@ -35,8 +35,10 @@ interface Book {
 export function sortShelfBooks(books: Book[]): Book[] {
   return [...books].sort((a, b) => {
     if ((a.pinned || 0) !== (b.pinned || 0)) return (b.pinned || 0) - (a.pinned || 0);
-    const readCmp = (b.lastReadAt || '').localeCompare(a.lastReadAt || '');
-    if (readCmp !== 0) return readCmp;
+    // lastReadAt 降序：已读（有效时间戳）在前，未读（-Infinity）在后；相同则按书名升序
+    const ta = a.lastReadAt ? Date.parse(a.lastReadAt) : -Infinity;
+    const tb = b.lastReadAt ? Date.parse(b.lastReadAt) : -Infinity;
+    if (tb !== ta) return tb - ta;
     return (a.title || '').localeCompare(b.title || '', 'zh-CN');
   });
 }
