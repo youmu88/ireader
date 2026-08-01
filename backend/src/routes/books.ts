@@ -6,7 +6,7 @@ import multer from 'multer';
 import { sql } from 'drizzle-orm';
 import { books, bookChapters, readingProgress, ttsGenerationJobs, ttsSettings, ttsCache, userBookRefs, globalBooks } from '../db/schema.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { parseBook, getChapterContent, parseTxt } from '../parser/index.js';
 import { getBookCacheStats } from '../services/contentCacheService.js';
 import { computeFileHash, findGlobalBookByHash, createGlobalBook, createUserBookRef, findUserActiveBookRef, removeUserBookRef } from '../services/globalResourceService.js';
@@ -605,12 +605,18 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   // 请求形如 /api/books/:id/file/META-INF/container.xml。
   // 后端已把 EPUB 解压到 extracted/，此处从该目录按相对路径安全读取返回，
   // 使 epub.js 能从服务端按需获取条目，而非一次性下载整个 zip（根治「加载中」卡死）。
-  // epub.js 通过 requestHeaders 携带 Bearer Token，内部资源请求同样必须校验用户归属。
-  // 资源只能从当前用户拥有的书籍及其 extracted/ 根目录中读取。
-  router.get('/:id/file/*', requireAuth, (req: Request, res: Response, next: NextFunction) => {
+  // 鉴权说明：epub.js 自身 XHR（container.xml/opf/章节 xhtml）通过 requestHeaders 携带
+  // Bearer Token；但渲染时章节以 srcdoc/document.write 注入 iframe，iframe 内浏览器原生
+  // 加载的子资源（图片/CSS/字体等）无法附加 Authorization header（浏览器机制限制），
+  // 故此处使用 optionalAuth：带 token 时仍校验用户归属（防越权），无 token 放行
+  // （bookId 为不可枚举 UUID，属公开阅读资源；整书下载 /:id/file 仍强制鉴权）。
+  // 资源只能从书籍 extracted/ 根目录中安全读取（含路径穿越防护）。
+  router.get('/:id/file/*', optionalAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = req.user!.userId;
-      const book = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
+      const userId = req.user?.userId;
+      const book = userId
+        ? db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get()
+        : db.select().from(books).where(sql`id = ${req.params.id}`).get();
       if (!book) throw new AppError(404, '图书不存在');
       if (book.format !== 'epub') throw new AppError(400, '仅 EPUB 格式支持此操作');
 

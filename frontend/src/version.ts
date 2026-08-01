@@ -45,5 +45,6 @@
  * 2.47.0 (2026-08-01): [FEATURE] 书签云同步 — 后端 bookmarks 表+GET/PUT同步API（user_id/book_id/cfi唯一键+全量diff合并）+ 前端 useBookmarks 拉取合并/变更推送，换设备不丢书签
  * 2.47.1 (2026-08-01): [FIX] 打开书籍卡死/加载失败 — epub.js URL 源补尾部斜杠走目录流式模式（按需请求 zip 内部条目），替代整包 zip binary 下载超时
  * 2.48.0 (2026-08-01): [REFACTOR] 阅读界面布局修复 — ①阅读页不再渲染底部 Dock（消除遮挡空白）②顶栏菜单移入底栏（顺序：返回书库｜目录｜书名｜书签·搜索·aA）③删除左右翻页模式与翻页动画，固定垂直滚动④删除全屏点按层，正文点击改用 epub.js click 桥接显隐底栏（修复滚动手势被拦截）
+ * 2.48.1 (2026-08-01): [BUGFIX] EPUB 内部资源 401 — epub.js iframe 子资源（图片/CSS/字体）无法附加 Authorization header，后端 /api/books/:id/file/* 由 requireAuth 放宽为 optionalAuth（带 token 仍校验归属，无 token 放行；整书下载 /:id/file 保持鉴权）
  */
 export const APP_VERSION = '2.48.0';

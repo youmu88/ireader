@@ -199,6 +199,21 @@ describe('E2E Full Flow Acceptance', () => {
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toContain('application/epub+zip');
     });
+
+    it('3.8 should serve EPUB internal resources WITHOUT token (epub.js iframe subresource)', async () => {
+      // epub.js 渲染时章节以 srcdoc/document.write 注入 iframe，iframe 内浏览器原生加载的
+      // 子资源（图片/CSS/字体）无法附加 Authorization header → 后端 file/* 必须放宽鉴权。
+      // META-INF/container.xml 是 epub.js 打开书籍的必读条目。
+      const res = await request(app).get(`/api/books/${epubId}/file/META-INF/container.xml`);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('xml');
+      expect(res.text).toContain('rootfile');
+    });
+
+    it('3.9 should reject path traversal on file/* even without token', async () => {
+      const res = await request(app).get(`/api/books/${epubId}/file/../../etc/passwd`);
+      expect([400, 403, 404]).toContain(res.status);
+    });
   });
 
   // ════════════════════════════════════════════
