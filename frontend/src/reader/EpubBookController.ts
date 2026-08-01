@@ -37,6 +37,8 @@ interface EpubBook {
 
 interface EpubRendition {
   display(target?: string): Promise<unknown>;
+  /** 切换到下一章（章节自动衔接用；已至末章时静默） */
+  next(): Promise<unknown>;
   on(event: string, cb: (...args: any[]) => void): void;
   themes: {
     register(name: string, styles: unknown): void;
@@ -80,6 +82,10 @@ export class EpubBookController {
   private tapListeners = new Set<() => void>();
   private locationsReady = false;
   private lastLocation: ReaderLocation | null = null;
+  /** 章节自动衔接：监听渲染层滚动容器，接近章节末尾自动加载下一章（scrolled-doc 单章节渲染） */
+  private scrollEl: HTMLElement | null = null;
+  private autoNextLocked = false;
+  private autoNextBound = false;
 
   /** 加载书籍并渲染。返回目录树。 */
   async load(source: string | ArrayBuffer, container: HTMLElement, options: LoadOptions = {}): Promise<TocItem[]> {
@@ -98,7 +104,7 @@ export class EpubBookController {
     this.rendition = this.book.renderTo(container, {
       width: '100%',
       height: '100%',
-      // 固定垂直滚动模式（阅读器已移除左右翻页；scrolled-doc 下 iframe 高度随内容增长，外层容器滚动）
+      // 固定垂直滚动模式（scrolled-doc：单章节 iframe 垂直滚动；章节衔接由 Controller 监听滚动自动 next 实现）
       flow: 'scrolled-doc',
       spread: 'none',
     });
@@ -107,6 +113,7 @@ export class EpubBookController {
     // epub.js 将 iframe 内 click 桥接到 rendition（显隐工具栏用；不在滚动容器上叠加拦截层）
     this.rendition.on('click', () => this.emitTap());
     await this.rendition.display(options.initialCfi || undefined);
+    this.bindAutoNext();
 
     const nav = await this.book.loaded.navigation;
     return (nav.toc || []).map((item, i) => mapTocItem(item, String(i)));
@@ -128,7 +135,7 @@ export class EpubBookController {
     this.rendition = this.book.renderTo(container, {
       width: '100%',
       height: '100%',
-      // 固定垂直滚动模式（阅读器已移除左右翻页；scrolled-doc 下 iframe 高度随内容增长，外层容器滚动）
+      // 固定垂直滚动模式（scrolled-doc：单章节 iframe 垂直滚动；章节衔接由 Controller 监听滚动自动 next 实现）
       flow: 'scrolled-doc',
       spread: 'none',
     });
@@ -137,6 +144,7 @@ export class EpubBookController {
     // epub.js 将 iframe 内 click 桥接到 rendition（显隐工具栏用；不在滚动容器上叠加拦截层）
     this.rendition.on('click', () => this.emitTap());
     await this.rendition.display(options.initialCfi || undefined);
+    this.bindAutoNext();
 
     // TXT Feed 无 navigation.toc：由章节构建目录（href 为 section href）
     const nav = await this.book.loaded.navigation;
@@ -218,6 +226,7 @@ export class EpubBookController {
   }
 
   destroy(): void {
+    this.unbindAutoNext();
     this.rendition?.destroy();
     this.book?.destroy();
     this.rendition = null;
@@ -228,6 +237,45 @@ export class EpubBookController {
   }
 
   // ── 内部 ──────────────────────────────────────────────
+
+  /**
+   * 绑定渲染层滚动容器（epub.js manager.container），滚动接近章节末尾时自动加载下一章。
+   * 仅作衔接，不叠加覆盖层、不拦截滚动手势；已绑定幂等。
+   */
+  private bindAutoNext(): void {
+    if (this.autoNextBound || !this.rendition) return;
+    const manager = (this.rendition as unknown as { manager?: { container?: HTMLElement } }).manager;
+    const el = manager?.container;
+    if (!el) return;
+    this.scrollEl = el;
+    el.addEventListener('scroll', this.handleAutoNextScroll, { passive: true });
+    this.autoNextBound = true;
+  }
+
+  private unbindAutoNext(): void {
+    if (this.scrollEl) {
+      this.scrollEl.removeEventListener('scroll', this.handleAutoNextScroll);
+      this.scrollEl = null;
+    }
+    this.autoNextBound = false;
+    this.autoNextLocked = false;
+  }
+
+  /** 滚动接近章节末尾（剩余 < 140px）且上一章切换完成后 → 自动加载下一章 */
+  private handleAutoNextScroll = (): void => {
+    const el = this.scrollEl;
+    if (!el || this.autoNextLocked || !this.rendition) return;
+    if (el.scrollTop + el.clientHeight < el.scrollHeight - 140) return;
+    this.autoNextLocked = true;
+    void (this.rendition.next() as Promise<unknown>)
+      .catch(() => undefined)
+      .finally(() => {
+        // 等 relocated（章节切换完成）后解锁，避免滚动事件风暴连发
+        setTimeout(() => {
+          this.autoNextLocked = false;
+        }, 400);
+      });
+  };
 
   private handleRelocated(raw: unknown): void {
     const start = (raw as { start?: any })?.start ?? {};
