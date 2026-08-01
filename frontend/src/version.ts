@@ -43,5 +43,6 @@
  * 2.45.0 (2026-08-01): [FEATURE] 阅读器迭代2 — 全书搜索/书签/垂直滚动模式/CSS 3D书页翻转动画
  * 2.46.0 (2026-08-01): [FEATURE] 阅读器 TXT 支持 — EPUB/TXT 统一渲染管线（TXT章节文本→epub.js HTML Feed，复用翻页/主题/字号/滚动/进度/书签全能力）
  * 2.47.0 (2026-08-01): [FEATURE] 书签云同步 — 后端 bookmarks 表+GET/PUT同步API（user_id/book_id/cfi唯一键+全量diff合并）+ 前端 useBookmarks 拉取合并/变更推送，换设备不丢书签
+ * 2.47.1 (2026-08-01): [FIX] 打开书籍卡死/加载失败 — epub.js URL 源补尾部斜杠走目录流式模式（按需请求 zip 内部条目），替代整包 zip binary 下载超时
  */
-export const APP_VERSION = '2.47.0';
+export const APP_VERSION = '2.47.1';

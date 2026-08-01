@@ -91,7 +91,11 @@ export class EpubBookController {
 
     const epubOpts: Record<string, unknown> = {};
     if (typeof source === 'string' && options.requestHeaders) epubOpts.requestHeaders = options.requestHeaders;
-    this.book = (ePub as unknown as (src: unknown, opts: unknown) => EpubBook)(source, epubOpts);
+    // URL 源统一以 '/' 结尾：让 epub.js 走「已解压目录」流式模式（按需请求 zip 内部条目），
+    // 避免整包 zip 下载导致大文件加载超时/卡死（后端 /:id/file/* 通配路由按需读取 extracted/，
+    // epub.js book.js:270 binary 下载 vs book.js:358 目录资源请求两条路径）。
+    const resolvedSource = typeof source === 'string' && !source.endsWith('/') ? `${source}/` : source;
+    this.book = (ePub as unknown as (src: unknown, opts: unknown) => EpubBook)(resolvedSource, epubOpts);
     await this.book.ready;
 
     this.rendition = this.book.renderTo(container, {

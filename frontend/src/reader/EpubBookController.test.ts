@@ -63,7 +63,7 @@ describe('EpubBookController', () => {
       requestHeaders: { Authorization: 'Bearer t' },
     });
 
-    expect(mocks.ePub).toHaveBeenCalledWith('https://x/book.epub', {
+    expect(mocks.ePub).toHaveBeenCalledWith('https://x/book.epub/', {
       requestHeaders: { Authorization: 'Bearer t' },
     });
     expect(mocks.book.renderTo).toHaveBeenCalledWith(
