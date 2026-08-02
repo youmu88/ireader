@@ -15,6 +15,7 @@ import type { ReaderLocation, ReaderSettings, TocItem } from './types';
 import { buildRenditionThemeCss, DEFAULT_READER_SETTINGS, READER_THEMES } from './theme';
 import { searchBook, type SearchableBook, type SearchResult } from './searchBook';
 import { buildTxtFeed } from './buildTxtFeed';
+import { attachScrollDamping, DEFAULT_SCROLL_DAMPING } from './scrollDamping';
 
 // ── epub.js 运行时类型（动态 import，避免测试/SSR 环境直接加载） ──
 interface EpubNavigationTocItem {
@@ -116,6 +117,10 @@ export class EpubBookController {
   private themeCss = '';
   /** 内容管线（hooks.content 注册 + getContents 扫描）是否已绑定：保证全生命周期仅注册一次 */
   private contentPipelineBound = false;
+  /** 当前滚动阻尼级别（applySettings 更新；wheel 拦截器经 getLevel 闭包动态读取，变更即时生效） */
+  private dampingLevel = DEFAULT_SCROLL_DAMPING;
+  /** 已装配阻尼的 iframe 内容文档 → 卸载函数（destroy 时统一卸载；幂等去重） */
+  private dampingCleanups = new Map<Document, () => void>();
 
   /** 加载书籍并渲染。返回目录树。 */
   async load(source: string | ArrayBuffer, container: HTMLElement, options: LoadOptions = {}): Promise<TocItem[]> {
@@ -237,6 +242,7 @@ export class EpubBookController {
    */
   applySettings(s: ReaderSettings): void {
     if (!this.rendition) return;
+    this.dampingLevel = s.scrollDamping;
     this.themeCss = buildRenditionThemeCss(READER_THEMES[s.theme], s.lineHeight);
     for (const contents of this.rendition.getContents?.() ?? []) {
       this.applyThemeToContents(contents);
@@ -270,6 +276,9 @@ export class EpubBookController {
 
   destroy(): void {
     this.unbindTap();
+    for (const cleanup of this.dampingCleanups.values()) cleanup();
+    this.dampingCleanups.clear();
+    this.dampingLevel = DEFAULT_SCROLL_DAMPING;
     this.rendition?.destroy();
     this.book?.destroy();
     this.rendition = null;
@@ -320,10 +329,11 @@ export class EpubBookController {
     this.rescanContents();
   }
 
-  /** 章节内容就绪统一入口：主题 CSS 注入 + 点按桥接直挂（两者幂等，hooks 触发与扫描兜底共用） */
+  /** 章节内容就绪统一入口：主题 CSS 注入 + 点按桥接直挂 + 滚动阻尼装配（均幂等，hooks 触发与扫描兜底共用） */
   private handleContentsReady = (contents: EpubContents): void => {
     this.applyThemeToContents(contents);
     this.attachTapDoc(contents?.document);
+    this.attachDampingDoc(contents?.document);
   };
 
   /** 扫描当前已渲染内容文档（relocated 重扫 / 注册后兜底；重复执行无副作用） */
@@ -348,6 +358,12 @@ export class EpubBookController {
     doc.addEventListener('pointerdown', this.handleTapStart, { passive: true });
     doc.addEventListener('pointerup', this.handleTapEnd, { passive: true });
     doc.addEventListener('click', this.handleTapClick);
+  }
+
+  /** 为单个内容文档装配滚动阻尼（幂等：已装配的文档跳过；级别经 getLevel 闭包动态读取） */
+  private attachDampingDoc(doc: Document | undefined): void {
+    if (!doc || this.dampingCleanups.has(doc)) return;
+    this.dampingCleanups.set(doc, attachScrollDamping(doc, () => this.dampingLevel));
   }
 
   private unbindTap(): void {

@@ -12,17 +12,19 @@ import {
   LINE_HEIGHT_OPTIONS,
   READER_THEMES,
 } from './theme';
+import { clampScrollDamping } from './scrollDamping';
 
 export const STORAGE_KEY = 'ireader_reader_settings';
 
 /** 将外部输入钳制到合法范围（字号/主题/行距） */
 export function clampSettings(s: ReaderSettings): ReaderSettings {
+  const scrollDamping = clampScrollDamping(s.scrollDamping);
   const fontSize = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(s.fontSize)));
   const theme = s.theme in READER_THEMES ? s.theme : DEFAULT_READER_SETTINGS.theme;
   const lineHeight = (LINE_HEIGHT_OPTIONS as readonly number[]).includes(s.lineHeight)
     ? s.lineHeight
     : DEFAULT_READER_SETTINGS.lineHeight;
-  return { fontSize, theme, lineHeight };
+  return { fontSize, theme, lineHeight, scrollDamping };
 }
 
 /** 从 localStorage 读取设置；缺失/损坏时返回默认值 */

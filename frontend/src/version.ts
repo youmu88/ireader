@@ -64,5 +64,6 @@
  * 2.55.1 (2026-08-02): [BUGFIX] 阅读器设置修复 — ①行距三档（紧凑/标准/宽松）生效：buildRenditionTheme 的 line-height 由仅注入 body 扩展到段落/标题子元素选择器组（EPUB 书籍 p 显式 line-height 曾覆盖 body 继承值，导致行距无效果）；②顶栏随阅读主题：ReaderPage 动态同步 theme-color meta 为阅读主题背景色，浏览器/PWA 顶栏不再恒为默认色，退出阅读还原
  * 2.55.0 (2026-08-02): [PERF+FEATURE] 批量操作 N+1 收敛 — 新增 POST /api/books/batch-delete / batch-cache / batch-tts-generate 三个批量接口（单请求替代前端逐本调用，删除 N 本 = 1 请求）；LibraryPage/BookshelfPage 六处 Promise.all 逐本调用全部收敛为单请求，删除/缓存/语音反馈展示实际成功数量；批量接口含 500 本上限与逐本失败隔离
  * 2.54.0 (2026-08-02): [FEATURE] 批量选择体验升级 — 勾选框改独立圆形控件（修复长书名书勾选框被 Button 默认样式拉伸成椭圆、垂直居中错位）；批量动作栏从列表底部移至顶部吸顶（无需滚动到底）；图书管理页批量动作丰富为 删除/缓存离线包/预合成语音 并接通真实 API；书架页批量栏同步吸顶并新增缓存离线动作
+ * 2.57.0 (2026-08-02): [FEATURE] 阅读界面滚动阻尼（1-10 级，默认 3）— 新增 scrollDamping 纯函数模块（clamp/阻尼系数线性映射 1→0.9…10→0.25/wheel 拦截器 + deltaMode 归一化）纳入 ReaderSettings 单一数据源；EpubBookController 内容就绪时为 iframe 内容文档装配阻尼（级别经 getLevel 闭包动态读取，设置即时生效，destroy 统一卸载）；aA 阅读设置面板新增 1-10 阻尼滑块（轻/重 + 实时档位）。阻尼仅作用 wheel（鼠标/触控板），原生触摸滚动保持不动（保护历经精修的 epub.js 连续滚动栈）
  */
-export const APP_VERSION = '2.56.5';
+export const APP_VERSION = '2.57.0';

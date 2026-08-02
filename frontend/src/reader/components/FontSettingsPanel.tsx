@@ -1,11 +1,12 @@
 /**
- * FontSettingsPanel — aA 字体与主题设置面板（Apple Books 风格底部弹层）
+ * FontSettingsPanel — aA 阅读设置面板（Apple Books 风格底部弹层）
  *
- * 内容：字号 A−/A＋（步进 10%，60-200）· 四色主题圆点 · 行距三档（紧凑/标准/宽松）。
+ * 内容：字号 A−/A＋（步进 10%，60-200）· 四色主题圆点 · 行距三档（紧凑/标准/宽松）· 滚动阻尼 1-10。
  * 始终渲染，open 控制透明度/位移动画，关闭时禁用指针。
  */
 import type { ReaderSettings, ReaderTheme } from '../types';
 import { FONT_SIZE_MAX, FONT_SIZE_MIN, FONT_SIZE_STEP, LINE_HEIGHT_OPTIONS, READER_THEMES } from '../theme';
+import { SCROLL_DAMPING_MAX, SCROLL_DAMPING_MIN } from '../scrollDamping';
 import { Button } from '../../components/ui/Button';
 
 export interface FontSettingsPanelProps {
@@ -44,7 +45,7 @@ export function FontSettingsPanel({
         }`}
         style={{ background: chromeBackground, color: chromeColor }}
         role="dialog"
-        aria-label="字体与主题设置"
+        aria-label="阅读设置"
       >
         {/* 字号 */}
         <div className="flex items-center justify-between">
@@ -110,6 +111,29 @@ export function FontSettingsPanel({
               </Button>
             );
           })}
+        </div>
+
+        {/* 滚动阻尼（1-10，越高滚动越沉；仅作用于 wheel） */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm" style={{ opacity: 0.7 }}>滚动阻尼</span>
+            <span className="text-sm tabular-nums font-semibold">{settings.scrollDamping}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs shrink-0" style={{ opacity: 0.45 }}>轻</span>
+            <input
+              type="range"
+              min={SCROLL_DAMPING_MIN}
+              max={SCROLL_DAMPING_MAX}
+              step={1}
+              value={settings.scrollDamping}
+              aria-label="滚动阻尼"
+              onChange={e => onChange({ scrollDamping: Number(e.target.value) })}
+              className="flex-1 cursor-pointer"
+              style={{ accentColor: '#007aff' }}
+            />
+            <span className="text-xs shrink-0" style={{ opacity: 0.45 }}>重</span>
+          </div>
         </div>
       </div>
     </div>

@@ -84,4 +84,12 @@ describe('FontSettingsPanel', () => {
     fireEvent.click(screen.getByTestId('font-settings-panel').firstElementChild!);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('滚动阻尼滑块（1-10）默认 3 级，拖动触发 onChange', () => {
+    const onChange = renderPanel();
+    const slider = screen.getByLabelText('滚动阻尼') as HTMLInputElement;
+    expect(slider.value).toBe('3'); // 默认 3 级
+    fireEvent.change(slider, { target: { value: '7' } });
+    expect(onChange).toHaveBeenCalledWith({ scrollDamping: 7 });
+  });
 });

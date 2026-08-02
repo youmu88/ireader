@@ -117,7 +117,7 @@ describe('EpubBookController', () => {
   it('load/applySettings：主题 CSS 以固定单 key 注入内容文档 + 应用字号（弃用 themes.register/select）', async () => {
     const cssSpy = vi.fn();
     mocks.rendition.getContents.mockReturnValue([{ document: contentDoc, addStylesheetCss: cssSpy }]);
-    await controller.load('url', container, { settings: { fontSize: 120, theme: 'sepia', lineHeight: 2.0 } });
+    await controller.load('url', container, { settings: { fontSize: 120, theme: 'sepia', lineHeight: 2.0, scrollDamping: 3 } });
     // 注入：固定单 key + 完整主题 CSS 文本（addStylesheetCss 同 key 整体替换语义）
     expect(cssSpy).toHaveBeenCalledWith(expect.stringContaining('#f8f1e4'), 'ireader-theme');
     expect(cssSpy).toHaveBeenCalledWith(expect.stringContaining('line-height: 2 !important'), 'ireader-theme');
@@ -126,7 +126,7 @@ describe('EpubBookController', () => {
     expect(mocks.rendition.themes.register).not.toHaveBeenCalled();
     expect(mocks.rendition.themes.select).not.toHaveBeenCalled();
 
-    controller.applySettings({ fontSize: 90, theme: 'black', lineHeight: 1.5 });
+    controller.applySettings({ fontSize: 90, theme: 'black', lineHeight: 1.5, scrollDamping: 3 });
     expect(cssSpy).toHaveBeenLastCalledWith(expect.stringContaining('#000000'), 'ireader-theme');
     expect(mocks.rendition.themes.fontSize).toHaveBeenCalledWith('90%');
   });
@@ -134,11 +134,11 @@ describe('EpubBookController', () => {
   it('主题重选 A→B→A：固定单 key 整体替换，无旧主题残留（epub.js keyed stylesheet 文档序竞态根治回归）', async () => {
     const cssSpy = vi.fn();
     mocks.rendition.getContents.mockReturnValue([{ document: contentDoc, addStylesheetCss: cssSpy }]);
-    await controller.load('url', container, { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75 } });
+    await controller.load('url', container, { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75, scrollDamping: 3 } });
     cssSpy.mockClear();
 
-    controller.applySettings({ fontSize: 100, theme: 'black', lineHeight: 1.75 });
-    controller.applySettings({ fontSize: 100, theme: 'white', lineHeight: 1.75 });
+    controller.applySettings({ fontSize: 100, theme: 'black', lineHeight: 1.75, scrollDamping: 3 });
+    controller.applySettings({ fontSize: 100, theme: 'white', lineHeight: 1.75, scrollDamping: 3 });
     // 每次注入同一 key —— 替换语义保证文档内永远只有一份主题样式且为最新（无文档序竞态）
     expect(cssSpy).toHaveBeenCalledTimes(2);
     for (const call of cssSpy.mock.calls) expect(call[1]).toBe('ireader-theme');
@@ -156,7 +156,7 @@ describe('EpubBookController', () => {
   });
 
   it('连续滚动拼接新章节：hooks.content 触发 → 新文档注入当前主题 CSS + 直挂点按桥接', async () => {
-    await controller.load('url', container, { settings: { fontSize: 100, theme: 'gray', lineHeight: 1.75 } });
+    await controller.load('url', container, { settings: { fontSize: 100, theme: 'gray', lineHeight: 1.75, scrollDamping: 3 } });
     const newDoc = document.implementation.createHTMLDocument('epub-ch2');
     const newCssSpy = vi.fn();
     fireContentHook({ document: newDoc, addStylesheetCss: newCssSpy });
@@ -279,7 +279,7 @@ describe('EpubBookController', () => {
     await controller.loadTxt(
       [{ id: 't1', title: '第一章', text: '正文' }],
       container,
-      { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75 } },
+      { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75, scrollDamping: 3 } },
     );
     expect(mocks.book.renderTo).toHaveBeenCalledWith(
       container,
@@ -296,5 +296,30 @@ describe('EpubBookController', () => {
     expect(mocks.book.destroy).toHaveBeenCalledTimes(1);
     expect(controller.currentLocation).toBeNull();
     expect(controller.isLocationsReady).toBe(false);
+  });
+
+  it('滚动阻尼：load 后内容文档 wheel 被拦截（preventDefault）；新章节自动装配；destroy 后卸载', async () => {
+    // 使用独立内容文档：文件级共享 contentDoc 会累积其他用例（未 destroy）控制器残留的阻尼监听器，
+    // 干扰 destroy 卸载断言；独立文档保证用例隔离（生产中每个 controller 独占自己的 iframe 文档）
+    const dampingDoc = document.implementation.createHTMLDocument('epub-damping');
+    mocks.rendition.getContents.mockReturnValue([{ document: dampingDoc, addStylesheetCss: vi.fn() }]);
+    await controller.load('url', container, { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75, scrollDamping: 5 } });
+    // 已渲染内容文档：wheel 被阻尼拦截器 preventDefault
+    const ev = new WheelEvent('wheel', { deltaY: 100, cancelable: true, bubbles: true });
+    dampingDoc.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+
+    // 连续滚动加载新章节 → hooks.content 触发 → 新文档也装配阻尼
+    const newDoc = document.implementation.createHTMLDocument('epub-ch2');
+    fireContentHook({ document: newDoc });
+    const ev2 = new WheelEvent('wheel', { deltaY: 100, cancelable: true, bubbles: true });
+    newDoc.dispatchEvent(ev2);
+    expect(ev2.defaultPrevented).toBe(true);
+
+    // destroy 卸载阻尼 → wheel 不再被拦截
+    controller.destroy();
+    const ev3 = new WheelEvent('wheel', { deltaY: 100, cancelable: true, bubbles: true });
+    dampingDoc.dispatchEvent(ev3);
+    expect(ev3.defaultPrevented).toBe(false);
   });
 });
