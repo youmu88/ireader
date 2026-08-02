@@ -1,0 +1,81 @@
+/**
+ * useReaderChromeTheme — 阅读主题 → 浏览器镀铬层（状态栏覆盖层 + html/body 根背景 + theme-color）收敛测试
+ *
+ * 覆盖：
+ * 1. 返回声明式状态栏覆盖层样式（背景跟随传入主题色，高度为安全区）；
+ * 2. 挂载时同步 theme-color meta 与 html/body 根背景；
+ * 3. 主题切换时三处同步更新（不再依赖退出重进）；
+ * 4. 卸载时还原【首次挂载初始值】而非捕获值（多次切换后退出不污染书架背景）。
+ */
+import { renderHook, act } from '@testing-library/react';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { useReaderChromeTheme } from './useReaderChromeTheme';
+
+const DEFAULT_META = '#3b82f6';
+
+beforeEach(() => {
+  document.documentElement.style.background = '';
+  document.body.style.background = '';
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.remove());
+  const meta = document.createElement('meta');
+  meta.name = 'theme-color';
+  meta.setAttribute('content', DEFAULT_META);
+  document.head.appendChild(meta);
+});
+
+describe('useReaderChromeTheme', () => {
+  it('返回声明式状态栏覆盖层样式：高度为安全区、背景跟随主题色', () => {
+    const { result } = renderHook(() => useReaderChromeTheme('#000000'));
+    expect(result.current.statusBarStyle).toEqual({
+      height: 'env(safe-area-inset-top, 0px)',
+      background: '#000000',
+    });
+  });
+
+  it('挂载时同步 theme-color meta 与 html/body 根背景为主题色', () => {
+    renderHook(() => useReaderChromeTheme('#000000'));
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    expect(meta?.getAttribute('content')).toBe('#000000');
+    // jsdom 将 hex 规范化为 rgb()
+    expect(document.documentElement.style.background).toBe('rgb(0, 0, 0)');
+    expect(document.body.style.background).toBe('rgb(0, 0, 0)');
+  });
+
+  it('主题切换时三处同步更新（不依赖退出重进）', () => {
+    const { rerender } = renderHook(({ bg }) => useReaderChromeTheme(bg), {
+      initialProps: { bg: '#ffffff' },
+    });
+    expect(document.body.style.background).toBe('rgb(255, 255, 255)');
+    rerender({ bg: '#000000' });
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    expect(meta?.getAttribute('content')).toBe('#000000');
+    expect(document.documentElement.style.background).toBe('rgb(0, 0, 0)');
+    expect(document.body.style.background).toBe('rgb(0, 0, 0)');
+  });
+
+  it('卸载时还原首次挂载初始值（而非捕获值）：多次切换后退出不污染根背景', () => {
+    const { rerender, unmount } = renderHook(({ bg }) => useReaderChromeTheme(bg), {
+      initialProps: { bg: '#ffffff' },
+    });
+    rerender({ bg: '#000000' });
+    rerender({ bg: '#2c2c2e' });
+    expect(document.body.style.background).toBe('rgb(44, 44, 46)');
+    unmount();
+    // 还原为挂载前状态（html/body 空、meta 默认色），而不是「倒数第二次」的 #000000
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    expect(meta?.getAttribute('content')).toBe(DEFAULT_META);
+    expect(document.documentElement.style.background).toBe('');
+    expect(document.body.style.background).toBe('');
+  });
+
+  it('挂载前已存在的根背景在卸载后原样还原', () => {
+    document.documentElement.style.background = 'rgb(10, 20, 30)';
+    document.body.style.background = 'rgb(40, 50, 60)';
+    const { unmount } = renderHook(() => useReaderChromeTheme('#000000'));
+    expect(document.documentElement.style.background).toBe('rgb(0, 0, 0)');
+    expect(document.body.style.background).toBe('rgb(0, 0, 0)');
+    act(() => unmount());
+    expect(document.documentElement.style.background).toBe('rgb(10, 20, 30)');
+    expect(document.body.style.background).toBe('rgb(40, 50, 60)');
+  });
+});

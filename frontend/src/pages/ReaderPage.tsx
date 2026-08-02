@@ -14,6 +14,7 @@ import { READER_THEMES } from '../reader/theme';
 import type { ReaderLocation, TocItem } from '../reader/types';
 import { useReaderSettings } from '../reader/useReaderSettings';
 import { useReaderProgress } from '../reader/useReaderProgress';
+import { useReaderChromeTheme } from '../reader/useReaderChromeTheme';
 import { ReaderChrome } from '../reader/components/ReaderChrome';
 import { ReaderMenuBar } from '../reader/components/ReaderMenuBar';
 import { ReaderBottomBar } from '../reader/components/ReaderBottomBar';
@@ -194,32 +195,9 @@ export default function ReaderPage() {
     controllerRef.current?.applySettings(settings);
   }, [settings]);
 
-  // ── 阅读主题同步到浏览器顶栏 + html/body 根背景 ──
-  // ① theme-color meta：Android Chrome 地址栏 / PWA 顶栏颜色跟随阅读主题背景；
-  // ② html/body 根背景：iOS Safari 橡皮筋回弹、PWA 状态栏透明区、地址栏收起动画
-  //    露出的都是根背景——不同步则深色主题下顶部露出白色横条（截图所示白条根因）。
-  // 还原策略：用 ref 记录【首次挂载时】的初始值，退出时还原初始值而非每次 effect 捕获值。
-  // 历史 bug：若还原用 effect 内捕获的 prevBody，多次切主题后 prevBody 是上一次设置的主题色，
-  //           退出会把 html/body 还原成「倒数第二次」主题色 → 污染书架背景、进入退出不一致。
-  const themeMetaRef = useRef<string | null>(null);
-  const htmlBgRef = useRef<string>('');
-  const bodyBgRef = useRef<string>('');
-  useEffect(() => {
-    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    if (themeMetaRef.current === null) {
-      themeMetaRef.current = meta?.getAttribute('content') ?? '#3b82f6';
-      htmlBgRef.current = document.documentElement.style.background;
-      bodyBgRef.current = document.body.style.background;
-    }
-    if (meta) meta.setAttribute('content', themeSpec.background);
-    document.documentElement.style.background = themeSpec.background;
-    document.body.style.background = themeSpec.background;
-    return () => {
-      if (meta) meta.setAttribute('content', themeMetaRef.current ?? '#3b82f6');
-      document.documentElement.style.background = htmlBgRef.current;
-      document.body.style.background = bodyBgRef.current;
-    };
-  }, [themeSpec.background]);
+  // ── 阅读主题 → 浏览器镀铬层（状态栏覆盖层 + html/body 根背景 + theme-color）统一收敛 ──
+  // 三处同步均由 useReaderChromeTheme 单一 hook 管理：声明式状态栏覆盖层（渲染驱动）+ 命令式根背景/meta（初始值还原）。
+  const { statusBarStyle } = useReaderChromeTheme(themeSpec.background);
 
   const handleTocSelect = useCallback((href: string) => {
     setTocOpen(false);
@@ -273,7 +251,7 @@ export default function ReaderPage() {
         data-testid="reader-statusbar-cover"
         aria-hidden
         className="fixed top-0 left-0 right-0 z-50 pointer-events-none"
-        style={{ height: 'env(safe-area-inset-top, 0px)', background: themeSpec.background }}
+        style={statusBarStyle}
       />
       {/* epub.js 渲染区（垂直滚动容器；上方无覆盖层，滚动手势直达） */}
       <div ref={viewerRef} className="absolute inset-0" />
