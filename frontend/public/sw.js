@@ -8,8 +8,8 @@
  * 4. API 数据：网络优先 + 缓存回退（NetworkFirst）
  */
 
-const CACHE_VERSION = 'v2';
-const SW_VERSION = '1.0.0';
+const CACHE_VERSION = 'v3';
+const SW_VERSION = '2.0.0';
 // SW 版本号——变更时触发 install 事件，自动激活新 SW
 const STATIC_CACHE = `ireader-static-${CACHE_VERSION}`;
 const COVERS_CACHE = `ireader-covers-${CACHE_VERSION}`;

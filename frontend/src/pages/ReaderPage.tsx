@@ -6,7 +6,7 @@
  *       TXT 书籍复用同一渲染管线（HTML Feed）。
  * 2.51.0：菜单精简为 目录|书名|搜索·aA（返回书架靠系统手势/浏览器后退；书签功能整体下线）。
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { EpubBookController, type TxtFeedSectionInput } from '../reader/EpubBookController';
@@ -31,6 +31,9 @@ interface BookMeta {
   author: string | null;
   format: 'epub' | 'txt';
 }
+
+/** 沉浸式阅读引导条：用户点击「知道了」后不再打扰（localStorage 记忆） */
+const IMMERSIVE_TIP_KEY = 'ireader_immersive_tip_dismissed';
 
 /** 目录树递归反查章节标题（搜索结果归属展示；href 去 fragment 匹配） */
 function findTocLabel(items: TocItem[], href: string): string | undefined {
@@ -72,6 +75,18 @@ export default function ReaderPage() {
   const { settings, updateSettings } = useReaderSettings();
   const { loadInitialCfi, scheduleSave } = useReaderProgress({ bookId });
   const themeSpec = READER_THEMES[settings.theme];
+
+  // ── 沉浸式阅读引导：非 standalone 且深色主题时提示添加到主屏幕 ──
+  // iOS 系统状态栏颜色仅由系统控制（网页无法修改）；只有「添加到主屏幕」（standalone +
+  // black-translucent）才让状态栏透明显示页面背景，深色阅读才能真正顶栏一体。
+  const [immersiveTipDismissed, setImmersiveTipDismissed] = useState(() => {
+    try { return localStorage.getItem(IMMERSIVE_TIP_KEY) === '1'; } catch { return false; }
+  });
+  const isStandalone = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const nav = window.navigator as { standalone?: boolean };
+    return nav.standalone === true || window.matchMedia?.('(display-mode: standalone)').matches === true;
+  }, []);
 
   // ── 加载书籍并初始化渲染 ──
   useEffect(() => {
@@ -177,15 +192,23 @@ export default function ReaderPage() {
     controllerRef.current?.applySettings(settings);
   }, [settings]);
 
-  // ── 阅读主题同步到浏览器顶栏（theme-color meta） ──
-  // Android Chrome 地址栏 / PWA 顶栏颜色跟随阅读主题背景；退出阅读还原为应用默认色。
+  // ── 阅读主题同步到浏览器顶栏 + html/body 根背景 ──
+  // ① theme-color meta：Android Chrome 地址栏 / PWA 顶栏颜色跟随阅读主题背景；
+  // ② html/body 根背景：iOS Safari 橡皮筋回弹、PWA 状态栏透明区、地址栏收起动画
+  //    露出的都是根背景——不同步则深色主题下顶部露出白色横条（截图所示白条根因）；
+  //    退出阅读全部还原为应用默认。
   useEffect(() => {
     const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    if (!meta) return;
-    const prev = meta.getAttribute('content') ?? '#3b82f6';
-    meta.setAttribute('content', themeSpec.background);
+    const prevMeta = meta?.getAttribute('content') ?? '#3b82f6';
+    const prevHtml = document.documentElement.style.background;
+    const prevBody = document.body.style.background;
+    if (meta) meta.setAttribute('content', themeSpec.background);
+    document.documentElement.style.background = themeSpec.background;
+    document.body.style.background = themeSpec.background;
     return () => {
-      meta.setAttribute('content', prev);
+      if (meta) meta.setAttribute('content', prevMeta);
+      document.documentElement.style.background = prevHtml;
+      document.body.style.background = prevBody;
     };
   }, [themeSpec.background]);
 
@@ -270,6 +293,31 @@ export default function ReaderPage() {
           onSeek={handleSeek}
         />
       </ReaderChrome>
+
+      {!isStandalone && themeSpec.dark && !immersiveTipDismissed && (
+        <div
+          data-testid="immersive-tip"
+          className="absolute left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 rounded-full px-4 py-2 shadow-lg"
+          style={{
+            top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+            background: 'rgba(24,24,26,0.92)',
+            color: '#e5e5ea',
+          }}
+        >
+          <span className="text-[13px] leading-tight">深色阅读：添加到主屏幕可隐藏顶部白色系统栏</span>
+          <button
+            type="button"
+            onClick={() => {
+              setImmersiveTipDismissed(true);
+              try { localStorage.setItem(IMMERSIVE_TIP_KEY, '1'); } catch { /* ignore */ }
+            }}
+            className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium"
+            style={{ background: 'rgba(255,255,255,0.15)', color: '#ffffff' }}
+          >
+            知道了
+          </button>
+        </div>
+      )}
 
       <TocPanel
         open={tocOpen}

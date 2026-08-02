@@ -201,7 +201,7 @@ describe('ReaderPage', () => {
     expect(controllerMocks.instance.goTo).toHaveBeenCalledWith('epubcfi(/6/8!/2/1:5)');
   });
 
-  it('阅读主题背景同步到 theme-color meta（浏览器顶栏跟随主题，不再恒为默认色）', async () => {
+  it('阅读主题背景同步到 theme-color meta + html/body 根背景（顶栏不再恒白，深色透白根因消除）', async () => {
     const meta = document.createElement('meta');
     meta.name = 'theme-color';
     meta.setAttribute('content', '#3b82f6');
@@ -209,7 +209,69 @@ describe('ReaderPage', () => {
     mockBook('epub');
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
-    // 默认白色主题 → 顶栏同步为阅读背景色
+    // 默认白色主题 → 顶栏 + 根背景同步为阅读背景色（jsdom 将 hex 规范化为 rgb()）
     expect(meta.getAttribute('content')).toBe('#ffffff');
+    expect(document.documentElement.style.background).toBe('rgb(255, 255, 255)');
+    expect(document.body.style.background).toBe('rgb(255, 255, 255)');
+  });
+
+  it('深色主题（black）：html/body 根背景 + theme-color 同步为黑色，退出阅读还原', async () => {
+    const meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    meta.setAttribute('content', '#3b82f6');
+    document.head.appendChild(meta);
+    localStorage.setItem('ireader_reader_settings', JSON.stringify({ fontSize: 100, theme: 'black', lineHeight: 1.75 }));
+    mockBook('epub');
+    const { unmount } = renderReader();
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
+    expect(meta.getAttribute('content')).toBe('#000000');
+    expect(document.documentElement.style.background).toBe('rgb(0, 0, 0)');
+    expect(document.body.style.background).toBe('rgb(0, 0, 0)');
+    // 退出阅读 → 还原
+    unmount();
+    expect(meta.getAttribute('content')).toBe('#3b82f6');
+    expect(document.documentElement.style.background).toBe('');
+    expect(document.body.style.background).toBe('');
+  });
+
+  it('深色主题 + 非 standalone：显示「添加到主屏幕」沉浸阅读引导条；点击后消失并记忆', async () => {
+    localStorage.setItem('ireader_reader_settings', JSON.stringify({ fontSize: 100, theme: 'black', lineHeight: 1.75 }));
+    mockBook('epub');
+    renderReader();
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
+    const tip = await screen.findByTestId('immersive-tip');
+    expect(tip.textContent).toContain('添加到主屏幕');
+    // 点击「知道了」→ 引导条消失，localStorage 记忆
+    fireEvent.click(screen.getByText('知道了'));
+    expect(screen.queryByTestId('immersive-tip')).toBeNull();
+    expect(localStorage.getItem('ireader_immersive_tip_dismissed')).toBe('1');
+  });
+
+  it('standalone 模式（添加到主屏幕）：不显示沉浸阅读引导条', async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(display-mode: standalone)',
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+    localStorage.setItem('ireader_reader_settings', JSON.stringify({ fontSize: 100, theme: 'black', lineHeight: 1.75 }));
+    mockBook('epub');
+    renderReader();
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('immersive-tip')).toBeNull();
+    window.matchMedia = originalMatchMedia;
+  });
+
+  it('浅色主题：即使非 standalone 也不显示沉浸阅读引导条', async () => {
+    localStorage.setItem('ireader_reader_settings', JSON.stringify({ fontSize: 100, theme: 'white', lineHeight: 1.75 }));
+    mockBook('epub');
+    renderReader();
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('immersive-tip')).toBeNull();
   });
 });
