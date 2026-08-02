@@ -76,9 +76,11 @@ export default function ReaderPage() {
   const { loadInitialCfi, scheduleSave } = useReaderProgress({ bookId });
   const themeSpec = READER_THEMES[settings.theme];
 
-  // ── 沉浸式阅读引导：非 standalone 且深色主题时提示添加到主屏幕 ──
-  // iOS 系统状态栏颜色仅由系统控制（网页无法修改）；只有「添加到主屏幕」（standalone +
-  // black-translucent）才让状态栏透明显示页面背景，深色阅读才能真正顶栏一体。
+  // ── 沉浸式阅读引导：非 standalone 且深色主题时提示从主屏幕图标打开 ──
+  // iOS 系统状态栏颜色仅由系统控制（网页无法修改）；只有「从主屏幕的 iReader 图标进入」
+  //（standalone + black-translucent）才让状态栏透明透出页面背景，深色阅读才能真正顶栏一体。
+  // 注意：即使已「添加到主屏幕」，从 Safari 地址栏/书签打开仍是浏览器模式（非 standalone），
+  // 此时状态栏归系统管（浅色模式白底黑字），必须从主屏幕图标进入才生效。
   const [immersiveTipDismissed, setImmersiveTipDismissed] = useState(() => {
     try { return localStorage.getItem(IMMERSIVE_TIP_KEY) === '1'; } catch { return false; }
   });
@@ -304,7 +306,7 @@ export default function ReaderPage() {
             color: '#e5e5ea',
           }}
         >
-          <span className="text-[13px] leading-tight">深色阅读：添加到主屏幕可隐藏顶部白色系统栏</span>
+          <span className="text-[13px] leading-tight">顶栏跟随系统：请从主屏幕的 iReader 图标进入阅读，顶栏将变为黑色沉浸式</span>
           <button
             type="button"
             onClick={() => {

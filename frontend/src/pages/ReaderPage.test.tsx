@@ -240,7 +240,7 @@ describe('ReaderPage', () => {
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
     const tip = await screen.findByTestId('immersive-tip');
-    expect(tip.textContent).toContain('添加到主屏幕');
+    expect(tip.textContent).toContain('从主屏幕的 iReader 图标进入阅读');
     // 点击「知道了」→ 引导条消失，localStorage 记忆
     fireEvent.click(screen.getByText('知道了'));
     expect(screen.queryByTestId('immersive-tip')).toBeNull();
