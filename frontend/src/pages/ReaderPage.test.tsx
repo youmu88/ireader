@@ -201,7 +201,7 @@ describe('ReaderPage', () => {
     expect(controllerMocks.instance.goTo).toHaveBeenCalledWith('epubcfi(/6/8!/2/1:5)');
   });
 
-  it('阅读主题背景同步到 theme-color meta + html/body 根背景（顶栏不再恒白，深色透白根因消除）', async () => {
+  it('阅读主题背景同步到 theme-color meta + html/body 根背景 + 状态栏覆盖层（顶栏不再恒白，深色透白根因消除）', async () => {
     const meta = document.createElement('meta');
     meta.name = 'theme-color';
     meta.setAttribute('content', '#3b82f6');
@@ -209,10 +209,11 @@ describe('ReaderPage', () => {
     mockBook('epub');
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
-    // 默认白色主题 → 顶栏 + 根背景同步为阅读背景色（jsdom 将 hex 规范化为 rgb()）
+    // 默认白色主题 → 顶栏 + 根背景 + 覆盖层同步为阅读背景色（jsdom 将 hex 规范化为 rgb()）
     expect(meta.getAttribute('content')).toBe('#ffffff');
     expect(document.documentElement.style.background).toBe('rgb(255, 255, 255)');
     expect(document.body.style.background).toBe('rgb(255, 255, 255)');
+    expect(screen.getByTestId('reader-statusbar-cover')).toHaveStyle({ background: 'rgb(255, 255, 255)' });
   });
 
   it('深色主题（black）：html/body 根背景 + theme-color 同步为黑色，退出阅读还原', async () => {
@@ -227,7 +228,52 @@ describe('ReaderPage', () => {
     expect(meta.getAttribute('content')).toBe('#000000');
     expect(document.documentElement.style.background).toBe('rgb(0, 0, 0)');
     expect(document.body.style.background).toBe('rgb(0, 0, 0)');
-    // 退出阅读 → 还原
+    expect(screen.getByTestId('reader-statusbar-cover')).toHaveStyle({ background: 'rgb(0, 0, 0)' });
+    // 退出阅读 → 还原初始值（非捕获值）
+    unmount();
+    expect(meta.getAttribute('content')).toBe('#3b82f6');
+    expect(document.documentElement.style.background).toBe('');
+    expect(document.body.style.background).toBe('');
+  });
+
+  it('页内切换主题：状态栏覆盖层 + html/body 根背景 + theme-color 即时同步（声明式渲染驱动，无时序依赖）', async () => {
+    const meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    meta.setAttribute('content', '#3b82f6');
+    document.head.appendChild(meta);
+    mockBook('epub');
+    renderReader();
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
+    // 初始白色 → 打开 aA 面板切换黑色主题
+    expect(screen.getByTestId('reader-statusbar-cover')).toHaveStyle({ background: 'rgb(255, 255, 255)' });
+    act(() => tapCb?.());
+    fireEvent.click(screen.getByLabelText('字体与主题'));
+    fireEvent.click(screen.getByRole('button', { name: '主题-黑色' }));
+    // 顶栏/根背景/状态栏覆盖层立即变为黑色（不依赖退出重进）
+    await waitFor(() => {
+      expect(screen.getByTestId('reader-statusbar-cover')).toHaveStyle({ background: 'rgb(0, 0, 0)' });
+    });
+    expect(meta.getAttribute('content')).toBe('#000000');
+    expect(document.documentElement.style.background).toBe('rgb(0, 0, 0)');
+    expect(document.body.style.background).toBe('rgb(0, 0, 0)');
+  });
+
+  it('多次切换主题后退出：还原为首次挂载初始值，而非「倒数第二次」主题色（还原竞态根因回归）', async () => {
+    const meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    meta.setAttribute('content', '#3b82f6');
+    document.head.appendChild(meta);
+    mockBook('epub');
+    const { unmount } = renderReader();
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
+    // 白色 → 黑色 → 灰色（三次主题切换，模拟历史还原 bug 的触发路径）
+    act(() => tapCb?.());
+    fireEvent.click(screen.getByLabelText('字体与主题'));
+    fireEvent.click(screen.getByRole('button', { name: '主题-黑色' }));
+    await waitFor(() => expect(document.body.style.background).toBe('rgb(0, 0, 0)'));
+    fireEvent.click(screen.getByRole('button', { name: '主题-灰色' }));
+    await waitFor(() => expect(document.body.style.background).toBe('rgb(44, 44, 46)'));
+    // 退出 → 必须还原为初始空值，而不是倒数第二次的黑色
     unmount();
     expect(meta.getAttribute('content')).toBe('#3b82f6');
     expect(document.documentElement.style.background).toBe('');

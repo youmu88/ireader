@@ -197,20 +197,27 @@ export default function ReaderPage() {
   // ── 阅读主题同步到浏览器顶栏 + html/body 根背景 ──
   // ① theme-color meta：Android Chrome 地址栏 / PWA 顶栏颜色跟随阅读主题背景；
   // ② html/body 根背景：iOS Safari 橡皮筋回弹、PWA 状态栏透明区、地址栏收起动画
-  //    露出的都是根背景——不同步则深色主题下顶部露出白色横条（截图所示白条根因）；
-  //    退出阅读全部还原为应用默认。
+  //    露出的都是根背景——不同步则深色主题下顶部露出白色横条（截图所示白条根因）。
+  // 还原策略：用 ref 记录【首次挂载时】的初始值，退出时还原初始值而非每次 effect 捕获值。
+  // 历史 bug：若还原用 effect 内捕获的 prevBody，多次切主题后 prevBody 是上一次设置的主题色，
+  //           退出会把 html/body 还原成「倒数第二次」主题色 → 污染书架背景、进入退出不一致。
+  const themeMetaRef = useRef<string | null>(null);
+  const htmlBgRef = useRef<string>('');
+  const bodyBgRef = useRef<string>('');
   useEffect(() => {
     const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    const prevMeta = meta?.getAttribute('content') ?? '#3b82f6';
-    const prevHtml = document.documentElement.style.background;
-    const prevBody = document.body.style.background;
+    if (themeMetaRef.current === null) {
+      themeMetaRef.current = meta?.getAttribute('content') ?? '#3b82f6';
+      htmlBgRef.current = document.documentElement.style.background;
+      bodyBgRef.current = document.body.style.background;
+    }
     if (meta) meta.setAttribute('content', themeSpec.background);
     document.documentElement.style.background = themeSpec.background;
     document.body.style.background = themeSpec.background;
     return () => {
-      if (meta) meta.setAttribute('content', prevMeta);
-      document.documentElement.style.background = prevHtml;
-      document.body.style.background = prevBody;
+      if (meta) meta.setAttribute('content', themeMetaRef.current ?? '#3b82f6');
+      document.documentElement.style.background = htmlBgRef.current;
+      document.body.style.background = bodyBgRef.current;
     };
   }, [themeSpec.background]);
 
@@ -260,6 +267,14 @@ export default function ReaderPage() {
 
   return (
     <div className="fixed inset-0 overflow-hidden" style={{ background: themeSpec.background }}>
+      {/* 状态栏安全区覆盖层：standalone + black-translucent 下状态栏透明，此层以主题色覆盖顶部安全区，
+          使顶栏颜色由主题状态声明式驱动（切主题即时变、进入/退出一致、无时序竞态） */}
+      <div
+        data-testid="reader-statusbar-cover"
+        aria-hidden
+        className="fixed top-0 left-0 right-0 z-50 pointer-events-none"
+        style={{ height: 'env(safe-area-inset-top, 0px)', background: themeSpec.background }}
+      />
       {/* epub.js 渲染区（垂直滚动容器；上方无覆盖层，滚动手势直达） */}
       <div ref={viewerRef} className="absolute inset-0" />
 

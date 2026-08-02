@@ -53,6 +53,7 @@
  * 2.51.1 (2026-08-01): [BUGFIX] 书架排序加固 — 后端 lastReadMap 查询补 userId 过滤（消除全表扫描跨用户隐患）；前后端排序改用时间戳数值比较（已读按 lastReadAt 降序在前，未读按书名升序在后，不受 ISO 格式/locale 影响）；新增未读多本排序/混合场景前端测试
  * 2.52.0 (2026-08-01): [FEATURE] 顶部导航精简 + Dock iOS 化 — 移除顶栏与底部 Dock 重复的「书架/设置」入口（顶栏仅保留语音合成与桌面用户区）；Dock tab 弃用 Button ghost 椭圆背景（固定高度致点击胶囊盖不住图标），重写为 iOS 原生 Tab Bar：无背景、选中蓝色图标+文字+底部指示条、按压弹性缩放
  * 2.53.0 (2026-08-02): [PERF] 书架加载提速 1552x — 根治书架加载慢（N+1 请求 × 无索引全表扫描）：新增 POST /api/books/stats/batch 批量聚合接口（GROUP BY 一次取全部书籍统计，与书数量无关）替代逐本 GET /:id/stats（252 本 → 1 请求）；BookshelfPage 改为批量拉取；db/init.ts 补 7 组幂等索引（books.user_id / reading_progress(user_id,book_id) / reading_progress(book_id) / book_chapters(book_id) / tts_generation_jobs(book_id,user_id) / book_content_cache(book_id,user_id) / tts_cache(user_id,book_id)），EXPLAIN 全 SCAN→SEARCH；getBookCacheStats 去重复 book_chapters 查询（入参复用 totalChapters）
+ * 2.56.2 (2026-08-02): [BUGFIX] 顶栏颜色改为声明式渲染驱动 — 新增状态栏安全区覆盖层（env(safe-area-inset-top) 高度、背景=主题色、由 React 渲染直接驱动）：页内切主题顶栏即时同步（不再依赖退出重进）、进入/退出天然一致；html/body 根背景还原策略改用 ref 记录首次挂载初始值，根治「多次切主题后退出还原成倒数第二次主题色」的污染竞态（对应：切主题顶栏不变/进出不一致现象）；配套新增 3 个回归测试
  * 2.56.1 (2026-08-02): [BUGFIX] 沉浸引导文案精确化 — 区分「已添加到主屏幕但从 Safari 打开」（非 standalone，状态栏归系统管，浅色模式白底黑字）与「从主屏幕图标进入」（standalone+black-translucent，状态栏透明透出页面根背景）；引导条提示改为「从主屏幕的 iReader 图标进入阅读」，避免已添加主屏幕的用户误以为还要再添加
  * 2.56.0 (2026-08-02): [BUGFIX] 根治深色阅读顶部固定白色 — ①阅读主题同步扩展为 html/body 根背景：iOS Safari 橡皮筋回弹/PWA 状态栏透明区/地址栏动画透出的根背景随主题（深色不再露出白色横条，截图白条根因消除），退出阅读还原；②深色主题且非 standalone 时显示「添加到主屏幕」沉浸阅读引导条（iOS 系统状态栏仅 standalone+black-translucent 可隐藏，网页无法直接改系统栏）；③SW 缓存版本 v2→v3 强制刷新，杜绝用户加载旧版
  * 2.55.3 (2026-08-02): [FEATURE] 深色模式对标微信读书 — 深色主题（gray/black）chrome 背景 alpha 0.94→0.98、浅色主题 0.94→0.96：底栏/面板不再依赖 backdrop-filter 也呈深色，blur 失效时透出正文的问题消除；配合既有黑底白字与 theme-color 状态栏同步，深色阅读体验对齐主流阅读器
@@ -61,4 +62,4 @@
  * 2.55.0 (2026-08-02): [PERF+FEATURE] 批量操作 N+1 收敛 — 新增 POST /api/books/batch-delete / batch-cache / batch-tts-generate 三个批量接口（单请求替代前端逐本调用，删除 N 本 = 1 请求）；LibraryPage/BookshelfPage 六处 Promise.all 逐本调用全部收敛为单请求，删除/缓存/语音反馈展示实际成功数量；批量接口含 500 本上限与逐本失败隔离
  * 2.54.0 (2026-08-02): [FEATURE] 批量选择体验升级 — 勾选框改独立圆形控件（修复长书名书勾选框被 Button 默认样式拉伸成椭圆、垂直居中错位）；批量动作栏从列表底部移至顶部吸顶（无需滚动到底）；图书管理页批量动作丰富为 删除/缓存离线包/预合成语音 并接通真实 API；书架页批量栏同步吸顶并新增缓存离线动作
  */
-export const APP_VERSION = '2.56.1';
+export const APP_VERSION = '2.56.2';
