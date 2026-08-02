@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { sql } from 'drizzle-orm';
-import { books, bookChapters, readingProgress, ttsGenerationJobs, ttsSettings, ttsCache, globalBooks } from '../db/schema.js';
+import { books, bookChapters, readingProgress, ttsGenerationJobs, ttsSettings, ttsCache, globalBooks, bookContentCache } from '../db/schema.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { parseBook, getChapterContent, parseTxt } from '../parser/index.js';
@@ -518,6 +518,105 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     }
   });
 
+  // ── POST /api/books/stats/batch - 批量获取书籍统计信息（一次请求替代 N+1 逐本 /stats，根治书架加载慢）──
+  // 与单本 GET /api/books/:id/stats 返回字段完全一致，但全部使用 GROUP BY 聚合查询（固定 ~5 次 SQL，与书数量无关）。
+  router.post('/stats/batch', requireAuth, (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const rawIds: unknown = req.body?.ids;
+      const ids: string[] = Array.isArray(rawIds) ? rawIds.filter((x): x is string => typeof x === 'string') : [];
+      if (ids.length === 0) return res.json({ success: true, data: {} });
+      const uniqIds = [...new Set(ids)];
+      if (uniqIds.length > 500) throw new AppError(400, '批量查询数量超限（最多500）');
+
+      // 1. 阅读百分比（reading_progress 每本书最新一条，走 idx_rp_user_book）
+      const progressRows = db.select({
+        bookId: readingProgress.bookId,
+        percentage: readingProgress.percentage,
+      }).from(readingProgress)
+        .where(sql`user_id = ${userId} AND book_id IN ${uniqIds}`)
+        .all() as Array<{ bookId: string; percentage: number | null }>;
+      const progressMap = new Map(progressRows.map(r => [r.bookId, r.percentage ?? 0]));
+
+      // 2. 章节总数（book_chapters GROUP BY，走 idx_bc_book_id）
+      const chapterRows = db.select({
+        bookId: bookChapters.bookId,
+        count: sql<number>`count(*)`,
+      }).from(bookChapters)
+        .where(sql`book_id IN ${uniqIds}`)
+        .groupBy(bookChapters.bookId)
+        .all() as Array<{ bookId: string; count: number }>;
+      const chapterMap = new Map(chapterRows.map(r => [r.bookId, r.count]));
+
+      // 3. TTS 任务（每本书各状态计数 + 最新 completed/latest job，语义与单本 stats 一致）
+      const jobRows = db.select().from(ttsGenerationJobs)
+        .where(sql`user_id = ${userId} AND book_id IN ${uniqIds}`)
+        .all() as any[];
+      const jobsByBook = new Map<string, any[]>();
+      for (const j of jobRows) {
+        if (!jobsByBook.has(j.bookId)) jobsByBook.set(j.bookId, []);
+        jobsByBook.get(j.bookId)!.push(j);
+      }
+
+      // 4. tts_cache 计数（按 bookId 精确统计，走 idx_tc_user_book）
+      const ttsCacheRows = db.select({
+        bookId: ttsCache.bookId,
+        count: sql<number>`count(*)`,
+      }).from(ttsCache)
+        .where(sql`user_id = ${userId} AND book_id IN ${uniqIds}`)
+        .groupBy(ttsCache.bookId)
+        .all() as Array<{ bookId: string; count: number }>;
+      const ttsCacheMap = new Map(ttsCacheRows.map(r => [r.bookId, r.count]));
+
+      // 5. 内容缓存统计（book_content_cache GROUP BY，走 idx_bcc_book_user）
+      const bccRows = db.select({
+        bookId: bookContentCache.bookId,
+        count: sql<number>`count(*)`,
+        cacheType: bookContentCache.cacheType,
+      }).from(bookContentCache)
+        .where(sql`user_id = ${userId} AND book_id IN ${uniqIds}`)
+        .groupBy(bookContentCache.bookId)
+        .all() as Array<{ bookId: string; count: number; cacheType: string | null }>;
+      const bccMap = new Map(bccRows.map(r => [r.bookId, r]));
+
+      const data: Record<string, any> = {};
+      for (const id of uniqIds) {
+        const totalChapters = chapterMap.get(id) ?? 0;
+        const jobs = jobsByBook.get(id) ?? [];
+        // 与单本 stats 语义一致：优先使用已完成任务（真实合成状态），否则最新任务
+        const completedJob = jobs.filter(j => j.status === 'completed')
+          .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
+        const latestJob = completedJob ?? jobs
+          .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
+        const completedChunks = latestJob?.completedChunks || 0;
+        const totalChunks = latestJob?.totalChunks || 0;
+        const jobStatus = latestJob?.status || 'pending';
+        const jobProgress = Math.min(100, latestJob?.progress || 0);
+        const pendingJobs = jobs.filter(j => j.status === 'pending' || j.status === 'processing').length;
+        const failedJobs = jobs.filter(j => j.status === 'failed').length;
+        const bcc = bccMap.get(id);
+        data[id] = {
+          readingPercentage: progressMap.get(id) ?? 0,
+          voiceGenerationRate: totalChunks > 0 ? Math.min(1, completedChunks / totalChunks) : 0,
+          totalChapters,
+          completedVoiceChapters: completedChunks,
+          totalVoiceChunks: totalChunks,
+          pendingVoiceChapters: pendingJobs,
+          failedVoiceChapters: failedJobs,
+          totalVoiceJobs: (jobStatus === 'completed' ? 1 : 0) + pendingJobs + failedJobs,
+          jobStatus,
+          jobProgress,
+          ttsCacheCount: ttsCacheMap.get(id) ?? 0,
+          cachedChapters: bcc?.count ?? 0,
+          cacheType: bcc?.cacheType ?? null,
+        };
+      }
+      res.json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // ── GET /api/books/:id - 图书详情 ──
   router.get('/:id', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -969,8 +1068,8 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       // 进度 = 已完成分片 / 总分片
       const voiceGenerationRate = totalChunks > 0 ? Math.min(1, completedChunks / totalChunks) : 0;
 
-      // 内容缓存统计（已通过顶部静态导入 getBookCacheStats）
-      const cacheStats = getBookCacheStats(db, bookId, userId);
+      // 内容缓存统计（已通过顶部静态导入 getBookCacheStats，传入已查 totalChapters 复用，避免重复查询）
+      const cacheStats = getBookCacheStats(db, bookId, userId, totalChapters);
 
       res.json({
         success: true,

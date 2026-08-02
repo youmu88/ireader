@@ -500,6 +500,24 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
     }
   }
 
+  // ── 书架性能索引：消除 books/reading_progress/book_chapters/tts_generation_jobs/tts_cache/book_content_cache 全表扫描 ──
+  // 注意：必须在所有 ALTER TABLE 列迁移之后执行（tts_cache.book_id 是后迁移列），确保引用的列已存在。
+  // 幂等（IF NOT EXISTS），存量库/新库均可安全执行；EXPLAIN QUERY PLAN 由 SCAN → SEARCH。
+  try {
+    sqlite.exec(`
+      CREATE INDEX IF NOT EXISTS idx_books_user_id ON books(user_id);
+      CREATE INDEX IF NOT EXISTS idx_rp_user_book ON reading_progress(user_id, book_id);
+      CREATE INDEX IF NOT EXISTS idx_rp_book_id ON reading_progress(book_id);
+      CREATE INDEX IF NOT EXISTS idx_bc_book_id ON book_chapters(book_id);
+      CREATE INDEX IF NOT EXISTS idx_tgj_book_user ON tts_generation_jobs(book_id, user_id);
+      CREATE INDEX IF NOT EXISTS idx_bcc_book_user ON book_content_cache(book_id, user_id);
+      CREATE INDEX IF NOT EXISTS idx_tc_user_book ON tts_cache(user_id, book_id);
+    `);
+    console.log('[迁移] 书架性能索引创建完成 ✅');
+  } catch (err) {
+    console.error('[迁移] 书架性能索引创建失败:', (err as Error).message);
+  }
+
   return db;
 }
 

@@ -71,25 +71,23 @@ export default function BookshelfPage() {
   const [uploadStats, setUploadStats] = useState<UploadQueueStats>({ total: 0, active: 0, completed: 0, failed: 0 });
   const uploadQueueRef = useRef<UploadQueueHandle>(null);
 const [bookStats, setBookStats] = useState<Record<string, BookStats>>({});
-// 加载书籍统计信息
-const loadBookStats = useCallback(async (bookId: string) => {
+// 批量加载书籍统计信息（一次 POST /stats/batch 替代逐本 N+1 请求，根治书架加载慢）
+const loadBookStats = useCallback(async (bookIds: string[]) => {
+  if (bookIds.length === 0) return;
   try {
-    const res = await axios.get(`/api/books/${bookId}/stats`);
+    const res = await axios.post('/api/books/stats/batch', { ids: bookIds });
     if (res.data.success) {
-      setBookStats(prev => ({ ...prev, [bookId]: res.data.data }));
+      setBookStats(prev => ({ ...prev, ...res.data.data }));
     }
   } catch {
     // 静默失败，不影响书架展示
   }
 }, []);
 
-// 当书籍列表变化时加载统计信息
+// 当书籍列表变化时加载统计信息（仅拉取缺失项，一次批量请求；加载完成后 bookStats 变化使缺失集为空，不再触发）
 useEffect(() => {
-  books.forEach(book => {
-    if (book.status === 'ready' && !bookStats[book.id]) {
-      loadBookStats(book.id);
-    }
-  });
+  const missingIds = books.filter(b => b.status === 'ready' && !bookStats[b.id]).map(b => b.id);
+  if (missingIds.length > 0) loadBookStats(missingIds);
 }, [books, bookStats, loadBookStats]);
 
   // ── mount 时检测离线包过期（比对本地 versionHash 与服务端 fileHash） ──

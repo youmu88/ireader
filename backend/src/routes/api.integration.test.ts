@@ -193,6 +193,43 @@ describe('API Integration', () => {
       expect(res.status).toBe(404);
       expect(res.body.success).toBe(false);
     });
+
+    it('POST /api/books/stats/batch should return empty data for empty ids', async () => {
+      const res = await request(app)
+        .post('/api/books/stats/batch')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ ids: [] });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toEqual({});
+    });
+
+    it('POST /api/books/stats/batch should return default stats for non-existent books', async () => {
+      const res = await request(app)
+        .post('/api/books/stats/batch')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ ids: ['nonexistent-1', 'nonexistent-2'] });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data['nonexistent-1']).toMatchObject({
+        readingPercentage: 0,
+        voiceGenerationRate: 0,
+        totalChapters: 0,
+        jobStatus: 'pending',
+        ttsCacheCount: 0,
+        cachedChapters: 0,
+      });
+      expect(res.body.data['nonexistent-2']).toBeDefined();
+    });
+
+    it('POST /api/books/stats/batch should reject more than 500 ids', async () => {
+      const ids = Array.from({ length: 501 }, (_, i) => `id-${i}`);
+      const res = await request(app)
+        .post('/api/books/stats/batch')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ ids });
+      expect(res.status).toBe(400);
+    });
   });
 
   // ── Reading Progress ──

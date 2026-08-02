@@ -206,15 +206,17 @@ export function getCachedChapterContent(
 
 /**
  * 获取书籍的缓存统计信息
+ * @param totalChapters 可选：调用方已查到的章节总数，传入则复用，避免重复查询 book_chapters
  */
 export function getBookCacheStats(
   db: any,
   bookId: string,
   userId: string,
+  totalChapters?: number,
 ): { cachedChapters: number; totalChapters: number; cacheType: string | null } {
-  const totalChapters = db.select({ count: sql<number>`count(*)` }).from(bookChapters)
+  const resolvedTotalChapters = totalChapters ?? (db.select({ count: sql<number>`count(*)` }).from(bookChapters)
     .where(sql`book_id = ${bookId}`)
-    .get()?.count ?? 0;
+    .get()?.count ?? 0);
 
   const cachedCount = db.select({ count: sql<number>`count(*)` }).from(bookContentCache)
     .where(sql`book_id = ${bookId} AND user_id = ${userId}`)
@@ -227,7 +229,7 @@ export function getBookCacheStats(
 
   return {
     cachedChapters: cachedCount,
-    totalChapters,
+    totalChapters: resolvedTotalChapters,
     cacheType: firstEntry?.cacheType || null,
   };
 }
