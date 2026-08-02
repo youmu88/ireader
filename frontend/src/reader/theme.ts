@@ -23,25 +23,25 @@ export const READER_THEMES: Record<ReaderTheme, ReaderThemeSpec> = {
   white: {
     name: 'white', label: '白色',
     background: '#ffffff', color: '#1c1c1e',
-    chromeBackground: 'rgba(249,249,249,0.94)', chromeColor: '#1c1c1e',
+    chromeBackground: 'rgba(249,249,249,0.96)', chromeColor: '#1c1c1e',
     dark: false,
   },
   sepia: {
     name: 'sepia', label: '棕褐',
     background: '#f8f1e4', color: '#5f4b32',
-    chromeBackground: 'rgba(243,234,220,0.94)', chromeColor: '#5f4b32',
+    chromeBackground: 'rgba(243,234,220,0.96)', chromeColor: '#5f4b32',
     dark: false,
   },
   gray: {
     name: 'gray', label: '灰色',
     background: '#2c2c2e', color: '#d1d1d6',
-    chromeBackground: 'rgba(38,38,40,0.94)', chromeColor: '#d1d1d6',
+    chromeBackground: 'rgba(38,38,40,0.98)', chromeColor: '#d1d1d6',
     dark: true,
   },
   black: {
     name: 'black', label: '黑色',
     background: '#000000', color: '#e5e5ea',
-    chromeBackground: 'rgba(24,24,26,0.94)', chromeColor: '#e5e5ea',
+    chromeBackground: 'rgba(24,24,26,0.98)', chromeColor: '#e5e5ea',
     dark: true,
   },
 };

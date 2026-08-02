@@ -28,6 +28,15 @@ describe('READER_THEMES（Apple Books 四主题）', () => {
     expect(READER_THEMES.gray.dark).toBe(true);
     expect(READER_THEMES.black.dark).toBe(true);
   });
+
+  it('深色主题 chrome 背景接近不透明（对标深色底栏，不依赖 backdrop-filter）', () => {
+    // 深色主题（gray/black）：alpha >= 0.98，blur 失效时底栏仍为深色
+    expect(READER_THEMES.gray.chromeBackground).toBe('rgba(38,38,40,0.98)');
+    expect(READER_THEMES.black.chromeBackground).toBe('rgba(24,24,26,0.98)');
+    // 浅色主题也足够不透明，防止透出正文文字
+    expect(READER_THEMES.white.chromeBackground).toBe('rgba(249,249,249,0.96)');
+    expect(READER_THEMES.sepia.chromeBackground).toBe('rgba(243,234,220,0.96)');
+  });
 });
 
 describe('DEFAULT_READER_SETTINGS', () => {
