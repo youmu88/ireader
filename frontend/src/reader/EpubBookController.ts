@@ -15,7 +15,7 @@ import type { ReaderLocation, ReaderSettings, TocItem } from './types';
 import { buildRenditionThemeCss, DEFAULT_READER_SETTINGS, READER_THEMES } from './theme';
 import { searchBook, type SearchableBook, type SearchResult } from './searchBook';
 import { buildTxtFeed } from './buildTxtFeed';
-import { attachScrollDamping, DEFAULT_SCROLL_DAMPING } from './scrollDamping';
+import { attachScrollDamping, loadScrollDamping } from './scrollDamping';
 
 // ── epub.js 运行时类型（动态 import，避免测试/SSR 环境直接加载） ──
 interface EpubNavigationTocItem {
@@ -117,8 +117,6 @@ export class EpubBookController {
   private themeCss = '';
   /** 内容管线（hooks.content 注册 + getContents 扫描）是否已绑定：保证全生命周期仅注册一次 */
   private contentPipelineBound = false;
-  /** 当前滚动阻尼级别（applySettings 更新；wheel 拦截器经 getLevel 闭包动态读取，变更即时生效） */
-  private dampingLevel = DEFAULT_SCROLL_DAMPING;
   /** 已装配阻尼的 iframe 内容文档 → 卸载函数（destroy 时统一卸载；幂等去重） */
   private dampingCleanups = new Map<Document, () => void>();
 
@@ -242,7 +240,6 @@ export class EpubBookController {
    */
   applySettings(s: ReaderSettings): void {
     if (!this.rendition) return;
-    this.dampingLevel = s.scrollDamping;
     this.themeCss = buildRenditionThemeCss(READER_THEMES[s.theme], s.lineHeight);
     for (const contents of this.rendition.getContents?.() ?? []) {
       this.applyThemeToContents(contents);
@@ -278,7 +275,6 @@ export class EpubBookController {
     this.unbindTap();
     for (const cleanup of this.dampingCleanups.values()) cleanup();
     this.dampingCleanups.clear();
-    this.dampingLevel = DEFAULT_SCROLL_DAMPING;
     this.rendition?.destroy();
     this.book?.destroy();
     this.rendition = null;
@@ -363,7 +359,7 @@ export class EpubBookController {
   /** 为单个内容文档装配滚动阻尼（幂等：已装配的文档跳过；级别经 getLevel 闭包动态读取） */
   private attachDampingDoc(doc: Document | undefined): void {
     if (!doc || this.dampingCleanups.has(doc)) return;
-    this.dampingCleanups.set(doc, attachScrollDamping(doc, () => this.dampingLevel));
+    this.dampingCleanups.set(doc, attachScrollDamping(doc, loadScrollDamping));
   }
 
   private unbindTap(): void {

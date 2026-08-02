@@ -19,6 +19,7 @@ import {
 import { APP_VERSION } from '../version';
 import axios from 'axios';
 import { Button, IconButton, ToggleSwitch } from '../components/ui';
+import { loadScrollDamping, saveScrollDamping, SCROLL_DAMPING_MIN, SCROLL_DAMPING_MAX } from '../reader/scrollDamping';
 
 export default function SettingsPage() {
   // @ts-ignore
@@ -105,6 +106,13 @@ export default function SettingsPage() {
 
   // ── 自动预合成开关 ──
   const [autoPreSynthesize, setAutoPreSynthesize] = useState(false);
+
+  // ── 全局滚动阻尼（1-10，默认 3；触摸与滚轮生效，阅读器装配时经 loadScrollDamping 读取） ──
+  const [scrollDamping, setScrollDamping] = useState(loadScrollDamping);
+  const handleScrollDampingChange = (v: number) => {
+    setScrollDamping(v);
+    saveScrollDamping(v);
+  };
 
   // Load initial data
   useEffect(() => {
@@ -567,7 +575,8 @@ export default function SettingsPage() {
             </div>
           </div>
           {/* 阅读背景色 */}
-          <div className="flex items-center justify-between px-4 py-3.5">
+          <div className="flex items-center justify-between px-4 py-3.5"
+            style={{ borderBottom: '0.5px solid var(--color-border)' }}>
             <div className="flex items-center gap-3">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
                 style={{ color: 'var(--color-text-secondary)' }}>
@@ -589,6 +598,40 @@ export default function SettingsPage() {
                 />
               ))}
             </div>
+          </div>
+          {/* 滚动阻尼（全局：触摸滑动与鼠标滚轮） */}
+          <div className="px-4 py-3.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                  style={{ color: 'var(--color-text-secondary)' }}>
+                  <line x1="4" y1="6" x2="20" y2="6" />
+                  <line x1="4" y1="12" x2="20" y2="12" />
+                  <line x1="4" y1="18" x2="20" y2="18" />
+                  <circle cx="9" cy="6" r="2" fill="var(--color-bg-card)" />
+                  <circle cx="15" cy="12" r="2" fill="var(--color-bg-card)" />
+                  <circle cx="7" cy="18" r="2" fill="var(--color-bg-card)" />
+                </svg>
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>滚动阻尼</span>
+              </div>
+              <span className="text-xs font-semibold tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>{scrollDamping}</span>
+            </div>
+            <div className="flex items-center gap-3 mt-3">
+              <span className="text-xs shrink-0" style={{ color: 'var(--color-text-muted)' }}>轻</span>
+              <input
+                type="range"
+                min={SCROLL_DAMPING_MIN}
+                max={SCROLL_DAMPING_MAX}
+                step={1}
+                value={scrollDamping}
+                aria-label="滚动阻尼"
+                onChange={e => handleScrollDampingChange(Number(e.target.value))}
+                className="flex-1 cursor-pointer"
+                style={{ accentColor: 'var(--color-primary)' }}
+              />
+              <span className="text-xs shrink-0" style={{ color: 'var(--color-text-muted)' }}>重</span>
+            </div>
+            <p className="text-xs mt-2" style={{ color: 'var(--color-text-muted)' }}>调节阅读时滚动的阻力感（触摸滑动与鼠标滚轮）</p>
           </div>
         </div>
       </div>

@@ -13,8 +13,6 @@ export interface ReaderSettings {
   theme: ReaderTheme;
   /** 行高 */
   lineHeight: number;
-  /** 滚动阻尼级别（1-10，默认 3；越高滚动越沉，仅作用于 wheel） */
-  scrollDamping: number;
 }
 
 /** 目录项（自 epub.js navigation.toc 递归映射） */

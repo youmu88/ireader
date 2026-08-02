@@ -3,7 +3,6 @@
  * 页面容器背景与 rendition 注入样式共用同一份色值，保证观感一致。
  */
 import type { ReaderSettings, ReaderTheme } from './types';
-import { DEFAULT_SCROLL_DAMPING } from './scrollDamping';
 
 export interface ReaderThemeSpec {
   name: ReaderTheme;
@@ -49,7 +48,7 @@ export const READER_THEMES: Record<ReaderTheme, ReaderThemeSpec> = {
 
 export const READER_THEME_ORDER: ReaderTheme[] = ['white', 'sepia', 'gray', 'black'];
 
-export const DEFAULT_READER_SETTINGS: ReaderSettings = { fontSize: 100, theme: 'white', lineHeight: 1.75, scrollDamping: DEFAULT_SCROLL_DAMPING };
+export const DEFAULT_READER_SETTINGS: ReaderSettings = { fontSize: 100, theme: 'white', lineHeight: 1.75 };
 
 export const FONT_SIZE_MIN = 60;
 export const FONT_SIZE_MAX = 200;

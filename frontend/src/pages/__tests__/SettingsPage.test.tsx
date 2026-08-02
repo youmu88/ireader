@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import SettingsPage from '../SettingsPage';
 
 // Mock ttsService to resolve immediately (no async loading delay in test)
@@ -55,5 +55,17 @@ describe('SettingsPage', () => {
     // Verify key sections are rendered
     expect(screen.getByText('外观')).toBeDefined();
     expect(screen.getByText('关于')).toBeDefined();
+  });
+
+  it('全局滚动阻尼：默认 3 级，调节后持久化到 localStorage', async () => {
+    localStorage.removeItem('ireader_scroll_damping');
+    render(<SettingsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('设置')).toBeDefined();
+    });
+    const slider = screen.getByLabelText('滚动阻尼') as HTMLInputElement;
+    expect(slider.value).toBe('3'); // 默认 3 级
+    fireEvent.change(slider, { target: { value: '7' } });
+    expect(localStorage.getItem('ireader_scroll_damping')).toBe('7');
   });
 });
