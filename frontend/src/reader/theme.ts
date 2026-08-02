@@ -58,14 +58,23 @@ export const LINE_HEIGHT_OPTIONS: readonly number[] = [1.5, 1.75, 2.0];
 /** 生成注入 epub.js rendition 的主题样式（颜色 + 行距；字号由 themes.fontSize 单独控制） */
 export function buildRenditionTheme(spec: ReaderThemeSpec, lineHeight: number): Record<string, Record<string, string>> {
   const color = `${spec.color} !important`;
+  const lineHeightRule = `${lineHeight} !important`;
   return {
     body: {
       color,
       background: `${spec.background} !important`,
-      'line-height': `${lineHeight} !important`,
+      'line-height': lineHeightRule,
     },
-    'p, div, span, li, blockquote, td, th': { color },
-    'h1, h2, h3, h4, h5, h6': { color },
+    // 行距需同时覆盖子元素：EPUB 书籍 CSS 常给 p/div 等设置显式 line-height，
+    // 仅注入 body 时子元素显式声明按继承规则覆盖继承值，导致行距三档（紧凑/标准/宽松）无效果
+    'p, div, span, li, blockquote, td, th': {
+      color,
+      'line-height': lineHeightRule,
+    },
+    'h1, h2, h3, h4, h5, h6': {
+      color,
+      'line-height': lineHeightRule,
+    },
     a: { color },
   };
 }

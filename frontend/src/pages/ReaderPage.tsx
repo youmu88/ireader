@@ -177,6 +177,18 @@ export default function ReaderPage() {
     controllerRef.current?.applySettings(settings);
   }, [settings]);
 
+  // ── 阅读主题同步到浏览器顶栏（theme-color meta） ──
+  // Android Chrome 地址栏 / PWA 顶栏颜色跟随阅读主题背景；退出阅读还原为应用默认色。
+  useEffect(() => {
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (!meta) return;
+    const prev = meta.getAttribute('content') ?? '#3b82f6';
+    meta.setAttribute('content', themeSpec.background);
+    return () => {
+      meta.setAttribute('content', prev);
+    };
+  }, [themeSpec.background]);
+
   const handleTocSelect = useCallback((href: string) => {
     setTocOpen(false);
     void controllerRef.current?.goTo(href);

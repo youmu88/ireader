@@ -93,6 +93,7 @@ beforeEach(() => {
 
   axiosMocks.put.mockResolvedValue({ data: { success: true, conflict: false, data: { progressVersion: 2 } } });
   localStorage.clear();
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.remove());
 });
 
 describe('ReaderPage', () => {
@@ -198,5 +199,17 @@ describe('ReaderPage', () => {
     expect(controllerMocks.instance.search).toHaveBeenCalledWith('关键词');
     fireEvent.click(hit);
     expect(controllerMocks.instance.goTo).toHaveBeenCalledWith('epubcfi(/6/8!/2/1:5)');
+  });
+
+  it('阅读主题背景同步到 theme-color meta（浏览器顶栏跟随主题，不再恒为默认色）', async () => {
+    const meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    meta.setAttribute('content', '#3b82f6');
+    document.head.appendChild(meta);
+    mockBook('epub');
+    renderReader();
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
+    // 默认白色主题 → 顶栏同步为阅读背景色
+    expect(meta.getAttribute('content')).toBe('#ffffff');
   });
 });

@@ -53,7 +53,8 @@
  * 2.51.1 (2026-08-01): [BUGFIX] 书架排序加固 — 后端 lastReadMap 查询补 userId 过滤（消除全表扫描跨用户隐患）；前后端排序改用时间戳数值比较（已读按 lastReadAt 降序在前，未读按书名升序在后，不受 ISO 格式/locale 影响）；新增未读多本排序/混合场景前端测试
  * 2.52.0 (2026-08-01): [FEATURE] 顶部导航精简 + Dock iOS 化 — 移除顶栏与底部 Dock 重复的「书架/设置」入口（顶栏仅保留语音合成与桌面用户区）；Dock tab 弃用 Button ghost 椭圆背景（固定高度致点击胶囊盖不住图标），重写为 iOS 原生 Tab Bar：无背景、选中蓝色图标+文字+底部指示条、按压弹性缩放
  * 2.53.0 (2026-08-02): [PERF] 书架加载提速 1552x — 根治书架加载慢（N+1 请求 × 无索引全表扫描）：新增 POST /api/books/stats/batch 批量聚合接口（GROUP BY 一次取全部书籍统计，与书数量无关）替代逐本 GET /:id/stats（252 本 → 1 请求）；BookshelfPage 改为批量拉取；db/init.ts 补 7 组幂等索引（books.user_id / reading_progress(user_id,book_id) / reading_progress(book_id) / book_chapters(book_id) / tts_generation_jobs(book_id,user_id) / book_content_cache(book_id,user_id) / tts_cache(user_id,book_id)），EXPLAIN 全 SCAN→SEARCH；getBookCacheStats 去重复 book_chapters 查询（入参复用 totalChapters）
+ * 2.55.1 (2026-08-02): [BUGFIX] 阅读器设置修复 — ①行距三档（紧凑/标准/宽松）生效：buildRenditionTheme 的 line-height 由仅注入 body 扩展到段落/标题子元素选择器组（EPUB 书籍 p 显式 line-height 曾覆盖 body 继承值，导致行距无效果）；②顶栏随阅读主题：ReaderPage 动态同步 theme-color meta 为阅读主题背景色，浏览器/PWA 顶栏不再恒为默认色，退出阅读还原
  * 2.55.0 (2026-08-02): [PERF+FEATURE] 批量操作 N+1 收敛 — 新增 POST /api/books/batch-delete / batch-cache / batch-tts-generate 三个批量接口（单请求替代前端逐本调用，删除 N 本 = 1 请求）；LibraryPage/BookshelfPage 六处 Promise.all 逐本调用全部收敛为单请求，删除/缓存/语音反馈展示实际成功数量；批量接口含 500 本上限与逐本失败隔离
  * 2.54.0 (2026-08-02): [FEATURE] 批量选择体验升级 — 勾选框改独立圆形控件（修复长书名书勾选框被 Button 默认样式拉伸成椭圆、垂直居中错位）；批量动作栏从列表底部移至顶部吸顶（无需滚动到底）；图书管理页批量动作丰富为 删除/缓存离线包/预合成语音 并接通真实 API；书架页批量栏同步吸顶并新增缓存离线动作
  */
-export const APP_VERSION = '2.55.0';
+export const APP_VERSION = '2.55.1';

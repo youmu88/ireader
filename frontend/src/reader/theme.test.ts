@@ -54,4 +54,13 @@ describe('buildRenditionTheme', () => {
     expect(styles['h1, h2, h3, h4, h5, h6'].color).toContain('!important');
     expect(styles.a.color).toContain('!important');
   });
+
+  it('行距同时注入段落/标题子元素选择器（修复书籍 p 显式 line-height 覆盖导致三档无效）', () => {
+    const styles = buildRenditionTheme(READER_THEMES.black, 2.0);
+    expect(styles['p, div, span, li, blockquote, td, th']['line-height']).toBe('2 !important');
+    expect(styles['h1, h2, h3, h4, h5, h6']['line-height']).toBe('2 !important');
+    // 紧凑档同样覆盖子元素
+    const compact = buildRenditionTheme(READER_THEMES.white, 1.5);
+    expect(compact['p, div, span, li, blockquote, td, th']['line-height']).toBe('1.5 !important');
+  });
 });
