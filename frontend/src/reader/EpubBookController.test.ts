@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => {
     on: vi.fn(),
     next: vi.fn().mockResolvedValue(undefined),
     prev: vi.fn().mockResolvedValue(undefined),
-    getContents: vi.fn<[], { document?: Document }[]>(() => []),
+    getContents: vi.fn<[], { document?: Document; addStylesheetCss?: (css: string, key: string) => unknown }[]>(() => []),
     hooks: {
       content: {
         register: vi.fn((cb: (contents: { document?: Document }) => void) => {
@@ -60,9 +60,9 @@ function emitRelocated(loc: unknown) {
   cb?.(loc);
 }
 
-/** 模拟 epub.js 触发 hooks.content（章节 view 内容加载完成），返回是否成功触发 */
-function fireContentHook(doc: Document = contentDoc) {
-  for (const cb of mocks.contentHooks) cb({ document: doc });
+/** 模拟 epub.js 触发 hooks.content（章节 view 内容加载完成） */
+function fireContentHook(contents: { document?: Document; addStylesheetCss?: (css: string, key: string) => unknown }) {
+  for (const cb of mocks.contentHooks) cb(contents);
 }
 
 /** 模拟在 iframe 内容文档上的点按（pointerdown + pointerup 同坐标，位移 0） */
@@ -84,7 +84,7 @@ describe('EpubBookController', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.contentHooks.length = 0;
-    mocks.rendition.getContents.mockReturnValue([{ document: contentDoc }]);
+    mocks.rendition.getContents.mockReturnValue([{ document: contentDoc, addStylesheetCss: vi.fn() }]);
     controller = new EpubBookController();
   });
 
@@ -114,18 +114,60 @@ describe('EpubBookController', () => {
     expect(mocks.rendition.display).toHaveBeenCalledWith(undefined);
   });
 
-  it('load/applySettings：注入主题样式并应用字号', async () => {
+  it('load/applySettings：主题 CSS 以固定单 key 注入内容文档 + 应用字号（弃用 themes.register/select）', async () => {
+    const cssSpy = vi.fn();
+    mocks.rendition.getContents.mockReturnValue([{ document: contentDoc, addStylesheetCss: cssSpy }]);
     await controller.load('url', container, { settings: { fontSize: 120, theme: 'sepia', lineHeight: 2.0 } });
-    expect(mocks.rendition.themes.register).toHaveBeenCalledWith(
-      'sepia',
-      expect.objectContaining({ body: expect.objectContaining({ 'line-height': '2 !important' }) }),
-    );
-    expect(mocks.rendition.themes.select).toHaveBeenCalledWith('sepia');
+    // 注入：固定单 key + 完整主题 CSS 文本（addStylesheetCss 同 key 整体替换语义）
+    expect(cssSpy).toHaveBeenCalledWith(expect.stringContaining('#f8f1e4'), 'ireader-theme');
+    expect(cssSpy).toHaveBeenCalledWith(expect.stringContaining('line-height: 2 !important'), 'ireader-theme');
     expect(mocks.rendition.themes.fontSize).toHaveBeenCalledWith('120%');
+    // 缺陷路径已弃用：不再走 themes.register/select（epub.js keyed stylesheet 文档序竞态）
+    expect(mocks.rendition.themes.register).not.toHaveBeenCalled();
+    expect(mocks.rendition.themes.select).not.toHaveBeenCalled();
 
     controller.applySettings({ fontSize: 90, theme: 'black', lineHeight: 1.5 });
-    expect(mocks.rendition.themes.select).toHaveBeenCalledWith('black');
+    expect(cssSpy).toHaveBeenLastCalledWith(expect.stringContaining('#000000'), 'ireader-theme');
     expect(mocks.rendition.themes.fontSize).toHaveBeenCalledWith('90%');
+  });
+
+  it('主题重选 A→B→A：固定单 key 整体替换，无旧主题残留（epub.js keyed stylesheet 文档序竞态根治回归）', async () => {
+    const cssSpy = vi.fn();
+    mocks.rendition.getContents.mockReturnValue([{ document: contentDoc, addStylesheetCss: cssSpy }]);
+    await controller.load('url', container, { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75 } });
+    cssSpy.mockClear();
+
+    controller.applySettings({ fontSize: 100, theme: 'black', lineHeight: 1.75 });
+    controller.applySettings({ fontSize: 100, theme: 'white', lineHeight: 1.75 });
+    // 每次注入同一 key —— 替换语义保证文档内永远只有一份主题样式且为最新（无文档序竞态）
+    expect(cssSpy).toHaveBeenCalledTimes(2);
+    for (const call of cssSpy.mock.calls) expect(call[1]).toBe('ireader-theme');
+    expect(cssSpy).toHaveBeenLastCalledWith(expect.stringContaining('#ffffff'), 'ireader-theme');
+    expect(mocks.rendition.themes.register).not.toHaveBeenCalled();
+  });
+
+  it('hooks.content 全生命周期仅注册一次（滚动 relocated 高频触发不再重复注册，根治回调无界增长）', async () => {
+    await controller.load('url', container);
+    expect(mocks.rendition.hooks.content.register).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 5; i++) {
+      emitRelocated({ start: { cfi: `cfi-${i}`, displayed: { page: 1, total: 1 } } });
+    }
+    expect(mocks.rendition.hooks.content.register).toHaveBeenCalledTimes(1);
+  });
+
+  it('连续滚动拼接新章节：hooks.content 触发 → 新文档注入当前主题 CSS + 直挂点按桥接', async () => {
+    await controller.load('url', container, { settings: { fontSize: 100, theme: 'gray', lineHeight: 1.75 } });
+    const newDoc = document.implementation.createHTMLDocument('epub-ch2');
+    const newCssSpy = vi.fn();
+    fireContentHook({ document: newDoc, addStylesheetCss: newCssSpy });
+    // 新章节内容文档获得当前主题 CSS（同 key 注入）
+    expect(newCssSpy).toHaveBeenCalledWith(expect.stringContaining('#2c2c2e'), 'ireader-theme');
+    // 点按桥接同步直挂新文档
+    const listener = vi.fn();
+    controller.onTap(listener);
+    newDoc.dispatchEvent(new MouseEvent('pointerdown', { clientX: 20, clientY: 20, bubbles: true }));
+    newDoc.dispatchEvent(new MouseEvent('pointerup', { clientX: 20, clientY: 20, bubbles: true }));
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it('relocated → 映射 ReaderLocation；locations 未就绪时 percentage 为 null', async () => {
@@ -221,7 +263,7 @@ describe('EpubBookController', () => {
 
     // 连续滚动加载新章节 → epub.js 触发 hooks.content → 绑定新文档
     const newDoc = document.implementation.createHTMLDocument('epub-ch2');
-    fireContentHook(newDoc);
+    fireContentHook({ document: newDoc });
 
     // 新文档上点按 → 触发
     newDoc.dispatchEvent(new MouseEvent('pointerdown', { clientX: 20, clientY: 20, bubbles: true }));

@@ -5,13 +5,14 @@
  *  - 进度用 CFI（relocated 事件），刷新/重进严格回到同一位置
  *  - 渲染用 scrolled-continuous（连续滚动）：epub.js 将相邻章节拼接进同一滚动容器，
  *    滚动到底自然进入下一章、滚到顶回到上一章——典型阅读器的无缝衔接，无需手动 next/prev
- *  - 主题/字号/行距用 themes 实时生效，不重建 DOM
+ *  - 主题色/行距用 Contents.addStylesheetCss 固定单 key 替换注入（弃用 themes.register/select
+ *    缺陷路径，根因见 applySettings 注释）；字号用 themes.fontSize（override 内联样式路径，无缺陷）
  *  - 全局页码用 book.locations（异步生成，就绪前仅暴露章节内页码）
  *  - 点按桥接用 rendition.hooks.content（官方扩展点）直挂 iframe 内容文档 pointer 事件：
  *    连续滚动模式下文档持续存在，绑定稳定，根治「点击屏幕弹出菜单」问题
  */
 import type { ReaderLocation, ReaderSettings, TocItem } from './types';
-import { buildRenditionTheme, DEFAULT_READER_SETTINGS, READER_THEMES } from './theme';
+import { buildRenditionThemeCss, DEFAULT_READER_SETTINGS, READER_THEMES } from './theme';
 import { searchBook, type SearchableBook, type SearchResult } from './searchBook';
 import { buildTxtFeed } from './buildTxtFeed';
 
@@ -38,6 +39,17 @@ interface EpubBook {
   destroy(): void;
 }
 
+/** epub.js Contents 子集：章节内容文档 + 样式表注入 */
+interface EpubContents {
+  /** iframe 内容文档 */
+  document?: Document;
+  /** 注入 CSS 文本；同 key 替换 style 元素 innerHTML —— epub.js 中唯一的「替换」语义原语 */
+  addStylesheetCss?(serializedCss: string, key: string): unknown;
+}
+
+/** 章节内容文档内主题 style 元素的固定 key：全局限定单元素，配合 addStylesheetCss 替换语义 */
+const THEME_STYLE_KEY = 'ireader-theme';
+
 interface EpubRendition {
   display(target?: string): Promise<unknown>;
   /** 切换到下一章（兼容 epub.js API；连续滚动模式下滚动自然衔接，极少使用） */
@@ -45,11 +57,11 @@ interface EpubRendition {
   /** 切换到上一章（兼容 epub.js API；连续滚动模式下滚动自然衔接，极少使用） */
   prev(): Promise<unknown>;
   /** 当前已渲染章节的内容（Contents.document 即 iframe 内容文档） */
-  getContents?(): { document?: Document }[];
+  getContents?(): EpubContents[];
   /** 官方扩展点：每次章节 view 内容加载完成后触发（直挂内容文档事件的最稳时机） */
   hooks?: {
     content?: {
-      register(cb: (contents: { document?: Document }) => void): void;
+      register(cb: (contents: EpubContents) => void): void;
     };
   };
   on(event: string, cb: (...args: any[]) => void): void;
@@ -100,6 +112,10 @@ export class EpubBookController {
   private tapStart: { x: number; y: number } | null = null;
   /** 最近一次点按触发时间戳（click 兜底事件去重：pointerup 刚触发过则忽略 click） */
   private lastTapAt = 0;
+  /** 当前主题 CSS 文本（buildRenditionThemeCss 产物；空串 = 尚未应用任何设置，注入跳过） */
+  private themeCss = '';
+  /** 内容管线（hooks.content 注册 + getContents 扫描）是否已绑定：保证全生命周期仅注册一次 */
+  private contentPipelineBound = false;
 
   /** 加载书籍并渲染。返回目录树。 */
   async load(source: string | ArrayBuffer, container: HTMLElement, options: LoadOptions = {}): Promise<TocItem[]> {
@@ -132,8 +148,8 @@ export class EpubBookController {
     });
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
-    // 点按桥接：hooks.content 在每次章节 view 内容加载后触发 + getContents 兜底 + relocated 重绑
-    this.bindTap();
+    // 内容管线：hooks.content 单次注册（主题注入 + 点按桥接）+ getContents 兜底 + relocated 重扫
+    this.bindContentPipeline();
     await this.rendition.display(options.initialCfi || undefined);
 
     const nav = await this.book.loaded.navigation;
@@ -166,7 +182,7 @@ export class EpubBookController {
     });
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
-    this.bindTap();
+    this.bindContentPipeline();
     await this.rendition.display(options.initialCfi || undefined);
 
     // TXT Feed 无 navigation.toc：由章节构建目录（href 为 section href）
@@ -202,12 +218,29 @@ export class EpubBookController {
     return searchBook(this.book as unknown as SearchableBook, query.trim(), { onProgress });
   }
 
-  /** 应用排版设置（主题色 + 行距 + 字号），不重建 DOM */
+  /**
+   * 应用排版设置（主题色 + 行距 + 字号），不重建 DOM。
+   *
+   * 主题注入走 Contents.addStylesheetCss(css, 固定单 key) —— epub.js 中唯一「同 key 整体替换」
+   * 原语（contents.js:769 `styleEl.innerHTML = serializedCss`）：每个章节文档仅存一个主题
+   * style 元素，重复设置即换新，无旧主题残留、无规则堆积。
+   *
+   * ⚠️ 弃用 themes.register/select（规则对象路径）的根因 —— epub.js keyed stylesheet 是
+   * 「同 key insertRule 追加、跨 key 按 head 文档序决胜」：
+   *  1. 主题首次选择按顺序创建 epubjs-inserted-css-<name> 元素（contents.js:746 _getStylesheetNode，
+   *     已存在的元素保持原位）；再次选择旧主题时新规则插回原位（文档序靠前），同优先级 !important
+   *     冲突由文档序靠后的元素胜出 → 正文停留在旧主题，而 React 镀铬层（声明式）已切新主题
+   *     → 「改了阅读背景，顶栏变了正文不变」；
+   *  2. 连续滚动模式下新拼接章节经 Themes.inject 只注入当前主题 → 同屏新旧章节异色；
+   *  3. addStylesheetRules 同 key 追加不清理（contents.js:785-809）→ 每次设置规则无限堆积。
+   * 字号仍走 themes.fontSize：override → 内容根元素内联样式 + overrides hook 自动覆盖新章节，该路径无缺陷。
+   */
   applySettings(s: ReaderSettings): void {
     if (!this.rendition) return;
-    const spec = READER_THEMES[s.theme];
-    this.rendition.themes.register(spec.name, buildRenditionTheme(spec, s.lineHeight));
-    this.rendition.themes.select(spec.name);
+    this.themeCss = buildRenditionThemeCss(READER_THEMES[s.theme], s.lineHeight);
+    for (const contents of this.rendition.getContents?.() ?? []) {
+      this.applyThemeToContents(contents);
+    }
     this.rendition.themes.fontSize(`${s.fontSize}%`);
   }
 
@@ -244,6 +277,8 @@ export class EpubBookController {
     this.listeners.clear();
     this.lastLocation = null;
     this.locationsReady = false;
+    this.themeCss = '';
+    this.contentPipelineBound = false;
   }
 
   // ── 内部 ──────────────────────────────────────────────
@@ -265,26 +300,45 @@ export class EpubBookController {
       loc.globalPage = Math.max(1, Math.min(total, Math.ceil(p * total)));
     }
     this.lastLocation = loc;
-    // 章节切换（含连续滚动滚动到新章节）后：重新直挂点按桥接到最新内容文档（Set 去重幂等）
-    this.bindTap();
+    // 章节切换（含连续滚动滚动到新章节）后：重扫最新内容文档（主题注入 + 点按桥接，均幂等）
+    this.rescanContents();
     for (const cb of this.listeners) cb(loc);
   }
 
   /**
-   * 点按桥接：直挂 iframe 内容文档 pointer 事件（位移识别区分点击与滚动）。
-   * 三路保障，根治「点击屏幕弹出菜单」：
-   *  1. hooks.content — epub.js 官方扩展点，每次章节 view 内容加载完成后触发（含后续连续加载的新章节）；
-   *  2. getContents 兜底 — hooks 注册前已存在的内容立即绑定；
-   *  3. relocated 重绑 — 章节切换后再次扫描最新内容文档（幂等）。
-   *  同时绑定 pointerup + click 双事件：pointer 不可用（老浏览器）时 click 兜底；时间戳去重防双触发。
+   * 内容管线绑定：hooks.content 单次注册（epub.js 官方扩展点，每次章节 view 内容加载完成后
+   * 触发，含后续连续加载的新章节）+ getContents 扫描兜底（注册前已存在的内容立即处理）。
+   *
+   * ⚠️ hooks.content.register 全生命周期只能调用一次：epub.js Hook.register 为无脑 push
+   * （utils/hook.js:29）。历史版本在每次 relocated（滚动重定位即高频触发）都重复注册，
+   * 回调数组随滚动无界增长 —— 每次新章节加载触发全部重复回调（内存/CPU 双重泄漏）。
    */
-  private bindTap(): void {
-    if (!this.rendition) return;
-    this.rendition.hooks?.content?.register(contents => {
-      this.attachTapDoc(contents?.document);
-    });
-    const existing = this.rendition.getContents?.() ?? [];
-    for (const c of existing) this.attachTapDoc(c.document);
+  private bindContentPipeline(): void {
+    if (!this.rendition || this.contentPipelineBound) return;
+    this.contentPipelineBound = true;
+    this.rendition.hooks?.content?.register(this.handleContentsReady);
+    this.rescanContents();
+  }
+
+  /** 章节内容就绪统一入口：主题 CSS 注入 + 点按桥接直挂（两者幂等，hooks 触发与扫描兜底共用） */
+  private handleContentsReady = (contents: EpubContents): void => {
+    this.applyThemeToContents(contents);
+    this.attachTapDoc(contents?.document);
+  };
+
+  /** 扫描当前已渲染内容文档（relocated 重扫 / 注册后兜底；重复执行无副作用） */
+  private rescanContents(): void {
+    const existing = this.rendition?.getContents?.() ?? [];
+    for (const contents of existing) this.handleContentsReady(contents);
+  }
+
+  /**
+   * 将当前主题 CSS 注入单个章节内容文档：固定单 key + addStylesheetCss「同 key 整体替换」语义，
+   * 每个章节文档只存在一个主题 style 元素，重复设置即换新 —— 无旧主题残留、无规则堆积。
+   */
+  private applyThemeToContents(contents: EpubContents | undefined): void {
+    if (!contents?.document || !this.themeCss) return;
+    contents.addStylesheetCss?.(this.themeCss, THEME_STYLE_KEY);
   }
 
   /** 为单个内容文档直挂点按监听（幂等：已绑定的文档跳过） */

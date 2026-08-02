@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildRenditionTheme,
+  buildRenditionThemeCss,
   DEFAULT_READER_SETTINGS,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -54,26 +54,23 @@ describe('DEFAULT_READER_SETTINGS', () => {
   });
 });
 
-describe('buildRenditionTheme', () => {
-  it('注入主题色与行距（!important 覆盖书籍自带样式）', () => {
-    const styles = buildRenditionTheme(READER_THEMES.sepia, 1.75);
-    expect(styles.body.color).toBe('#5f4b32 !important');
-    expect(styles.body.background).toBe('#f8f1e4 !important');
-    expect(styles.body['line-height']).toBe('1.75 !important');
-    // html 根元素背景同样注入：EPUB 书 CSS 常在 html 上设背景（如白底），
+describe('buildRenditionThemeCss', () => {
+  it('生成主题色 + 行距 CSS 文本（!important 覆盖书籍自带样式）', () => {
+    const css = buildRenditionThemeCss(READER_THEMES.sepia, 1.75);
+    expect(css).toContain('body { color: #5f4b32 !important; background: #f8f1e4 !important; line-height: 1.75 !important; }');
+    // html 根元素同样注入：EPUB 书 CSS 常在 html 上设背景（如白底），
     // 只注 body 会让书自带底色在正文四周/章节间隙透出 → 设置主题色后版面不变
-    expect(styles.html.background).toBe('#f8f1e4 !important');
-    expect(styles.html.color).toBe('#5f4b32 !important');
-    expect(styles['h1, h2, h3, h4, h5, h6'].color).toContain('!important');
-    expect(styles.a.color).toContain('!important');
+    expect(css).toContain('html { background: #f8f1e4 !important; color: #5f4b32 !important; }');
+    expect(css).toContain('h1, h2, h3, h4, h5, h6 { color: #5f4b32 !important; line-height: 1.75 !important; }');
+    expect(css).toContain('a { color: #5f4b32 !important; }');
   });
 
   it('行距同时注入段落/标题子元素选择器（修复书籍 p 显式 line-height 覆盖导致三档无效）', () => {
-    const styles = buildRenditionTheme(READER_THEMES.black, 2.0);
-    expect(styles['p, div, span, li, blockquote, td, th']['line-height']).toBe('2 !important');
-    expect(styles['h1, h2, h3, h4, h5, h6']['line-height']).toBe('2 !important');
+    const css = buildRenditionThemeCss(READER_THEMES.black, 2.0);
+    expect(css).toContain('p, div, span, li, blockquote, td, th { color: #e5e5ea !important; line-height: 2 !important; }');
+    expect(css).toContain('h1, h2, h3, h4, h5, h6 { color: #e5e5ea !important; line-height: 2 !important; }');
     // 紧凑档同样覆盖子元素
-    const compact = buildRenditionTheme(READER_THEMES.white, 1.5);
-    expect(compact['p, div, span, li, blockquote, td, th']['line-height']).toBe('1.5 !important');
+    const compact = buildRenditionThemeCss(READER_THEMES.white, 1.5);
+    expect(compact).toContain('p, div, span, li, blockquote, td, th { color: #1c1c1e !important; line-height: 1.5 !important; }');
   });
 });

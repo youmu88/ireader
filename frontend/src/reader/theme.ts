@@ -55,33 +55,32 @@ export const FONT_SIZE_MAX = 200;
 export const FONT_SIZE_STEP = 10;
 export const LINE_HEIGHT_OPTIONS: readonly number[] = [1.5, 1.75, 2.0];
 
-/** 生成注入 epub.js rendition 的主题样式（颜色 + 行距；字号由 themes.fontSize 单独控制） */
-export function buildRenditionTheme(spec: ReaderThemeSpec, lineHeight: number): Record<string, Record<string, string>> {
+/**
+ * 生成注入 epub.js 章节内容文档的主题 CSS 文本（颜色 + 行距；字号由 themes.fontSize 单独控制）。
+ *
+ * 输出 CSS 字符串（而非 epub.js themes 规则对象），配合 Contents.addStylesheetCss(css, key)
+ * 的「同 key 整体替换」语义使用：每个章节文档只存在一个主题 style 元素，重复设置即整体换新。
+ * 弃用 themes.register/select 规则对象路径的根因见 EpubBookController.applySettings 注释。
+ */
+export function buildRenditionThemeCss(spec: ReaderThemeSpec, lineHeight: number): string {
   const color = `${spec.color} !important`;
+  const background = `${spec.background} !important`;
   const lineHeightRule = `${lineHeight} !important`;
-  return {
+  const rules: Record<string, Record<string, string>> = {
     // html 根元素同样注入：EPUB 书籍 CSS 常在 html 上设置背景色（如白底），
     // 只注 body 会让书自带底色在正文四周/章节间隙透出 → 设置主题色后版面不变/顶栏不一致。
     // html 的 color 仅作兜底（正文颜色由 body 及其子元素选择器覆盖），背景必须覆盖。
-    html: {
-      background: `${spec.background} !important`,
-      color,
-    },
-    body: {
-      color,
-      background: `${spec.background} !important`,
-      'line-height': lineHeightRule,
-    },
+    html: { background, color },
+    body: { color, background, 'line-height': lineHeightRule },
     // 行距需同时覆盖子元素：EPUB 书籍 CSS 常给 p/div 等设置显式 line-height，
     // 仅注入 body 时子元素显式声明按继承规则覆盖继承值，导致行距三档（紧凑/标准/宽松）无效果
-    'p, div, span, li, blockquote, td, th': {
-      color,
-      'line-height': lineHeightRule,
-    },
-    'h1, h2, h3, h4, h5, h6': {
-      color,
-      'line-height': lineHeightRule,
-    },
+    'p, div, span, li, blockquote, td, th': { color, 'line-height': lineHeightRule },
+    'h1, h2, h3, h4, h5, h6': { color, 'line-height': lineHeightRule },
     a: { color },
   };
+  return Object.entries(rules)
+    .map(([selector, decls]) =>
+      `${selector} { ${Object.entries(decls).map(([prop, val]) => `${prop}: ${val};`).join(' ')} }`,
+    )
+    .join('\n');
 }
