@@ -203,6 +203,23 @@ async function synthesizeWithTimeout(
 /**
  * 尝试启动队列中的下一个待处理任务
  */
+/**
+ * 解析当前用户的 TTS 配置（是否启用 + 音色 + 语速）。
+ * 单本 tts-generate 与批量 batch-tts-generate 复用；overrides 允许请求级覆盖（voice/speed）。
+ * enabled 语义：无设置记录或 enabled 不为 false 时视为启用。
+ */
+export function resolveTtsConfig(
+  db: any,
+  userId: string,
+  overrides: { voice?: string; speed?: number } = {},
+): { enabled: boolean; voice: string; speed: number } {
+  const settings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get() as any;
+  const enabled = !settings || settings.enabled !== false;
+  const voice = overrides.voice || settings?.voiceId || 'zh-CN-XiaoxiaoNeural';
+  const speed = overrides.speed ?? settings?.speed ?? 1.0;
+  return { enabled, voice, speed };
+}
+
 export function tryProcessQueue(db: any, dataDir: string): void {
   if (activeJobs.size >= MAX_CONCURRENT_JOBS) return;
 

@@ -9,7 +9,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { parseBook, getChapterContent, parseTxt } from '../parser/index.js';
 import { getBookCacheStats } from '../services/contentCacheService.js';
-import { computeFileHash, findGlobalBookByHash, createGlobalBook, createUserBookRef, removeUserBookRef } from '../services/globalResourceService.js';
+import { computeFileHash, findGlobalBookByHash, createGlobalBook, createUserBookRef, removeUserBookRef, deleteBookForUser } from '../services/globalResourceService.js';
 import crypto from 'crypto';
 
 // computeFileHash 已迁移到 globalResourceService.js
@@ -846,20 +846,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   router.delete('/:id', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.userId;
-      const book = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
-      if (!book) throw new AppError(404, '图书不存在');
+      const { found, removed } = deleteBookForUser(db, userId, req.params.id);
+      if (!found) throw new AppError(404, '图书不存在');
 
-      // 删除阅读进度（始终是用户独立的）
-      db.delete(readingProgress).where(sql`book_id = ${req.params.id}`).run();
-
-      // 减少引用计数（标记删除，不删物理文件）
-      const removed = removeUserBookRef(db, userId, req.params.id);
-
-      // 删除 local book 记录
-      db.delete(books).where(sql`id = ${req.params.id}`).run();
-
-      // 注意：不删除物理文件，由定时清理任务处理
-      // 不删除 chapters（其他用户还在引用），只删阅读进度
+      // 注意：deleteBookForUser 不删除物理文件（定时清理任务处理）、不删除 chapters（其他用户可能还在引用）
 
       res.json({ success: true, message: removed ? '图书已移除' : '图书已删除' });
     } catch (err) {
@@ -965,25 +955,20 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       const bookId = req.params.id;
       const { voice, speed, chapterCount } = req.body;
 
-      // 获取当前 TTS 设置（ttsSettings 已通过顶部静态导入）
-      const settings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
+      const ttsGen = await import('../services/ttsGenerationService.js');
+      const cfg = ttsGen.resolveTtsConfig(db, userId, { voice, speed });
 
       // 如果 TTS 功能被关闭，则返回
-      if (settings && !settings.enabled) {
+      if (!cfg.enabled) {
         res.json({ success: false, error: 'TTS 语音功能已关闭，请在设置中开启' });
         return;
       }
 
-      const ttsVoice = voice || settings?.voiceId || 'zh-CN-XiaoxiaoNeural';
-      const ttsSpeed = speed ?? settings?.speed ?? 1.0;
-
-      const { createFullBookGenerationJob, createPartialGenerationJob } = await import('../services/ttsGenerationService.js');
-
       let job;
       if (chapterCount && chapterCount > 0) {
-        job = createPartialGenerationJob(db, bookId, userId, ttsVoice, ttsSpeed, chapterCount, dataDir);
+        job = ttsGen.createPartialGenerationJob(db, bookId, userId, cfg.voice, cfg.speed, chapterCount, dataDir);
       } else {
-        job = createFullBookGenerationJob(db, bookId, userId, ttsVoice, ttsSpeed, dataDir);
+        job = ttsGen.createFullBookGenerationJob(db, bookId, userId, cfg.voice, cfg.speed, dataDir);
       }
 
       res.status(201).json({ success: true, data: job });
@@ -1212,11 +1197,8 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       let deleted = 0;
       const failed: { id: string; error: string }[] = [];
       for (const id of ids) {
-        const book = db.select().from(books).where(sql`id = ${id} AND user_id = ${userId}`).get();
-        if (!book) { failed.push({ id, error: '图书不存在' }); continue; }
-        db.delete(readingProgress).where(sql`book_id = ${id}`).run();
-        removeUserBookRef(db, userId, id);
-        db.delete(books).where(sql`id = ${id}`).run();
+        const { found } = deleteBookForUser(db, userId, id);
+        if (!found) { failed.push({ id, error: '图书不存在' }); continue; }
         deleted++;
       }
       res.json({ success: true, data: { deleted, failed } });
@@ -1256,19 +1238,16 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       if (ids.length === 0) throw new AppError(400, '请提供要合成语音的图书 ID 列表');
       if (ids.length > 500) throw new AppError(400, '单次最多提交 500 本图书');
 
-      const settings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
-      if (settings && !settings.enabled) {
+      const ttsGen = await import('../services/ttsGenerationService.js');
+      const cfg = ttsGen.resolveTtsConfig(db, userId);
+      if (!cfg.enabled) {
         res.json({ success: false, error: 'TTS 语音功能已关闭，请在设置中开启' });
         return;
       }
-      const ttsVoice = settings?.voiceId || 'zh-CN-XiaoxiaoNeural';
-      const ttsSpeed = settings?.speed ?? 1.0;
-
-      const { createFullBookGenerationJob } = await import('../services/ttsGenerationService.js');
       const jobs: { id: string; job: any; error?: string }[] = [];
       for (const id of ids) {
         try {
-          const job = createFullBookGenerationJob(db, id, userId, ttsVoice, ttsSpeed, dataDir);
+          const job = ttsGen.createFullBookGenerationJob(db, id, userId, cfg.voice, cfg.speed, dataDir);
           jobs.push({ id, job });
         } catch (err: any) {
           jobs.push({ id, job: null, error: err.message || '任务创建失败' });

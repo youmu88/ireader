@@ -145,6 +145,26 @@ export function findUserDeletedRef(db: any, userId: string, globalBookId: string
 }
 
 /**
+ * 删除用户对某本书的完整记录（阅读进度 + 引用计数 + local book）。
+ * 单本 DELETE /:id 与批量 batch-delete 复用。
+ * 返回 found（书是否存在）与 removed（是否移除了全局引用）。
+ * 注意：不删除物理文件（由定时清理任务处理）；不删除 chapters（其他用户可能仍在引用）。
+ */
+export function deleteBookForUser(db: any, userId: string, bookId: string): { found: boolean; removed: boolean } {
+  const book = db.select().from(books).where(sql`id = ${bookId} AND user_id = ${userId}`).get();
+  if (!book) return { found: false, removed: false };
+
+  // 删除阅读进度（始终是用户独立的）
+  db.delete(readingProgress).where(sql`book_id = ${bookId}`).run();
+  // 减少引用计数（标记删除，不删物理文件）
+  const removed = removeUserBookRef(db, userId, bookId);
+  // 删除 local book 记录
+  db.delete(books).where(sql`id = ${bookId}`).run();
+
+  return { found: true, removed };
+}
+
+/**
  * 删除用户对某本书的引用（减引用计数，标记删除）
  */
 export function removeUserBookRef(db: any, userId: string, localBookId: string): boolean {
