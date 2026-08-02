@@ -60,6 +60,10 @@ describe('buildRenditionTheme', () => {
     expect(styles.body.color).toBe('#5f4b32 !important');
     expect(styles.body.background).toBe('#f8f1e4 !important');
     expect(styles.body['line-height']).toBe('1.75 !important');
+    // html 根元素背景同样注入：EPUB 书 CSS 常在 html 上设背景（如白底），
+    // 只注 body 会让书自带底色在正文四周/章节间隙透出 → 设置主题色后版面不变
+    expect(styles.html.background).toBe('#f8f1e4 !important');
+    expect(styles.html.color).toBe('#5f4b32 !important');
     expect(styles['h1, h2, h3, h4, h5, h6'].color).toContain('!important');
     expect(styles.a.color).toContain('!important');
   });

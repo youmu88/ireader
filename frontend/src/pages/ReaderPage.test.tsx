@@ -236,6 +236,19 @@ describe('ReaderPage', () => {
     expect(document.body.style.background).toBe('');
   });
 
+  it('切换主题：rendition 应用最新主题（正文背景跟随，不落后于周边）', async () => {
+    mockBook('epub');
+    renderReader();
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
+    act(() => tapCb?.());
+    fireEvent.click(screen.getByLabelText('字体与主题'));
+    fireEvent.click(screen.getByRole('button', { name: '主题-黑色' }));
+    // applySettings 必须以最新主题调用（正文与周边同步；防加载竞态导致正文停留在旧主题）
+    await waitFor(() =>
+      expect(controllerMocks.instance.applySettings).toHaveBeenCalledWith(expect.objectContaining({ theme: 'black' })),
+    );
+  });
+
   it('页内切换主题：状态栏覆盖层 + html/body 根背景 + theme-color 即时同步（声明式渲染驱动，无时序依赖）', async () => {
     const meta = document.createElement('meta');
     meta.name = 'theme-color';

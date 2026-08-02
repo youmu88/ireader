@@ -60,6 +60,13 @@ export function buildRenditionTheme(spec: ReaderThemeSpec, lineHeight: number): 
   const color = `${spec.color} !important`;
   const lineHeightRule = `${lineHeight} !important`;
   return {
+    // html 根元素同样注入：EPUB 书籍 CSS 常在 html 上设置背景色（如白底），
+    // 只注 body 会让书自带底色在正文四周/章节间隙透出 → 设置主题色后版面不变/顶栏不一致。
+    // html 的 color 仅作兜底（正文颜色由 body 及其子元素选择器覆盖），背景必须覆盖。
+    html: {
+      background: `${spec.background} !important`,
+      color,
+    },
     body: {
       color,
       background: `${spec.background} !important`,

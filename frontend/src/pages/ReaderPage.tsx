@@ -74,6 +74,10 @@ export default function ReaderPage() {
   const controllerRef = useRef<EpubBookController | null>(null);
 
   const { settings, updateSettings } = useReaderSettings();
+  // 最新 settings 引用：加载 effect 闭包捕获的是挂载时快照，加载期间切主题会被吞，
+  // rendition 就绪后须用此引用重放最新设置（详见 attachReader 注释）
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const { loadInitialCfi, scheduleSave } = useReaderProgress({ bookId });
   const themeSpec = READER_THEMES[settings.theme];
 
@@ -109,6 +113,9 @@ export default function ReaderPage() {
       const attachReader = (tocItems?: TocItem[]) => {
         if (tocItems) setToc(tocItems);
         setLoading(false);
+        // 加载期间用户可能已切换主题（applySettings 在 rendition 就绪前被吞），
+        // 这里用 settingsRef 重放最新设置，避免正文停留在挂载时快照的旧主题
+        controller.applySettings(settingsRef.current);
         controller.onLocationChange(loc => {
           setLocation(loc);
           scheduleSave(loc);
