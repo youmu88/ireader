@@ -2,7 +2,7 @@
 #
 # iReader deploy.sh Smoke Test
 # =============================
-# 在临时目录中测试 deploy.sh 的各项功能，不操作真实 ~/.ireader/。
+# 在临时目录中测试 deploy.sh 的各项功能，不操作真实 ${HOME}/.ireader/。
 # 测试完成后自动清理临时目录。
 #
 set -euo pipefail

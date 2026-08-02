@@ -4,6 +4,13 @@ import { MemoryRouter } from 'react-router-dom';
 import axios from 'axios';
 import { LibraryPage } from './LibraryPage';
 
+// confirm 依赖 ConfirmProvider 渲染容器，测试环境未挂载；统一 mock 为可配置 resolve
+const { confirmMock } = vi.hoisted(() => ({ confirmMock: vi.fn() }));
+vi.mock('../components/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/ui')>();
+  return { ...actual, confirm: () => confirmMock() };
+});
+
 vi.mock('axios');
 const mockedAxios = axios as any;
 
@@ -80,6 +87,31 @@ describe('LibraryPage 图书管理', () => {
     fireEvent.click(screen.getByText(/🎙.*合成语音/i));
     await waitFor(() => {
       expect(screen.getByText(/语音生成队列/i)).toBeDefined();
+    });
+  });
+
+  it('batch deletes selected books via single batch-delete API', async () => {
+    confirmMock.mockResolvedValue(true);
+    mockedAxios.post.mockResolvedValue({ data: { success: true, data: { deleted: 2, failed: [] } } });
+    renderPage();
+    await screen.findByText('示例书一');
+    fireEvent.click(screen.getByText(/全选/i));
+    await waitFor(() => expect(screen.getByText('2')).toBeDefined());
+    fireEvent.click(screen.getByText(/删除/i));
+    await waitFor(() => {
+      expect(mockedAxios.post).toHaveBeenCalledWith('/api/books/batch-delete', { ids: ['b1', 'b2'] });
+    });
+  });
+
+  it('batch caches selected books via single batch-cache API', async () => {
+    mockedAxios.post.mockResolvedValue({ data: { success: true, data: { results: [{ id: 'b1', cached: 1, failed: 0 }, { id: 'b2', cached: 1, failed: 0 }] } } });
+    renderPage();
+    await screen.findByText('示例书一');
+    fireEvent.click(screen.getByText(/全选/i));
+    await waitFor(() => expect(screen.getByText('2')).toBeDefined());
+    fireEvent.click(screen.getByText(/缓存离线包/i));
+    await waitFor(() => {
+      expect(mockedAxios.post).toHaveBeenCalledWith('/api/books/batch-cache', { ids: ['b1', 'b2'] });
     });
   });
 });

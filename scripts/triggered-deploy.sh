@@ -16,7 +16,7 @@
 #   2. npm run typecheck（类型检查）
 #   3. npm run build（构建）
 #   4. npm test（测试）
-#   5. bash deploy.sh（部署到 ~/.ireader）
+#   5. bash deploy.sh（部署到 ${HOME}/.ireader）
 #
 # 设计要点:
 #   - 独立后台进程（nohup + disown），父进程退出不影响执行

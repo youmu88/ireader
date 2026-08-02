@@ -141,7 +141,9 @@ useEffect(() => {
     });
     if (!ok) return;
     try {
-      await Promise.all([...selectedIds].map(id => axios.delete(`/api/books/${id}`)));
+      const res = await axios.post('/api/books/batch-delete', { ids: [...selectedIds] });
+      const deleted = res.data?.data?.deleted ?? selectedIds.size;
+      toast.success(`已删除 ${deleted} 本图书`);
       exitSelectionMode();
       await loadData();
     } catch (err: any) {
@@ -200,9 +202,9 @@ useEffect(() => {
     if (selectedIds.size === 0) return;
     setBatchActionLoading('voice');
     try {
-      await Promise.all([...selectedIds].map(id =>
-        axios.post(`/api/books/${id}/tts-generate`)
-      ));
+      const res = await axios.post('/api/books/batch-tts-generate', { ids: [...selectedIds] });
+      const submitted = res.data?.data?.jobs?.length ?? selectedIds.size;
+      toast.success(`已提交 ${submitted} 本图书的语音预生成`);
       // 提交成功 → 自动打开队列面板查看进展
       setShowTtsQueue(true);
       await fetchTTSJobs();
@@ -221,10 +223,9 @@ useEffect(() => {
     if (selectedIds.size === 0) return;
     setBatchActionLoading('cache');
     try {
-      await Promise.all([...selectedIds].map(id =>
-        axios.post(`/api/books/${id}/cache`, { type: 'full' })
-      ));
-      toast.success(`已提交 ${selectedIds.size} 本图书的离线缓存`);
+      const res = await axios.post('/api/books/batch-cache', { ids: [...selectedIds] });
+      const submitted = res.data?.data?.results?.length ?? selectedIds.size;
+      toast.success(`已提交 ${submitted} 本图书的离线缓存`);
       exitSelectionMode();
       await loadData();
     } catch (err: any) {

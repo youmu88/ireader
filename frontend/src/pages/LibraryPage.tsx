@@ -71,7 +71,7 @@ export function LibraryPage() {
 
   const exitSelection = () => setSelectedIds(new Set());
 
-  /** 批量删除：对选中书籍逐个调用 DELETE /api/books/:id */
+  /** 批量删除：POST /api/books/batch-delete 单请求删除全部选中书籍 */
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
     const ok = await confirm({
@@ -83,8 +83,9 @@ export function LibraryPage() {
     if (!ok) return;
     setBatchAction('delete');
     try {
-      await Promise.all([...selectedIds].map((id) => axios.delete(`/api/books/${id}`)));
-      toast.success(`已删除 ${selectedIds.size} 本图书`);
+      const res = await axios.post('/api/books/batch-delete', { ids: [...selectedIds] });
+      const deleted = res.data?.data?.deleted ?? selectedIds.size;
+      toast.success(`已删除 ${deleted} 本图书`);
       exitSelection();
       await loadBooks();
     } catch (err: any) {
@@ -99,10 +100,9 @@ export function LibraryPage() {
     if (selectedIds.size === 0) return;
     setBatchAction('cache');
     try {
-      await Promise.all([...selectedIds].map((id) =>
-        axios.post(`/api/books/${id}/cache`, { type: 'full' })
-      ));
-      toast.success(`已提交 ${selectedIds.size} 本图书的离线缓存`);
+      const res = await axios.post('/api/books/batch-cache', { ids: [...selectedIds] });
+      const submitted = res.data?.data?.results?.length ?? selectedIds.size;
+      toast.success(`已提交 ${submitted} 本图书的离线缓存`);
       exitSelection();
     } catch (err: any) {
       toast.error(err.response?.data?.error || '缓存离线包失败');
@@ -116,10 +116,9 @@ export function LibraryPage() {
     if (selectedIds.size === 0) return;
     setBatchAction('voice');
     try {
-      await Promise.all([...selectedIds].map((id) =>
-        axios.post(`/api/books/${id}/tts-generate`)
-      ));
-      toast.success(`已提交 ${selectedIds.size} 本图书的语音预生成`);
+      const res = await axios.post('/api/books/batch-tts-generate', { ids: [...selectedIds] });
+      const submitted = res.data?.data?.jobs?.length ?? selectedIds.size;
+      toast.success(`已提交 ${submitted} 本图书的语音预生成`);
       exitSelection();
       setShowTtsQueue(true);
       await fetchTTSJobs();

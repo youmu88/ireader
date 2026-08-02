@@ -2,10 +2,10 @@
 #
 # iReader 一键部署脚本
 # ====================
-# 部署 iReader 到指定目录，默认 ~/.ireader/，默认端口 10000。
+# 部署 iReader 到指定目录，默认 ${HOME}/.ireader/，默认端口 10000。
 #
 # 用法:
-#   ./deploy.sh                          # 默认增量部署到 ~/.ireader，端口 10000
+#   ./deploy.sh                          # 默认增量部署到 ${HOME}/.ireader，端口 10000
 #   ./deploy.sh --dir /opt/ireader       # 自定义部署目录
 #   ./deploy.sh --port 8080              # 自定义端口
 #   ./deploy.sh --full-build             # 全量构建（清理依赖/产物后重装）

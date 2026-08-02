@@ -1202,5 +1202,83 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     }
   });
 
+  // ── POST /api/books/batch-delete - 批量删除图书（单请求替代前端逐本 DELETE /:id） ──
+  router.post('/batch-delete', requireAuth, (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+      if (ids.length === 0) throw new AppError(400, '请提供要删除的图书 ID 列表');
+      if (ids.length > 500) throw new AppError(400, '单次最多删除 500 本图书');
+      let deleted = 0;
+      const failed: { id: string; error: string }[] = [];
+      for (const id of ids) {
+        const book = db.select().from(books).where(sql`id = ${id} AND user_id = ${userId}`).get();
+        if (!book) { failed.push({ id, error: '图书不存在' }); continue; }
+        db.delete(readingProgress).where(sql`book_id = ${id}`).run();
+        removeUserBookRef(db, userId, id);
+        db.delete(books).where(sql`id = ${id}`).run();
+        deleted++;
+      }
+      res.json({ success: true, data: { deleted, failed } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ── POST /api/books/batch-cache - 批量缓存全书离线包（替代前端逐本 POST /:id/cache） ──
+  router.post('/batch-cache', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+      if (ids.length === 0) throw new AppError(400, '请提供要缓存的图书 ID 列表');
+      if (ids.length > 500) throw new AppError(400, '单次最多缓存 500 本图书');
+      const { cacheFullBook } = await import('../services/contentCacheService.js');
+      const results: { id: string; cached: number; failed: number; error?: string }[] = [];
+      for (const id of ids) {
+        try {
+          const result = await cacheFullBook(db, id, userId, dataDir);
+          results.push({ id, cached: result.cached, failed: result.failed });
+        } catch (err: any) {
+          results.push({ id, cached: 0, failed: 1, error: err.message || '缓存失败' });
+        }
+      }
+      res.json({ success: true, data: { results } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ── POST /api/books/batch-tts-generate - 批量预生成语音（替代前端逐本 POST /:id/tts-generate） ──
+  router.post('/batch-tts-generate', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+      if (ids.length === 0) throw new AppError(400, '请提供要合成语音的图书 ID 列表');
+      if (ids.length > 500) throw new AppError(400, '单次最多提交 500 本图书');
+
+      const settings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get();
+      if (settings && !settings.enabled) {
+        res.json({ success: false, error: 'TTS 语音功能已关闭，请在设置中开启' });
+        return;
+      }
+      const ttsVoice = settings?.voiceId || 'zh-CN-XiaoxiaoNeural';
+      const ttsSpeed = settings?.speed ?? 1.0;
+
+      const { createFullBookGenerationJob } = await import('../services/ttsGenerationService.js');
+      const jobs: { id: string; job: any; error?: string }[] = [];
+      for (const id of ids) {
+        try {
+          const job = createFullBookGenerationJob(db, id, userId, ttsVoice, ttsSpeed, dataDir);
+          jobs.push({ id, job });
+        } catch (err: any) {
+          jobs.push({ id, job: null, error: err.message || '任务创建失败' });
+        }
+      }
+      res.status(201).json({ success: true, data: { jobs } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   return router;
 }

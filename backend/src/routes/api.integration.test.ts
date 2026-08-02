@@ -232,6 +232,57 @@ describe('API Integration', () => {
     });
   });
 
+    // ── 批量接口（v2.55.0 新增：batch-delete / batch-cache / batch-tts-generate） ──
+    it('POST /api/books/batch-delete should isolate per-book failures', async () => {
+      const res = await request(app)
+        .post('/api/books/batch-delete')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ ids: ['nonexistent-1', 'nonexistent-2'] });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.deleted).toBe(0);
+      expect(res.body.data.failed.length).toBe(2);
+      expect(res.body.data.failed[0].id).toBe('nonexistent-1');
+    });
+
+    it('POST /api/books/batch-delete should reject empty or oversized ids', async () => {
+      const empty = await request(app)
+        .post('/api/books/batch-delete')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ ids: [] });
+      expect(empty.status).toBe(400);
+      const tooMany = await request(app)
+        .post('/api/books/batch-delete')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ ids: Array.from({ length: 501 }, (_, i) => `id-${i}`) });
+      expect(tooMany.status).toBe(400);
+    });
+
+    it('POST /api/books/batch-cache should isolate per-book failures', async () => {
+      const res = await request(app)
+        .post('/api/books/batch-cache')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ ids: ['nonexistent-1', 'nonexistent-2'] });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.results.length).toBe(2);
+      for (const r of res.body.data.results) {
+        expect(r.failed).toBeGreaterThan(0);
+      }
+    });
+
+    it('POST /api/books/batch-tts-generate should return a job or error per book', async () => {
+      const res = await request(app)
+        .post('/api/books/batch-tts-generate')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ ids: ['nonexistent-1'] });
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.jobs.length).toBe(1);
+      const job = res.body.data.jobs[0];
+      expect(job.job || job.error).toBeTruthy();
+    });
+
   // ── Reading Progress ──
   describe('Reading Progress API', () => {
     const testBookId = uuidv4();
