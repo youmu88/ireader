@@ -216,6 +216,24 @@ useEffect(() => {
   };
 
 
+  // ── 批量缓存离线包 ──
+  const handleBatchCache = async () => {
+    if (selectedIds.size === 0) return;
+    setBatchActionLoading('cache');
+    try {
+      await Promise.all([...selectedIds].map(id =>
+        axios.post(`/api/books/${id}/cache`, { type: 'full' })
+      ));
+      toast.success(`已提交 ${selectedIds.size} 本图书的离线缓存`);
+      exitSelectionMode();
+      await loadData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || '缓存离线包失败');
+    } finally {
+      setBatchActionLoading(null);
+    }
+  };
+
   // ── 全局 TTS 播放状态（来自 TTSPlayer 单例，书架页后台听书控制） ──
 
   // ── 从路由 state 自动打开队列（由 Layout 中的 TTS 队列图标触发） ──
@@ -429,6 +447,27 @@ useEffect(() => {
   return (
     <>
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
+      {/* 批量选择操作栏 */}
+      {selectionMode && (
+        <BatchActionBar
+          selectedCount={selectedIds.size}
+          totalCount={filteredBooks.length}
+          onToggleSelectAll={() => {
+            const allFilteredIds = new Set(filteredBooks.map(b => b.id));
+            if (allFilteredIds.size === selectedIds.size) setSelectedIds(new Set());
+            else setSelectedIds(allFilteredIds);
+          }}
+          onExit={exitSelectionMode}
+          actions={[
+            { id: 'delete', label: '删除选中', icon: '🗑', variant: 'danger', disabled: selectedIds.size === 0, onClick: handleBatchDelete },
+            { id: 'voice', label: '预生成语音', icon: '🎙', variant: 'success', disabled: selectedIds.size === 0 || batchActionLoading === 'voice', loading: batchActionLoading === 'voice', onClick: handleBatchGenerateVoice },
+            { id: 'cache', label: '缓存离线', icon: '📥', variant: 'secondary', disabled: selectedIds.size === 0 || batchActionLoading === 'cache', loading: batchActionLoading === 'cache', onClick: handleBatchCache },
+            { id: 'dedup', label: '去重', icon: '🔄', variant: 'accent', disabled: deduping, loading: deduping, onClick: handleDedup },
+          ]}
+        />
+      )}
+
+
       {/* iOS 大标题区域 */}
       <div className="mb-5 sm:mb-8">
         {/* 标题行 */}
@@ -867,25 +906,6 @@ useEffect(() => {
       </div>
     </div>
       {/* 迷你播放器 - TTS 后台听书控制 */}
-      {/* 批量选择操作栏 */}
-      {selectionMode && (
-        <BatchActionBar
-          selectedCount={selectedIds.size}
-          totalCount={filteredBooks.length}
-          onToggleSelectAll={() => {
-            const allFilteredIds = new Set(filteredBooks.map(b => b.id));
-            if (allFilteredIds.size === selectedIds.size) setSelectedIds(new Set());
-            else setSelectedIds(allFilteredIds);
-          }}
-          onExit={exitSelectionMode}
-          actions={[
-            { id: 'delete', label: '删除选中', icon: '🗑', variant: 'danger', disabled: selectedIds.size === 0, onClick: handleBatchDelete },
-            { id: 'voice', label: '预生成语音', icon: '🎙', variant: 'success', disabled: selectedIds.size === 0 || batchActionLoading === 'voice', loading: batchActionLoading === 'voice', onClick: handleBatchGenerateVoice },
-            { id: 'dedup', label: '去重', icon: '🔄', variant: 'accent', disabled: deduping, loading: deduping, onClick: handleDedup },
-          ]}
-        />
-      )}
-
       {/* ── TTS 预生成队列可视化面板（统一 Modal 体系） ── */}
       <TtsQueuePanel
         open={showTtsQueue}

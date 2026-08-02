@@ -76,8 +76,8 @@ describe('LibraryPage 图书管理', () => {
     await screen.findByText('示例书一');
     fireEvent.click(screen.getByText(/全选/i));
     await waitFor(() => expect(screen.getByText('2')).toBeDefined());
-    // 批量选择区应有"预合成语音"提交按钮（含 🎙 前缀，区别于分段 Tab 纯文本）
-    fireEvent.click(screen.getByText(/🎙.*预合成语音/i));
+    // 批量选择区应有"合成语音"提交按钮（含 🎙 前缀，区别于分段 Tab 纯文本）
+    fireEvent.click(screen.getByText(/🎙.*合成语音/i));
     await waitFor(() => {
       expect(screen.getByText(/语音生成队列/i)).toBeDefined();
     });

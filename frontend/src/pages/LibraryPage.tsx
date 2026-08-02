@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import UploadQueue, { type UploadQueueHandle } from '../components/UploadQueue';
 import TtsQueuePanel from '../components/TtsQueuePanel';
-import { Button, toast } from '../components/ui';
+import { Button, toast, confirm } from '../components/ui';
 import { useTtsQueue } from '../hooks/useTtsQueue';
 
 interface Book {
@@ -22,7 +22,8 @@ export function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [keyword, setKeyword] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [submittingVoice, setSubmittingVoice] = useState<string | null>(null);
+  /** 批量动作 loading 标识：'delete' | 'cache' | 'voice' */
+  const [batchAction, setBatchAction] = useState<string | null>(null);
   const uploadRef = useRef<UploadQueueHandle>(null);
 
   // ── TTS 语音生成队列（共享 hook：状态/轮询/操作） ──
@@ -70,10 +71,50 @@ export function LibraryPage() {
 
   const exitSelection = () => setSelectedIds(new Set());
 
+  /** 批量删除：对选中书籍逐个调用 DELETE /api/books/:id */
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    const ok = await confirm({
+      title: '删除确认',
+      message: `确定删除选中的 ${selectedIds.size} 本书？此操作不可恢复。`,
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!ok) return;
+    setBatchAction('delete');
+    try {
+      await Promise.all([...selectedIds].map((id) => axios.delete(`/api/books/${id}`)));
+      toast.success(`已删除 ${selectedIds.size} 本图书`);
+      exitSelection();
+      await loadBooks();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || '批量删除失败');
+    } finally {
+      setBatchAction(null);
+    }
+  };
+
+  /** 批量缓存：对选中书籍提交全书离线缓存 POST /api/books/:id/cache */
+  const handleBatchCache = async () => {
+    if (selectedIds.size === 0) return;
+    setBatchAction('cache');
+    try {
+      await Promise.all([...selectedIds].map((id) =>
+        axios.post(`/api/books/${id}/cache`, { type: 'full' })
+      ));
+      toast.success(`已提交 ${selectedIds.size} 本图书的离线缓存`);
+      exitSelection();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || '缓存离线包失败');
+    } finally {
+      setBatchAction(null);
+    }
+  };
+
   /** 预合成语音：对选中书籍逐个提交 tts-generate，随后打开任务队列面板 */
   const handleGenerateVoice = async () => {
     if (selectedIds.size === 0) return;
-    setSubmittingVoice('voice');
+    setBatchAction('voice');
     try {
       await Promise.all([...selectedIds].map((id) =>
         axios.post(`/api/books/${id}/tts-generate`)
@@ -85,7 +126,7 @@ export function LibraryPage() {
     } catch (err: any) {
       toast.error(err.response?.data?.error || '提交语音预生成失败');
     } finally {
-      setSubmittingVoice(null);
+      setBatchAction(null);
     }
   };
 
@@ -137,6 +178,29 @@ export function LibraryPage() {
             </Button>
           </div>
 
+          {/* 顶部吸顶动作栏：选中后显示，无需滚动到底即可操作 */}
+          {selectedIds.size > 0 && (
+            <div
+              className="sticky top-12 sm:top-14 z-30 mb-4 -mx-5 px-5 py-2.5 rounded-none sm:rounded-ios-xl flex items-center justify-between gap-2"
+              style={{
+                background: 'var(--color-bg-card)',
+                borderTop: '0.5px solid var(--color-border)',
+                borderBottom: '0.5px solid var(--color-border)',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
+              }}
+            >
+              <span className="text-sm whitespace-nowrap" style={{ color: 'var(--color-text-secondary)' }}>
+                已选 <strong className="text-ios-primary">{selectedIds.size}</strong> 本
+              </span>
+              <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
+                <Button variant="danger" size="sm" className="shrink-0" loading={batchAction === 'delete'} disabled={batchAction !== null} onClick={handleBatchDelete}>🗑 删除</Button>
+                <Button variant="secondary" size="sm" className="shrink-0" loading={batchAction === 'cache'} disabled={batchAction !== null} onClick={handleBatchCache}>📥 缓存离线包</Button>
+                <Button variant="success" size="sm" className="shrink-0" loading={batchAction === 'voice'} disabled={batchAction !== null} onClick={handleGenerateVoice}>🎙 合成语音</Button>
+                <Button variant="text" size="sm" className="shrink-0" disabled={batchAction !== null} onClick={exitSelection}>取消</Button>
+              </div>
+            </div>
+          )}
+
           <input
             type="text"
             value={keyword}
@@ -155,44 +219,32 @@ export function LibraryPage() {
             {filtered.map((book) => {
               const checked = selectedIds.has(book.id);
               return (
-                <li key={book.id} className="flex items-center justify-between py-3">
-                  <div className="flex items-center gap-3">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      data-testid={`select-${book.id}`}
-                      aria-label={`选择 ${book.title}`}
-                      onClick={() => toggleSelectOne(book.id)}
-                      className={`!w-6 !h-6 !p-0 !rounded-full !border-2 !bg-transparent !justify-center ${checked ? '!border-ios-primary !bg-ios-primary' : '!border-ios-border'}`}
-                    >
-                      {checked && <span className="text-white text-xs leading-none">✓</span>}
-                    </Button>
-                    <div>
-                      <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>{book.title}</p>
-                      {book.author && <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{book.author}</p>}
-                    </div>
+                <li key={book.id} className="flex items-start py-3 gap-3">
+                  {/* 独立圆形勾选框：固定 22px 正圆（inline style 不受 Button 默认样式干扰），与第一行文本对齐 */}
+                  <button
+                    type="button"
+                    data-testid={`select-${book.id}`}
+                    aria-label={`选择 ${book.title}`}
+                    onClick={() => toggleSelectOne(book.id)}
+                    className="shrink-0 rounded-full border-2 flex items-center justify-center transition-colors"
+                    style={{
+                      width: 22,
+                      height: 22,
+                      marginTop: 2,
+                      borderColor: checked ? 'var(--color-primary)' : 'var(--color-border)',
+                      background: checked ? 'var(--color-primary)' : 'transparent',
+                    }}
+                  >
+                    {checked && <span className="text-white text-[11px] leading-none font-bold">✓</span>}
+                  </button>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>{book.title}</p>
+                    {book.author && <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{book.author}</p>}
                   </div>
                 </li>
               );
             })}
           </ul>
-
-          {selectedIds.size > 0 && (
-            <div className="mt-4 pt-4 space-y-2" style={{ borderTop: '0.5px solid var(--color-border)' }}>
-              <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>已选 <strong className="text-ios-primary">{selectedIds.size}</strong> 本</p>
-              <div className="flex gap-2">
-                <Button variant="danger" size="sm" onClick={exitSelection}>取消</Button>
-                <Button
-                  variant="success"
-                  size="sm"
-                  onClick={handleGenerateVoice}
-                  loading={submittingVoice === 'voice'}
-                >
-                  🎙 预合成语音
-                </Button>
-              </div>
-            </div>
-          )}
         </section>
       )}
 
