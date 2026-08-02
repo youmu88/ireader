@@ -4,10 +4,16 @@
  * 阻尼 = 滚动阻力：级别越高，滚动越「沉」（单次位移更短、惯性更快衰减）。
  * 同时作用于触摸（移动端主场景）与 wheel（鼠标 / 触控板）：
  *  - 触摸：自定义滚动引擎——touchmove 拦截原生滚动并按阻尼系数缩放位移，touchend 后以随级别
- *    递增的摩擦系数做惯性动量（rAF 驱动）。手动 scrollTop 仍触发原生 scroll 事件，epub.js 连续
- *    章节加载 / relocated / 点按桥接均不受影响（与 wheel 路径同机制）。方向锁定仅接管垂直手势，
- *    水平滑动（返回手势）与多指捏合缩放交还原生。
+ *    递增的摩擦系数做惯性动量（rAF 驱动）。方向锁定仅接管垂直手势，水平滑动（返回手势）与
+ *    多指捏合缩放交还原生。
  *  - wheel：拦截原生滚动，按阻尼系数缩放 deltaY 后手动滚动。
+ *
+ * ⚠️ 事件与滚动目标分离（修复「滚动功能失效」根因）：
+ * epub.js scrolled-continuous（renderTo 目标是普通 div → fullsize=false）的真实滚动容器是父页面
+ * stage 创建的 div.epub-container（overflow-y: scroll，default/index.js:90,120-121），而触摸/滚轮
+ * 事件发生在 iframe 内容文档中（iframe scrolling="no" 不滚动）。故事件监听挂在 iframe 内容文档
+ * （doc），手动滚动必须落在父页面 .epub-container（scrollTarget）——历史版本错误地滚动 iframe 内容
+ * 文档 documentElement（不滚动），配合 preventDefault 导致垂直滚动彻底失效。
  *
  * 设置经 localStorage 全局持久化（load/saveScrollDamping），由「设置」页调节；阅读器装配时经
  * getLevel 闭包（loadScrollDamping）动态读取，始终反映最新全局值。
@@ -84,26 +90,48 @@ export function saveScrollDamping(level: number): void {
   } catch { /* 存储不可用时静默 */ }
 }
 
-/** 取文档滚动元素（epub.js iframe 内容文档：scrollingElement 脱离上下文时为 null，回退 documentElement） */
-function scrollerOf(doc: Document): Element | null {
-  return doc.scrollingElement ?? doc.documentElement;
+/**
+ * touch-action 引用计数：多个 iframe 内容文档共享同一滚动容器（.epub-container）时，
+ * 首次装配设置 pan-x pinch-zoom、末次卸载才还原——避免简单 save/restore 在共享容器上
+ * 因装配顺序导致还原污染（中途还原成中间态）。
+ */
+const touchActionState = new WeakMap<HTMLElement, { refs: number; prev: string }>();
+
+function claimTouchAction(el: HTMLElement): void {
+  const state = touchActionState.get(el);
+  if (state) {
+    state.refs += 1;
+    return;
+  }
+  touchActionState.set(el, { refs: 1, prev: el.style.touchAction });
+  el.style.touchAction = 'pan-x pinch-zoom';
+}
+
+function releaseTouchAction(el: HTMLElement): void {
+  const state = touchActionState.get(el);
+  if (!state) return;
+  state.refs -= 1;
+  if (state.refs <= 0) {
+    el.style.touchAction = state.prev;
+    touchActionState.delete(el);
+  }
 }
 
 /**
- * 为内容文档装配滚动阻尼（触摸 + wheel）。返回卸载函数（移除全部监听、取消惯性、还原 touch-action）。
- * @param doc 目标文档（epub.js iframe 内容文档）
+ * 为 iframe 内容文档装配滚动阻尼（触摸 + wheel）。返回卸载函数（移除全部监听、取消惯性、释放 touch-action）。
+ *
+ * @param doc 事件监听文档（epub.js iframe 内容文档；触摸/滚轮事件在此派发）
+ * @param scrollTarget 真实滚动容器（父页面 div.epub-container；手动滚动落在此处）
  * @param getLevel 动态读取当前阻尼级别
  */
-export function attachScrollDamping(doc: Document, getLevel: () => number): () => void {
+export function attachScrollDamping(doc: Document, scrollTarget: HTMLElement, getLevel: () => number): () => void {
   // ── wheel（鼠标 / 触控板） ──
   const onWheel = (e: WheelEvent): void => {
-    const scroller = scrollerOf(doc);
-    if (!scroller) return;
     let delta = e.deltaY;
     if (e.deltaMode === 1) delta *= LINE_HEIGHT_PX;
-    else if (e.deltaMode === 2) delta *= scroller.clientHeight || FALLBACK_PAGE_PX;
+    else if (e.deltaMode === 2) delta *= scrollTarget.clientHeight || FALLBACK_PAGE_PX;
     e.preventDefault();
-    scroller.scrollTop += delta * dampingMultiplier(getLevel());
+    scrollTarget.scrollTop += delta * dampingMultiplier(getLevel());
   };
 
   // ── 触摸惯性引擎（移动端主场景） ──
@@ -129,8 +157,7 @@ export function attachScrollDamping(doc: Document, getLevel: () => number): () =
       const dt = now - last;
       last = now;
       v *= Math.exp(-k * dt);
-      const scroller = scrollerOf(doc);
-      if (scroller) scroller.scrollTop += v * dt;
+      scrollTarget.scrollTop += v * dt;
       if (Math.abs(v) > MOMENTUM_STOP_V) momentumRaf = requestAnimationFrame(step);
       else momentumRaf = 0;
     };
@@ -165,8 +192,7 @@ export function attachScrollDamping(doc: Document, getLevel: () => number): () =
     const dt = now - lastT || 16;
     const dampedDy = dy * dampingMultiplier(getLevel());
     velocity = dampedDy / dt;
-    const scroller = scrollerOf(doc);
-    if (scroller) scroller.scrollTop += dampedDy;
+    scrollTarget.scrollTop += dampedDy;
     e.preventDefault();
     lastY = t.clientY;
     lastT = now;
@@ -185,11 +211,9 @@ export function attachScrollDamping(doc: Document, getLevel: () => number): () =
     axis = '';
   };
 
-  // touch-action：仅保留水平 pan 与捏合缩放，垂直滚动由本引擎接管
-  // （确保 touchmove preventDefault 在真机 iOS Safari / Android Chrome 可靠生效）
-  const root = doc.documentElement;
-  const prevTouchAction = root.style.touchAction;
-  root.style.touchAction = 'pan-x pinch-zoom';
+  // touch-action：在真实滚动容器上设置（而非 iframe 文档），仅保留水平 pan 与捏合缩放，
+  // 垂直滚动由本引擎接管（确保 touchmove preventDefault 在真机可靠生效）
+  claimTouchAction(scrollTarget);
 
   doc.addEventListener('wheel', onWheel, { passive: false, capture: true });
   doc.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
@@ -204,6 +228,6 @@ export function attachScrollDamping(doc: Document, getLevel: () => number): () =
     doc.removeEventListener('touchmove', onTouchMove, { capture: true });
     doc.removeEventListener('touchend', onTouchEnd, { capture: true });
     doc.removeEventListener('touchcancel', onTouchCancel, { capture: true });
-    root.style.touchAction = prevTouchAction;
+    releaseTouchAction(scrollTarget);
   };
 }

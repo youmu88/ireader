@@ -66,5 +66,6 @@
  * 2.54.0 (2026-08-02): [FEATURE] 批量选择体验升级 — 勾选框改独立圆形控件（修复长书名书勾选框被 Button 默认样式拉伸成椭圆、垂直居中错位）；批量动作栏从列表底部移至顶部吸顶（无需滚动到底）；图书管理页批量动作丰富为 删除/缓存离线包/预合成语音 并接通真实 API；书架页批量栏同步吸顶并新增缓存离线动作
  * 2.57.0 (2026-08-02): [FEATURE] 阅读界面滚动阻尼（1-10 级，默认 3）— 新增 scrollDamping 纯函数模块（clamp/阻尼系数线性映射 1→0.9…10→0.25/wheel 拦截器 + deltaMode 归一化）纳入 ReaderSettings 单一数据源；EpubBookController 内容就绪时为 iframe 内容文档装配阻尼（级别经 getLevel 闭包动态读取，设置即时生效，destroy 统一卸载）；aA 阅读设置面板新增 1-10 阻尼滑块（轻/重 + 实时档位）。阻尼仅作用 wheel（鼠标/触控板），原生触摸滚动保持不动（保护历经精修的 epub.js 连续滚动栈）
  * 2.58.0 (2026-08-02): [FEATURE+REFACTOR] 滚动阻尼升级为全局设置 + 触摸支持（移动端主场景）— 阻尼设置从阅读 aA 面板移除，迁入「设置」页外观区块（1-10 滑块，localStorage 全局持久化 ireader_scroll_damping）；scrollDamping 模块新增触摸惯性引擎（touchmove 拦截原生滚动按阻尼系数缩放 + touchend 后随级别递增摩擦的 rAF 惯性动量 + 方向锁定仅接管垂直手势、水平与多指交还原生 + touch-action:pan-x pinch-zoom 保障真机 preventDefault 可靠）；手动 scrollTop 仍触发原生 scroll 事件，epub.js 连续章节加载/relocated/点按桥接不受影响；ReaderSettings 移除 scrollDamping 字段（单一数据源收敛为全局设置），EpubBookController 经 loadScrollDamping 闭包动态读取全局值
+ * 2.58.1 (2026-08-03): [BUGFIX] 修复滚动阻尼调坏滚动功能 — 根因：epub.js scrolled-continuous（fullsize=false）真实滚动容器是父页面 div.epub-container（overflow-y:scroll），触摸/滚轮事件在 iframe 内容文档派发；此前阻尼把滚动目标写成 iframe 内容文档 documentElement（不滚动）又 preventDefault 阻止原生滚动 → 垂直滚动彻底失效。修复：attachScrollDamping 改为 (doc, scrollTarget, getLevel) 事件与滚动目标分离，controller 解析 .epub-container 传入；touch-action 改设在真实滚动容器并 WeakMap 引用计数管理还原（多 iframe 共享容器不污染）
  */
-export const APP_VERSION = '2.58.0';
+export const APP_VERSION = '2.58.1';

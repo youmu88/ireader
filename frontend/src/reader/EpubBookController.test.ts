@@ -298,14 +298,19 @@ describe('EpubBookController', () => {
     expect(controller.isLocationsReady).toBe(false);
   });
 
-  it('滚动阻尼（全局设置）：load 后内容文档 wheel/触摸被拦截；新章节自动装配；destroy 后卸载', async () => {
+  it('滚动阻尼（全局设置）：load 解析真实滚动容器 .epub-container 装配 wheel/触摸；新章节自动装配；destroy 后卸载', async () => {
     localStorage.setItem('ireader_scroll_damping', '5'); // 全局设置，controller 经 loadScrollDamping 闭包读取
-    // 独立内容文档：避免文件级共享 contentDoc 累积其他用例残留监听器干扰 destroy 断言
+    // 独立内容文档 + 独立容器（预置真实滚动容器 .epub-container）：避免共享 fixture 累积监听器干扰断言；
+    // 同时验证 controller 在 load 时解析出 .epub-container 作为阻尼滚动目标（事件仍在 iframe 内容文档派发）
+    const scroller = document.createElement('div');
+    scroller.className = 'epub-container';
+    const localContainer = document.createElement('div');
+    localContainer.appendChild(scroller);
     const dampingDoc = document.implementation.createHTMLDocument('epub-damping');
     mocks.rendition.getContents.mockReturnValue([{ document: dampingDoc, addStylesheetCss: vi.fn() }]);
-    await controller.load('url', container, { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75 } });
+    await controller.load('url', localContainer, { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75 } });
 
-    // wheel 被拦截
+    // wheel 被拦截（事件在 iframe 内容文档，滚动落在 .epub-container）
     const ev = new WheelEvent('wheel', { deltaY: 100, cancelable: true, bubbles: true });
     dampingDoc.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);

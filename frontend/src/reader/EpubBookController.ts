@@ -119,6 +119,8 @@ export class EpubBookController {
   private contentPipelineBound = false;
   /** 已装配阻尼的 iframe 内容文档 → 卸载函数（destroy 时统一卸载；幂等去重） */
   private dampingCleanups = new Map<Document, () => void>();
+  /** 真实滚动容器（父页面 div.epub-container，epub.js scrolled-continuous 的 overflow-y 滚动容器） */
+  private scrollTarget: HTMLElement | null = null;
 
   /** 加载书籍并渲染。返回目录树。 */
   async load(source: string | ArrayBuffer, container: HTMLElement, options: LoadOptions = {}): Promise<TocItem[]> {
@@ -149,6 +151,10 @@ export class EpubBookController {
       // 监听 iframe 内 click/pointer 事件（自托管书库威胁模型可接受；epub.js 官方支持该选项）。
       allowScriptedContent: true,
     });
+    // 解析真实滚动容器：epub.js scrolled-continuous（fullsize=false）滚动发生在父页面 stage 创建的
+    // div.epub-container（overflow-y: scroll）；触摸/滚轮事件则在 iframe 内容文档——阻尼须事件与滚动
+    // 目标分离（历史缺陷：滚动 iframe 内容文档 documentElement 导致垂直滚动失效，根因见 scrollDamping）
+    this.scrollTarget = container.querySelector<HTMLElement>('.epub-container') ?? null;
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
     // 内容管线：hooks.content 单次注册（主题注入 + 点按桥接）+ getContents 兜底 + relocated 重扫
@@ -183,6 +189,8 @@ export class EpubBookController {
       // （WebKit 218086：无 allow-scripts 的 sandbox iframe 阻断父页面 contentDocument 事件监听）
       allowScriptedContent: true,
     });
+    // 同 EPUB：解析真实滚动容器（父页面 div.epub-container）供滚动阻尼装配
+    this.scrollTarget = container.querySelector<HTMLElement>('.epub-container') ?? null;
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
     this.bindContentPipeline();
@@ -275,6 +283,7 @@ export class EpubBookController {
     this.unbindTap();
     for (const cleanup of this.dampingCleanups.values()) cleanup();
     this.dampingCleanups.clear();
+    this.scrollTarget = null;
     this.rendition?.destroy();
     this.book?.destroy();
     this.rendition = null;
@@ -356,10 +365,10 @@ export class EpubBookController {
     doc.addEventListener('click', this.handleTapClick);
   }
 
-  /** 为单个内容文档装配滚动阻尼（幂等：已装配的文档跳过；级别经 getLevel 闭包动态读取） */
+  /** 为单个内容文档装配滚动阻尼（幂等：已装配的文档跳过；滚动目标为真实 .epub-container 容器） */
   private attachDampingDoc(doc: Document | undefined): void {
-    if (!doc || this.dampingCleanups.has(doc)) return;
-    this.dampingCleanups.set(doc, attachScrollDamping(doc, loadScrollDamping));
+    if (!doc || !this.scrollTarget || this.dampingCleanups.has(doc)) return;
+    this.dampingCleanups.set(doc, attachScrollDamping(doc, this.scrollTarget, loadScrollDamping));
   }
 
   private unbindTap(): void {

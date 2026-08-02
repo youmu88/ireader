@@ -27,17 +27,21 @@ function fireTouch(doc: Document, type: string, touches: { clientX: number; clie
   return ev;
 }
 
-/** 构造可观测滚动位置的内容文档（jsdom scrollTop 受 scrollHeight=0 钳制，注入 setter） */
-function makeDoc() {
-  const doc = document.implementation.createHTMLDocument('t');
-  const scroller = doc.scrollingElement ?? doc.documentElement;
+/**
+ * 构造阻尼装配环境：eventDoc（iframe 内容文档，触摸/滚轮事件在此派发）+ scrollTarget
+ * （父页面 .epub-container，真实滚动容器；jsdom scrollTop 受 scrollHeight=0 钳制，注入 setter 使位移可观测）。
+ * 事件与滚动目标分离是本模块的核心语义（修复「滚动功能失效」根因）。
+ */
+function makeEnv() {
+  const eventDoc = document.implementation.createHTMLDocument('iframe-content');
+  const scrollTarget = document.createElement('div');
   let top = 0;
-  Object.defineProperty(scroller, 'scrollTop', {
+  Object.defineProperty(scrollTarget, 'scrollTop', {
     configurable: true,
     get: () => top,
     set: (v: number) => { top = v; },
   });
-  return { doc, getTop: () => top };
+  return { eventDoc, scrollTarget, getTop: () => top };
 }
 
 describe('clampScrollDamping', () => {
@@ -109,109 +113,109 @@ describe('load/saveScrollDamping（全局持久化）', () => {
 
 describe('attachScrollDamping — wheel', () => {
   it('wheel 按阻尼系数缩放滚动量并阻止默认行为', () => {
-    const { doc, getTop } = makeDoc();
-    const cleanup = attachScrollDamping(doc, () => 10); // 最重 0.25
+    const { eventDoc, scrollTarget, getTop } = makeEnv();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 10); // 最重 0.25
     const ev = new WheelEvent('wheel', { deltaY: 100, deltaMode: 0, cancelable: true });
-    doc.dispatchEvent(ev);
+    eventDoc.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
-    expect(getTop()).toBeCloseTo(25, 5); // 100 * 0.25
+    expect(getTop()).toBeCloseTo(25, 5); // 100 * 0.25 滚在 scrollTarget
     cleanup();
   });
 
   it('级别实时生效（getLevel 动态读取，无需重挂）', () => {
-    const { doc, getTop } = makeDoc();
+    const { eventDoc, scrollTarget, getTop } = makeEnv();
     let level = 1;
-    const cleanup = attachScrollDamping(doc, () => level);
-    doc.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, cancelable: true }));
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => level);
+    eventDoc.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, cancelable: true }));
     expect(getTop()).toBeCloseTo(90, 5); // level 1 → 0.9
     level = 10;
-    doc.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, cancelable: true }));
+    eventDoc.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, cancelable: true }));
     expect(getTop() - 90).toBeCloseTo(25, 5); // level 10 → 0.25
     cleanup();
   });
 
   it('deltaMode=1（行）按行高归一化为像素', () => {
-    const { doc, getTop } = makeDoc();
-    const cleanup = attachScrollDamping(doc, () => 1); // 0.9
-    doc.dispatchEvent(new WheelEvent('wheel', { deltaY: 3, deltaMode: 1, cancelable: true }));
+    const { eventDoc, scrollTarget, getTop } = makeEnv();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 1); // 0.9
+    eventDoc.dispatchEvent(new WheelEvent('wheel', { deltaY: 3, deltaMode: 1, cancelable: true }));
     expect(getTop()).toBeCloseTo(43.2, 5); // 3 行 * 16px * 0.9
     cleanup();
   });
 
   it('cleanup 后不再拦截 wheel', () => {
-    const { doc, getTop } = makeDoc();
-    const cleanup = attachScrollDamping(doc, () => 5);
+    const { eventDoc, scrollTarget, getTop } = makeEnv();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 5);
     cleanup();
     const ev = new WheelEvent('wheel', { deltaY: 100, cancelable: true });
-    doc.dispatchEvent(ev);
+    eventDoc.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(false);
     expect(getTop()).toBe(0);
   });
 });
 
 describe('attachScrollDamping — 触摸（移动端主场景）', () => {
-  it('垂直触摸拖动按阻尼系数缩放并 preventDefault', () => {
-    const { doc, getTop } = makeDoc();
-    const cleanup = attachScrollDamping(doc, () => 10); // mult 0.25
+  it('垂直触摸拖动按阻尼系数缩放并 preventDefault（滚动落在 scrollTarget）', () => {
+    const { eventDoc, scrollTarget, getTop } = makeEnv();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 10); // mult 0.25
     let now = 1000;
     vi.spyOn(performance, 'now').mockImplementation(() => now);
-    fireTouch(doc, 'touchstart', [pt(50, 200)]);
+    fireTouch(eventDoc, 'touchstart', [pt(50, 200)]);
     now = 1016;
-    const ev = fireTouch(doc, 'touchmove', [pt(50, 100)]); // dy = 200-100 = 100
+    const ev = fireTouch(eventDoc, 'touchmove', [pt(50, 100)]); // dy = 200-100 = 100
     expect(ev.defaultPrevented).toBe(true);
     expect(getTop()).toBeCloseTo(25, 5); // 100 * 0.25
     cleanup();
   });
 
   it('连续拖动累加阻尼位移', () => {
-    const { doc, getTop } = makeDoc();
-    const cleanup = attachScrollDamping(doc, () => 1); // mult 0.9
+    const { eventDoc, scrollTarget, getTop } = makeEnv();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 1); // mult 0.9
     let now = 1000;
     vi.spyOn(performance, 'now').mockImplementation(() => now);
-    fireTouch(doc, 'touchstart', [pt(50, 300)]);
+    fireTouch(eventDoc, 'touchstart', [pt(50, 300)]);
     now = 1016;
-    fireTouch(doc, 'touchmove', [pt(50, 200)]); // dy=100 → 90
+    fireTouch(eventDoc, 'touchmove', [pt(50, 200)]); // dy=100 → 90
     now = 1032;
-    fireTouch(doc, 'touchmove', [pt(50, 100)]); // dy=100 → 90
+    fireTouch(eventDoc, 'touchmove', [pt(50, 100)]); // dy=100 → 90
     expect(getTop()).toBeCloseTo(180, 5);
     cleanup();
   });
 
   it('水平手势不拦截（交还原生，如返回滑动）', () => {
-    const { doc, getTop } = makeDoc();
-    const cleanup = attachScrollDamping(doc, () => 5);
+    const { eventDoc, scrollTarget, getTop } = makeEnv();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 5);
     vi.spyOn(performance, 'now').mockReturnValue(1000);
-    fireTouch(doc, 'touchstart', [pt(50, 200)]);
-    const ev = fireTouch(doc, 'touchmove', [pt(150, 200)]); // adx=100 > ady=0 → 水平
+    fireTouch(eventDoc, 'touchstart', [pt(50, 200)]);
+    const ev = fireTouch(eventDoc, 'touchmove', [pt(150, 200)]); // adx=100 > ady=0 → 水平
     expect(ev.defaultPrevented).toBe(false);
     expect(getTop()).toBe(0);
     cleanup();
   });
 
   it('多指手势不拦截（捏合缩放交还原生）', () => {
-    const { doc, getTop } = makeDoc();
-    const cleanup = attachScrollDamping(doc, () => 5);
+    const { eventDoc, scrollTarget, getTop } = makeEnv();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 5);
     vi.spyOn(performance, 'now').mockReturnValue(1000);
-    fireTouch(doc, 'touchstart', [pt(50, 200), pt(150, 200)]); // 2 指 → active=false
-    const ev = fireTouch(doc, 'touchmove', [pt(50, 100), pt(150, 100)]);
+    fireTouch(eventDoc, 'touchstart', [pt(50, 200), pt(150, 200)]); // 2 指 → active=false
+    const ev = fireTouch(eventDoc, 'touchmove', [pt(50, 100), pt(150, 100)]);
     expect(ev.defaultPrevented).toBe(false);
     expect(getTop()).toBe(0);
     cleanup();
   });
 
-  it('touchend 后启动惯性动量：rAF 步进继续滚动', () => {
-    const { doc, getTop } = makeDoc();
-    const cleanup = attachScrollDamping(doc, () => 1); // 轻阻尼长滑行
+  it('touchend 后启动惯性动量：rAF 步进继续滚动（惯性滚在 scrollTarget）', () => {
+    const { eventDoc, scrollTarget, getTop } = makeEnv();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 1); // 轻阻尼长滑行
     let now = 1000;
     vi.spyOn(performance, 'now').mockImplementation(() => now);
     let rafCb: ((t: number) => void) | null = null;
     vi.stubGlobal('requestAnimationFrame', (cb: (t: number) => void) => { rafCb = cb; return 1; });
     vi.stubGlobal('cancelAnimationFrame', () => { rafCb = null; });
 
-    fireTouch(doc, 'touchstart', [pt(50, 300)]);
+    fireTouch(eventDoc, 'touchstart', [pt(50, 300)]);
     now = 1016;
-    fireTouch(doc, 'touchmove', [pt(50, 100)]); // dy=200 → 产生速度
-    fireTouch(doc, 'touchend', []); // 启动惯性
+    fireTouch(eventDoc, 'touchmove', [pt(50, 100)]); // dy=200 → 产生速度
+    fireTouch(eventDoc, 'touchend', []); // 启动惯性
     expect(rafCb).not.toBeNull(); // rAF 已调度
 
     const before = getTop();
@@ -222,8 +226,8 @@ describe('attachScrollDamping — 触摸（移动端主场景）', () => {
   });
 
   it('touchstart 取消进行中的惯性', () => {
-    const { doc } = makeDoc();
-    const cleanup = attachScrollDamping(doc, () => 1);
+    const { eventDoc, scrollTarget } = makeEnv();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 1);
     let now = 1000;
     vi.spyOn(performance, 'now').mockImplementation(() => now);
     let rafCb: ((t: number) => void) | null = null;
@@ -231,29 +235,41 @@ describe('attachScrollDamping — 触摸（移动端主场景）', () => {
     vi.stubGlobal('requestAnimationFrame', (cb: (t: number) => void) => { rafCb = cb; return 1; });
     vi.stubGlobal('cancelAnimationFrame', () => { cancelled = true; rafCb = null; });
 
-    fireTouch(doc, 'touchstart', [pt(50, 300)]);
+    fireTouch(eventDoc, 'touchstart', [pt(50, 300)]);
     now = 1016;
-    fireTouch(doc, 'touchmove', [pt(50, 100)]);
-    fireTouch(doc, 'touchend', []); // 启动惯性
+    fireTouch(eventDoc, 'touchmove', [pt(50, 100)]);
+    fireTouch(eventDoc, 'touchend', []); // 启动惯性
     expect(rafCb).not.toBeNull();
-    fireTouch(doc, 'touchstart', [pt(50, 300)]); // 新触摸 → 取消惯性
+    fireTouch(eventDoc, 'touchstart', [pt(50, 300)]); // 新触摸 → 取消惯性
     expect(cancelled).toBe(true);
     cleanup();
   });
 
-  it('装配设置 touch-action=pan-x pinch-zoom，cleanup 还原并移除触摸监听', () => {
-    const { doc, getTop } = makeDoc();
-    const root = doc.documentElement;
-    const initial = root.style.touchAction; // jsdom 未设置时为 undefined，真机为 ''
-    const cleanup = attachScrollDamping(doc, () => 5);
-    expect(root.style.touchAction).toBe('pan-x pinch-zoom');
+  it('touch-action 设置在真实滚动容器（scrollTarget）上，cleanup 还原并移除触摸监听', () => {
+    const { eventDoc, scrollTarget, getTop } = makeEnv();
+    const initial = scrollTarget.style.touchAction; // jsdom 未设置时为 undefined，真机为 ''
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 5);
+    expect(scrollTarget.style.touchAction).toBe('pan-x pinch-zoom');
     cleanup();
-    expect(root.style.touchAction).toBe(initial); // 还原为装配前的初始值（还原语义，不硬编码具体值）
+    expect(scrollTarget.style.touchAction).toBe(initial); // 还原为装配前的初始值（还原语义，不硬编码具体值）
     // 触摸不再被拦截
     vi.spyOn(performance, 'now').mockReturnValue(1000);
-    fireTouch(doc, 'touchstart', [pt(50, 200)]);
-    const ev = fireTouch(doc, 'touchmove', [pt(50, 100)]);
+    fireTouch(eventDoc, 'touchstart', [pt(50, 200)]);
+    const ev = fireTouch(eventDoc, 'touchmove', [pt(50, 100)]);
     expect(ev.defaultPrevented).toBe(false);
     expect(getTop()).toBe(0);
+  });
+
+  it('多个 iframe 文档共享同一滚动容器：touch-action 引用计数，末次卸载才还原', () => {
+    const { eventDoc, scrollTarget } = makeEnv();
+    const doc2 = document.implementation.createHTMLDocument('iframe-2');
+    const initial = scrollTarget.style.touchAction;
+    const c1 = attachScrollDamping(eventDoc, scrollTarget, () => 3);
+    const c2 = attachScrollDamping(doc2, scrollTarget, () => 3);
+    expect(scrollTarget.style.touchAction).toBe('pan-x pinch-zoom');
+    c1();
+    expect(scrollTarget.style.touchAction).toBe('pan-x pinch-zoom'); // 仍有一个引用
+    c2();
+    expect(scrollTarget.style.touchAction).toBe(initial); // 全部卸载才还原
   });
 });
