@@ -17,6 +17,7 @@ import { useReaderProgress } from '../reader/useReaderProgress';
 import { useReaderChromeTheme } from '../reader/useReaderChromeTheme';
 import { ReaderChrome } from '../reader/components/ReaderChrome';
 import { ReaderMenuBar } from '../reader/components/ReaderMenuBar';
+import { ReaderTopBar } from '../reader/components/ReaderTopBar';
 import { ReaderBottomBar } from '../reader/components/ReaderBottomBar';
 import { FontSettingsPanel } from '../reader/components/FontSettingsPanel';
 import { TocPanel } from '../reader/components/TocPanel';
@@ -32,9 +33,6 @@ interface BookMeta {
   author: string | null;
   format: 'epub' | 'txt';
 }
-
-/** 沉浸式阅读引导条：用户点击「知道了」后不再打扰（localStorage 记忆） */
-const IMMERSIVE_TIP_KEY = 'ireader_immersive_tip_dismissed';
 
 /** 目录树递归反查章节标题（搜索结果归属展示；href 去 fragment 匹配） */
 function findTocLabel(items: TocItem[], href: string): string | undefined {
@@ -63,7 +61,8 @@ export default function ReaderPage() {
   const [locationsReady, setLocationsReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [chromeVisible, setChromeVisible] = useState(false);
+  // 进入阅读即显示顶栏/底栏书眉（Apple Books 默认展示），点按正文切换显隐
+  const [chromeVisible, setChromeVisible] = useState(true);
   const [tocOpen, setTocOpen] = useState(false);
   const [fontOpen, setFontOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -86,9 +85,8 @@ export default function ReaderPage() {
   //（standalone + black-translucent）才让状态栏透明透出页面背景，深色阅读才能真正顶栏一体。
   // 注意：即使已「添加到主屏幕」，从 Safari 地址栏/书签打开仍是浏览器模式（非 standalone），
   // 此时状态栏归系统管（浅色模式白底黑字），必须从主屏幕图标进入才生效。
-  const [immersiveTipDismissed, setImmersiveTipDismissed] = useState(() => {
-    try { return localStorage.getItem(IMMERSIVE_TIP_KEY) === '1'; } catch { return false; }
-  });
+  // 沉浸式阅读说明浮层（顶栏「沉浸」图标触发）：非 standalone 且深色主题时顶栏显示入口
+  const [immersiveTipOpen, setImmersiveTipOpen] = useState(false);
   const isStandalone = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const nav = window.navigator as { standalone?: boolean };
@@ -260,6 +258,18 @@ export default function ReaderPage() {
         className="fixed top-0 left-0 right-0 z-50 pointer-events-none"
         style={statusBarStyle}
       />
+      {/* 顶栏书眉：与底栏同一 chrome 语言（主题色 + blur + 分隔线），共用 chromeVisible 联动显隐 */}
+      <ReaderChrome visible={chromeVisible} side="top">
+        <ReaderTopBar
+          title={book?.title ?? ''}
+          chromeBackground={themeSpec.chromeBackground}
+          chromeColor={themeSpec.chromeColor}
+          onBack={() => navigate('/')}
+          onOpenFontSettings={() => setFontOpen(true)}
+          showImmersiveTip={!isStandalone && themeSpec.dark}
+          onShowImmersiveTip={() => setImmersiveTipOpen(true)}
+        />
+      </ReaderChrome>
       {/* epub.js 渲染区（垂直滚动容器；上方无覆盖层，滚动手势直达） */}
       <div ref={viewerRef} className="absolute inset-0" />
 
@@ -296,30 +306,35 @@ export default function ReaderPage() {
         />
       </ReaderChrome>
 
-      {!isStandalone && themeSpec.dark && !immersiveTipDismissed && (
+      {/* 沉浸式阅读说明浮层：Safari 系统状态栏由 iOS 控制无法跟随主题，standalone 下才全屏沉浸 */}
+      <div
+        data-testid="immersive-tip-modal"
+        className={`fixed inset-0 z-40 transition-opacity duration-200 ${
+          immersiveTipOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        aria-hidden={!immersiveTipOpen}
+      >
+        <div className="absolute inset-0 bg-black/30" onClick={() => setImmersiveTipOpen(false)} />
         <div
-          data-testid="immersive-tip"
-          className="absolute left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 rounded-full px-4 py-2 shadow-lg"
-          style={{
-            top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
-            background: 'rgba(24,24,26,0.92)',
-            color: '#e5e5ea',
-          }}
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[320px] max-w-[86vw] rounded-2xl px-6 py-5 backdrop-blur-xl shadow-lg"
+          style={{ background: themeSpec.chromeBackground, color: themeSpec.chromeColor }}
+          role="dialog"
+          aria-label="沉浸式阅读说明"
         >
-          <span className="text-[13px] leading-tight">顶栏跟随系统：请从主屏幕的 iReader 图标进入阅读，顶栏将变为黑色沉浸式</span>
+          <h2 className="text-[15px] font-semibold mb-2">沉浸式阅读</h2>
+          <p className="text-[13px] leading-relaxed" style={{ opacity: 0.75 }}>
+            Safari 中顶部状态栏由 iOS 系统控制，无法跟随阅读主题。从主屏幕的 iReader 图标进入阅读，状态栏将透明化，顶栏与页面完全同色，获得全屏沉浸体验。
+          </p>
           <button
             type="button"
-            onClick={() => {
-              setImmersiveTipDismissed(true);
-              try { localStorage.setItem(IMMERSIVE_TIP_KEY, '1'); } catch { /* ignore */ }
-            }}
-            className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium"
-            style={{ background: 'rgba(255,255,255,0.15)', color: '#ffffff' }}
+            onClick={() => setImmersiveTipOpen(false)}
+            className="mt-4 rounded-lg px-4 py-2 text-sm font-medium active:opacity-60 transition-opacity"
+            style={{ background: 'rgba(128,128,128,0.2)', color: themeSpec.chromeColor }}
           >
             知道了
           </button>
         </div>
-      )}
+      </div>
 
       <TocPanel
         open={tocOpen}
