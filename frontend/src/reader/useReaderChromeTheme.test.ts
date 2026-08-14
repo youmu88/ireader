@@ -78,4 +78,31 @@ describe('useReaderChromeTheme', () => {
     expect(document.documentElement.style.background).toBe('rgb(10, 20, 30)');
     expect(document.body.style.background).toBe('rgb(40, 50, 60)');
   });
+
+  it('页面恢复兑底：根背景被外部还原为白后，pageshow 重新应用主题色（再次进入不变白）', () => {
+    const { unmount } = renderHook(() => useReaderChromeTheme('#2c2c2e'));
+    expect(document.body.style.background).toBe('rgb(44, 44, 46)');
+    // 模拟 iOS standalone 快照恢复：根背景被还原为书架白色，且 effect 不重跑
+    document.documentElement.style.background = 'rgb(255, 255, 255)';
+    document.body.style.background = 'rgb(255, 255, 255)';
+    act(() => {
+      window.dispatchEvent(new Event('pageshow'));
+    });
+    expect(document.documentElement.style.background).toBe('rgb(44, 44, 46)');
+    expect(document.body.style.background).toBe('rgb(44, 44, 46)');
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    expect(meta?.getAttribute('content')).toBe('#2c2c2e');
+    act(() => unmount());
+  });
+
+  it('页面从后台切回（visibilitychange→visible）时重新应用主题背景', () => {
+    const { unmount } = renderHook(() => useReaderChromeTheme('#2c2c2e'));
+    document.body.style.background = 'rgb(255, 255, 255)';
+    act(() => {
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(document.body.style.background).toBe('rgb(44, 44, 46)');
+    act(() => unmount());
+  });
 });

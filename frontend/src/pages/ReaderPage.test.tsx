@@ -128,33 +128,21 @@ describe('ReaderPage', () => {
     expect(options.requestHeaders).toBeUndefined();
   });
 
-  it('点按正文（epub.js click 桥接）联动切换顶栏/底栏显隐（初始显示，Apple Books 行为）', async () => {
+  it('点按正文（epub.js click 桥接）切换底部工具栏显隐', async () => {
     mockBook('epub');
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
 
-    // 初始显示：进入阅读即见主题色书眉
+    // 初始隐藏
+    expect(screen.getByTestId('reader-chrome-bottom').className).toContain('translate-y-full');
+    // 点按正文 → 显示
+    act(() => tapCb?.());
     expect(screen.getByTestId('reader-chrome-bottom').className).toContain('translate-y-0');
-    expect(screen.getByTestId('reader-chrome-top').className).toContain('translate-y-0');
-    // 点按正文 → 隐藏（顶/底联动）
+    // 底栏菜单书名
+    expect(screen.getByText('测试之书')).toBeDefined();
+    // 再点按正文 → 隐藏
     act(() => tapCb?.());
     expect(screen.getByTestId('reader-chrome-bottom').className).toContain('translate-y-full');
-    expect(screen.getByTestId('reader-chrome-top').className).toContain('-translate-y-full');
-    // 底栏菜单书名（隐藏后点按正文显示；顶栏/底栏各渲染一次书名）
-    act(() => tapCb?.());
-    expect(screen.getAllByText('测试之书').length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('顶栏书眉：渲染书名、返回书架按钮导航回书架、aA 打开字体面板', async () => {
-    mockBook('epub');
-    renderReader();
-    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
-    const bar = screen.getByTestId('reader-top-bar');
-    expect(bar.textContent).toContain('测试之书');
-    expect(screen.getByLabelText('返回书架')).toBeDefined();
-    // 返回书架 → 导航离开阅读页（MemoryRouter 无 '/' 路由 → 页面卸载）
-    fireEvent.click(screen.getByLabelText('返回书架'));
-    expect(screen.queryByTestId('reader-top-bar')).toBeNull();
   });
 
   it('底栏菜单顺序：目录 → 书名 → 搜索/aA（不含返回书架/书签/全屏）', async () => {
@@ -182,8 +170,8 @@ describe('ReaderPage', () => {
     fireEvent.click(screen.getByText('第一章'));
     expect(controllerMocks.instance.goTo).toHaveBeenCalledWith('ch1.xhtml');
 
-    // 打开 aA 面板（顶栏/底栏各有一个 aA 入口，任选其一）
-    fireEvent.click(screen.getAllByLabelText('字体与主题')[0]);
+    // 打开 aA 面板
+    fireEvent.click(screen.getByLabelText('字体与主题'));
     const panel = screen.getByTestId('font-settings-panel');
     expect(panel.className).toContain('opacity-100');
   });
@@ -253,7 +241,7 @@ describe('ReaderPage', () => {
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
     act(() => tapCb?.());
-    fireEvent.click(screen.getAllByLabelText('字体与主题')[0]);
+    fireEvent.click(screen.getByLabelText('字体与主题'));
     fireEvent.click(screen.getByRole('button', { name: '主题-黑色' }));
     // applySettings 必须以最新主题调用（正文与周边同步；防加载竞态导致正文停留在旧主题）
     await waitFor(() =>
@@ -272,7 +260,7 @@ describe('ReaderPage', () => {
     // 初始白色 → 打开 aA 面板切换黑色主题
     expect(screen.getByTestId('reader-statusbar-cover')).toHaveStyle({ background: 'rgb(255, 255, 255)' });
     act(() => tapCb?.());
-    fireEvent.click(screen.getAllByLabelText('字体与主题')[0]);
+    fireEvent.click(screen.getByLabelText('字体与主题'));
     fireEvent.click(screen.getByRole('button', { name: '主题-黑色' }));
     // 顶栏/根背景/状态栏覆盖层立即变为黑色（不依赖退出重进）
     await waitFor(() => {
@@ -293,7 +281,7 @@ describe('ReaderPage', () => {
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
     // 白色 → 黑色 → 灰色（三次主题切换，模拟历史还原 bug 的触发路径）
     act(() => tapCb?.());
-    fireEvent.click(screen.getAllByLabelText('字体与主题')[0]);
+    fireEvent.click(screen.getByLabelText('字体与主题'));
     fireEvent.click(screen.getByRole('button', { name: '主题-黑色' }));
     await waitFor(() => expect(document.body.style.background).toBe('rgb(0, 0, 0)'));
     fireEvent.click(screen.getByRole('button', { name: '主题-灰色' }));
@@ -305,28 +293,20 @@ describe('ReaderPage', () => {
     expect(document.body.style.background).toBe('');
   });
 
-  it('深色主题 + 非 standalone：顶栏显示「沉浸式阅读」说明入口，点击弹出浮层，可关闭', async () => {
+  it('深色主题 + 非 standalone：显示「添加到主屏幕」沉浸阅读引导条；点击后消失并记忆', async () => {
     localStorage.setItem('ireader_reader_settings', JSON.stringify({ fontSize: 100, theme: 'black', lineHeight: 1.75 }));
     mockBook('epub');
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
-    // 顶栏出现沉浸说明入口（悬浮胶囊已移除）
-    const entry = screen.getByRole('button', { name: '沉浸式阅读说明' });
-    expect(entry).toBeDefined();
-    // 浮层常渲染但默认隐藏（opacity-0 + 禁用指针）
-    expect(screen.getByTestId('immersive-tip-modal').className).toContain('pointer-events-none');
-    // 点击 → 浮层弹出（说明 iOS 系统状态栏限制与 standalone 进入方式）
-    fireEvent.click(entry);
-    const modal = screen.getByTestId('immersive-tip-modal');
-    expect(modal.className).toContain('opacity-100');
-    expect(modal.textContent).toContain('沉浸式阅读');
-    expect(modal.textContent).toContain('主屏幕的 iReader 图标');
-    // 点「知道了」→ 浮层关闭
+    const tip = await screen.findByTestId('immersive-tip');
+    expect(tip.textContent).toContain('从主屏幕的 iReader 图标进入阅读');
+    // 点击「知道了」→ 引导条消失，localStorage 记忆
     fireEvent.click(screen.getByText('知道了'));
-    expect(screen.getByTestId('immersive-tip-modal').className).toContain('pointer-events-none');
+    expect(screen.queryByTestId('immersive-tip')).toBeNull();
+    expect(localStorage.getItem('ireader_immersive_tip_dismissed')).toBe('1');
   });
 
-  it('standalone 模式（添加到主屏幕）：顶栏不显示沉浸阅读说明入口', async () => {
+  it('standalone 模式（添加到主屏幕）：不显示沉浸阅读引导条', async () => {
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = ((query: string) => ({
       matches: query === '(display-mode: standalone)',
@@ -342,15 +322,24 @@ describe('ReaderPage', () => {
     mockBook('epub');
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole('button', { name: '沉浸式阅读说明' })).toBeNull();
+    expect(screen.queryByTestId('immersive-tip')).toBeNull();
     window.matchMedia = originalMatchMedia;
   });
 
-  it('浅色主题：即使非 standalone 也不显示沉浸阅读说明入口', async () => {
+  it('浅色主题：即使非 standalone 也不显示沉浸阅读引导条', async () => {
     localStorage.setItem('ireader_reader_settings', JSON.stringify({ fontSize: 100, theme: 'white', lineHeight: 1.75 }));
     mockBook('epub');
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole('button', { name: '沉浸式阅读说明' })).toBeNull();
+    expect(screen.queryByTestId('immersive-tip')).toBeNull();
+  });
+
+  it('书籍加载失败：错误页使用阅读主题背景（状态栏/顶部不露白）', async () => {
+    axiosMocks.get.mockRejectedValue(new Error('Network Error'));
+    renderReader();
+    await waitFor(() => expect(screen.findByText('书籍加载失败，请稍后重试')).toBeDefined());
+    const err = screen.getByText('书籍加载失败，请稍后重试').closest('div');
+    expect(err).toHaveStyle({ background: 'rgb(255, 255, 255)' });
+    expect(document.body.style.background).toBe('rgb(255, 255, 255)');
   });
 });

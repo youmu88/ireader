@@ -16,20 +16,6 @@ describe('ReaderChrome', () => {
     expect(bottom.className).toContain('translate-y-full');
     expect(bottom.className).toContain('pointer-events-none');
   });
-
-  it('side="top" 时渲染顶部容器：可见 translate-y-0，隐藏上滑且禁用指针', () => {
-    render(<ReaderChrome visible side="top">TOP</ReaderChrome>);
-    const top = screen.getByTestId('reader-chrome-top');
-    expect(top.className).toContain('top-0');
-    expect(top.className).toContain('translate-y-0');
-  });
-
-  it('side="top" 隐藏时 -translate-y-full + pointer-events-none', () => {
-    render(<ReaderChrome visible={false} side="top">TOP</ReaderChrome>);
-    const top = screen.getByTestId('reader-chrome-top');
-    expect(top.className).toContain('-translate-y-full');
-    expect(top.className).toContain('pointer-events-none');
-  });
 });
 
 describe('ReaderBottomBar', () => {
