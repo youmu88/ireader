@@ -1,15 +1,21 @@
 /**
- * iReader Service Worker v1
+ * iReader Service Worker v4
  * 
  * 离线缓存策略：
  * 1. 安装时预缓存所有静态资源（HTML/JS/CSS/字体/图片）
  * 2. 运行时缓存封面图片、书籍文件、TTS 音频
- * 3. 静态资源：缓存优先（CacheFirst）
- * 4. API 数据：网络优先 + 缓存回退（NetworkFirst）
+ * 3. 导航请求（index.html）：网络优先（NetworkFirst）——部署后用户首次打开即最新版
+ * 4. 静态资源：缓存优先 + 后台更新（StaleWhileRevalidate，Vite hash 资源无版本问题）
+ * 5. API 数据：网络优先 + 缓存回退（NetworkFirst）
+ *
+ * ⚠️ 版本规则：CACHE_VERSION / SW_VERSION 必须随前端版本迭代变更（bump）！
+ *    SW 更新检测基于文件字节差异——只改前端不改 SW 版本，浏览器不会重装 SW，
+ *    预缓存/旧缓存不刷新，用户端会持续运行旧版代码（如旧版阅读顶栏竞态）。
+ *    本次 v3→v4：修复阅读顶栏“有时白有时黑”（用户端加载旧版）问题。
  */
 
-const CACHE_VERSION = 'v3';
-const SW_VERSION = '2.0.0';
+const CACHE_VERSION = 'v4';
+const SW_VERSION = '2.1.0';
 // SW 版本号——变更时触发 install 事件，自动激活新 SW
 const STATIC_CACHE = `ireader-static-${CACHE_VERSION}`;
 const COVERS_CACHE = `ireader-covers-${CACHE_VERSION}`;
@@ -83,34 +89,31 @@ self.addEventListener('fetch', (event) => {
   // 只处理同源请求
   if (url.origin !== self.location.origin) return;
 
-  // ⭐ 导航请求（页面级跳转）：StaleWhileRevalidate 化
-  //    在线时后台更新 index.html 缓存，离线时从缓存返回
-  //    确保用户看到的 App Shell 是最新版
-  if (isNavigateRequest(event)) {
-    event.respondWith(
-      caches.open(STATIC_CACHE).then((cache) => {
-        return cache.match('/index.html').then((cached) => {
-          // 后台更新：不管有没有缓存，都发起网络请求更新
-          const networkPromise = fetch(event.request).then((response) => {
-            if (response && response.status === 200) {
-              cache.put('/index.html', response.clone());
-            }
-            return response;
-          });
-          // 立即返回缓存（如果有），同时后台静默更新
-          if (cached) return cached;
-          // 无缓存时走网络请求；网络失败则返回最简离线 HTML
-          return networkPromise.catch(() => {
-            return new Response(
-              '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>iReader - 离线模式</title></head><body><div id="root"><div style="padding:40px;text-align:center;color:#666;font-family:sans-serif"><h2>📚 iReader 离线模式</h2><p>正在从本地缓存加载书籍数据...</p><p style="font-size:12px;color:#999;margin-top:20px">请确保您已预先缓存书籍</p></div></div></body></html>',
-              { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
-            );
-          });
-        });
+// ⭐ 导航请求（页面级跳转）：网络优先（NetworkFirst）
+//    在线时总是返回网络最新 index.html 并更新缓存；离线时回退缓存/离线 HTML。
+//    历史缺陷（v3）：StaleWhileRevalidate 先返回旧缓存、后台更新、下次导航才生效——
+//    部署后用户首次打开仍是旧版前端（旧版阅读顶栏竞态随机白），表现为“升级后第一次正常、之后看心情”。
+if (isNavigateRequest(event)) {
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200) {
+          caches.open(STATIC_CACHE).then((cache) => cache.put('/index.html', response.clone()));
+        }
+        return response;
       })
-    );
-    return;
-  }
+      .catch(() =>
+        caches.match('/index.html').then((cached) => {
+          if (cached) return cached;
+          return new Response(
+            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>iReader - 离线模式</title></head><body><div id="root"><div style="padding:40px;text-align:center;color:#666;font-family:sans-serif"><h2>📚 iReader 离线模式</h2><p>正在从本地缓存加载书籍数据...</p><p style="font-size:12px;color:#999;margin-top:20px">请确保您已预先缓存书籍</p></div></div></body></html>',
+            { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+          );
+        }),
+      )
+  );
+  return;
+}
 
   // 静态资源：过期缓存 + 后台更新（StaleWhileRevalidate）
   // ✅ 修复：CacheFirst → StaleWhileRevalidate

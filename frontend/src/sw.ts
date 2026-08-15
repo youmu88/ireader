@@ -30,6 +30,15 @@ export function registerSW(): void {
       });
       console.log('[SW] 注册成功，作用域:', registration.scope);
 
+      // 新 SW 接管（skipWaiting+claim 或版本升级）→ 非阅读页立即刷新，让新版本前端即刻生效；
+      // 阅读页不强制刷新（避免打断阅读），下次导航自然加载新版。
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!window.location.pathname.startsWith('/reader')) {
+          console.log('[SW] 新版本已接管，刷新页面应用新版本');
+          window.location.reload();
+        }
+      });
+
       // 检查更新
       registration.addEventListener('updatefound', () => {
         const newWorker = registration.installing;
