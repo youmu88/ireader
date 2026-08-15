@@ -93,4 +93,21 @@ describe('chromeThemeManager', () => {
     window.dispatchEvent(new Event('pageshow'));
     expect(document.body.style.background).toBe('rgb(255, 255, 255)');
   });
+
+  it('阅读态禁用 body 背景过渡（仅保留 color 过渡），退出还原初始 transition（状态栏不采样中间色）', () => {
+    // 模拟全局 CSS：body 带 background 0.3s 过渡（index.css 深色模式动画）
+    document.body.style.transition = 'background 0.3s ease, color 0.3s ease';
+    enterChromeTheme('#2c2c2e');
+    // 进入阅读：body 过渡改为仅 color，background 立即生效无渐变
+    expect(document.body.style.transition).toBe('color 0.3s ease');
+    expect(document.body.style.background).toBe('rgb(44, 44, 46)');
+    // 主题切换（update）同样无 background 过渡
+    updateChromeTheme('#000000');
+    expect(document.body.style.transition).toBe('color 0.3s ease');
+    expect(document.body.style.background).toBe('rgb(0, 0, 0)');
+    // 退出阅读：还原初始 transition（全局动画恢复）与初始背景
+    exitChromeTheme();
+    expect(document.body.style.transition).toBe('background 0.3s ease, color 0.3s ease');
+    expect(document.body.style.background).toBe('');
+  });
 });

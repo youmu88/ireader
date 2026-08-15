@@ -20,25 +20,34 @@
 
 /** 当前生效的阅读主题背景；null = 无活跃阅读器（书架/全局外观） */
 let activeBackground: string | null = null;
-/** 首次 enter 时记录的还原目标（theme-color 默认值 + html/body 原背景） */
+/** 首次 enter 时记录的还原目标（theme-color 默认值 + html/body 原背景 + body 原 transition） */
 let initialThemeColor = '#3b82f6';
 let initialHtmlBg = '';
 let initialBodyBg = '';
+let initialBodyTransition = '';
 /** 活跃阅读器计数 */
 let readerCount = 0;
 
 function apply(bg: string) {
   const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', bg);
+  // html 无全局 transition（index.css 仅 body 定义），立即生效
   document.documentElement.style.background = bg;
-  document.body.style.background = bg;
+  // body 全局样式带 `transition: background 0.3s ease`（深色模式切换动画）——
+  // 直接设置背景会渐变 0.3s，iOS standalone 状态栏若在过渡中采样则固化中间色（白顶栏根因之一）。
+  // 阅读态内 body 过渡改为仅 color（保留文字过渡，禁 background 过渡），退出时还原。
+  const bodyStyle = document.body.style;
+  bodyStyle.transition = 'color 0.3s ease';
+  bodyStyle.background = bg;
 }
 
 function restore() {
   const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', initialThemeColor);
   document.documentElement.style.background = initialHtmlBg;
-  document.body.style.background = initialBodyBg;
+  const bodyStyle = document.body.style;
+  bodyStyle.transition = initialBodyTransition;
+  bodyStyle.background = initialBodyBg;
 }
 
 /** 进入阅读（引用计数 +1，首次进入记录初始值并应用主题背景） */
@@ -48,6 +57,7 @@ export function enterChromeTheme(bg: string) {
     initialThemeColor = meta?.getAttribute('content') ?? '#3b82f6';
     initialHtmlBg = document.documentElement.style.background;
     initialBodyBg = document.body.style.background;
+    initialBodyTransition = document.body.style.transition;
   }
   readerCount += 1;
   activeBackground = bg;
@@ -84,11 +94,13 @@ export function resetChromeThemeManagerForTests() {
   initialThemeColor = '#3b82f6';
   initialHtmlBg = '';
   initialBodyBg = '';
+  initialBodyTransition = '';
   readerCount = 0;
   const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', initialThemeColor);
   document.documentElement.style.background = '';
   document.body.style.background = '';
+  document.body.style.transition = '';
 }
 
 // 模块级全局监听（注册一次，不随组件卸载移除——页面生命周期级）
