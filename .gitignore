@@ -16,3 +16,4 @@ logs/triggered-deploy/
 # 临时脚本
 backend/reparse_cli.ts
 backend/update_chapters.ts
+verify-shots/
