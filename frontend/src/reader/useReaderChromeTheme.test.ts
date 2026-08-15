@@ -10,10 +10,12 @@
 import { renderHook, act } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useReaderChromeTheme } from './useReaderChromeTheme';
+import { resetChromeThemeManagerForTests } from './chromeThemeManager';
 
 const DEFAULT_META = '#3b82f6';
 
 beforeEach(() => {
+  resetChromeThemeManagerForTests();
   document.documentElement.style.background = '';
   document.body.style.background = '';
   document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.remove());
@@ -104,5 +106,12 @@ describe('useReaderChromeTheme', () => {
     });
     expect(document.body.style.background).toBe('rgb(44, 44, 46)');
     act(() => unmount());
+  });
+
+  it('paint 前同步应用：useLayoutEffect 语义（挂载即应用，无需等待异步 effect）', () => {
+    const { result } = renderHook(() => useReaderChromeTheme('#2c2c2e'));
+    // useLayoutEffect 在 commit 阶段同步执行——渲染后立即可见根背景已为主题色
+    expect(document.body.style.background).toBe('rgb(44, 44, 46)');
+    expect(result.current.statusBarStyle.background).toBe('#2c2c2e');
   });
 });
