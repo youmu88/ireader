@@ -24,7 +24,7 @@ import { SearchPanel } from '../reader/components/SearchPanel';
 import type { SearchResult } from '../reader/searchBook';
 import { getCachedEpubArchive } from '../services/offlineCacheService';
 import { getToken } from '../services/authService';
-import { Button } from '../components/ui';
+import { Button, toast } from '../components/ui';
 
 interface BookMeta {
   id: string;
@@ -201,6 +201,24 @@ export default function ReaderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId]);
 
+
+  // ── 新版本就绪：阅读中 SW 更新完成（controllerchange）时不强制刷新，提示用户返回后自动生效；
+  // 卸载（退出阅读）时若存在待生效标记，刷新应用新版。 ──
+  useEffect(() => {
+    const onNewVersion = () => {
+      toast.info('新版本已就绪，返回书架后自动生效');
+    };
+    window.addEventListener('app:new-version-ready', onNewVersion);
+    return () => {
+      window.removeEventListener('app:new-version-ready', onNewVersion);
+      try {
+        if (sessionStorage.getItem('ireader_new_version_pending') === '1') {
+          sessionStorage.removeItem('ireader_new_version_pending');
+          window.location.reload();
+        }
+      } catch { /* ignore */ }
+    };
+  }, []);
 
   // ── 设置变化实时应用到 rendition（不重建 DOM） ──
   useEffect(() => {

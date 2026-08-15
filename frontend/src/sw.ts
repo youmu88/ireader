@@ -31,9 +31,15 @@ export function registerSW(): void {
       console.log('[SW] 注册成功，作用域:', registration.scope);
 
       // 新 SW 接管（skipWaiting+claim 或版本升级）→ 非阅读页立即刷新，让新版本前端即刻生效；
-      // 阅读页不强制刷新（避免打断阅读），下次导航自然加载新版。
+      // 阅读页不强制刷新（避免打断阅读）：发全局事件提示 + sessionStorage 标记，
+      // 退出阅读（ReaderPage 卸载）时检测标记并刷新应用新版。
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (!window.location.pathname.startsWith('/reader')) {
+        if (window.location.pathname.startsWith('/reader')) {
+          try {
+            sessionStorage.setItem('ireader_new_version_pending', '1');
+          } catch { /* ignore */ }
+          window.dispatchEvent(new CustomEvent('app:new-version-ready'));
+        } else {
           console.log('[SW] 新版本已接管，刷新页面应用新版本');
           window.location.reload();
         }
@@ -65,18 +71,36 @@ export function isSWControlled(): boolean {
 }
 
 /**
- * 手动检查 Service Worker 更新
+ * 手动检查 Service Worker 更新：
+ * - 'update'：发现新版本（installing/waiting，或已触发 controllerchange 接管）
+ * - 'latest'：已是最新版本
+ * - 'unsupported'：环境不支持 SW（无 navigator.serviceWorker / 无注册）
+ *
+ * 说明：sw.js 在 install 时调用 skipWaiting，新 SW 会立即激活接管，waiting 状态极短暂；
+ * 因此 update() 后除检测 installing/waiting 外，还需等待 controllerchange 短窗口，
+ * 否则会漏报已就绪的新版本（竞态）。
  */
-export async function checkSWUpdate(): Promise<boolean> {
-  if (!('serviceWorker' in navigator)) return false;
+export async function checkSWUpdate(): Promise<'update' | 'latest' | 'unsupported'> {
+  if (!('serviceWorker' in navigator)) return 'unsupported';
   try {
     const registration = await navigator.serviceWorker.getRegistration();
-    if (registration) {
-      await registration.update();
-      return !!registration.waiting;
-    }
-    return false;
+    if (!registration) return 'unsupported';
+    await registration.update();
+    // 新 SW 已进入 installing/waiting（尚未激活）→ 即将 skipWaiting 接管
+    if (registration.installing || registration.waiting) return 'update';
+    // 已激活接管（skipWaiting 竞态）：等待 controllerchange 短窗口确认
+    return new Promise<'update' | 'latest'>((resolve) => {
+      const timer = setTimeout(() => resolve('latest'), 3000);
+      navigator.serviceWorker.addEventListener(
+        'controllerchange',
+        () => {
+          clearTimeout(timer);
+          resolve('update');
+        },
+        { once: true },
+      );
+    });
   } catch {
-    return false;
+    return 'unsupported';
   }
 }

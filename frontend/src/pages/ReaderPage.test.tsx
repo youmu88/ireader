@@ -342,4 +342,31 @@ describe('ReaderPage', () => {
     expect(err).toHaveStyle({ background: 'rgb(255, 255, 255)' });
     expect(document.body.style.background).toBe('rgb(255, 255, 255)');
   });
+
+  it('SW 新版就绪事件：Toast 提示；卸载时有待生效标记则 reload 应用新版', async () => {
+    mockBook('epub');
+    const { unmount } = renderReader();
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
+    const { toast } = await import('../components/ui');
+    // 阅读中 SW 更新完成 → 提示不强制刷新
+    window.dispatchEvent(new CustomEvent('app:new-version-ready'));
+    expect(toast.info).toHaveBeenCalledWith('新版本已就绪，返回书架后自动生效');
+    // jsdom 的 location.reload 只读：替换 location 对象注入 spy
+    const reloadSpy = vi.fn();
+    const originalLocation = window.location;
+    // @ts-expect-error jsdom location 不可写，先删除再赋值
+    delete window.location;
+    // @ts-expect-error 注入含 reload spy 的 location 替身
+    window.location = { ...originalLocation, reload: reloadSpy };
+    // 无待生效标记：退出阅读不触发 reload
+    unmount();
+    expect(reloadSpy).not.toHaveBeenCalled();
+    // 有待生效标记（controllerchange 已发生）：退出阅读 → reload 应用新版
+    sessionStorage.setItem('ireader_new_version_pending', '1');
+    const { unmount: unmount2 } = renderReader();
+    await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(2));
+    unmount2();
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem('ireader_new_version_pending')).toBeNull();
+  });
 });

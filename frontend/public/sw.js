@@ -14,8 +14,8 @@
  *    本次 v3→v4：修复阅读顶栏“有时白有时黑”（用户端加载旧版）问题。
  */
 
-const CACHE_VERSION = 'v4';
-const SW_VERSION = '2.1.0';
+const CACHE_VERSION = 'v5';
+const SW_VERSION = '2.2.0';
 // SW 版本号——变更时触发 install 事件，自动激活新 SW
 const STATIC_CACHE = `ireader-static-${CACHE_VERSION}`;
 const COVERS_CACHE = `ireader-covers-${CACHE_VERSION}`;

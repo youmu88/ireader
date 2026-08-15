@@ -17,8 +17,9 @@ import {
 } from '../services/ttsService';
 
 import { APP_VERSION } from '../version';
+import { checkSWUpdate } from '../sw';
 import axios from 'axios';
-import { Button, IconButton, ToggleSwitch } from '../components/ui';
+import { Button, IconButton, ToggleSwitch, toast } from '../components/ui';
 import { loadScrollDamping, saveScrollDamping, SCROLL_DAMPING_MIN, SCROLL_DAMPING_MAX } from '../reader/scrollDamping';
 
 export default function SettingsPage() {
@@ -264,6 +265,28 @@ export default function SettingsPage() {
   });
   const BUILD_TIME = '2026-07-03';
   const RUNNING_ENV = typeof window !== 'undefined' && 'standalone' in window.navigator && (window.navigator as any).standalone ? 'PWA' : 'Web';
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  // ── 检查更新：触发 SW 更新检测；有新版本时 controllerchange 会自动刷新应用（非阅读页） ──
+  const handleCheckUpdate = async () => {
+    if (checkingUpdate) return;
+    setCheckingUpdate(true);
+    try {
+      const result = await checkSWUpdate();
+      if (result === 'update') {
+        toast.success('检测到新版本，正在刷新应用…');
+        // controllerchange 触发后会自动 reload；此处兜底：若未自动刷新，3s 后手动刷新
+        setTimeout(() => window.location.reload(), 3000);
+      } else if (result === 'latest') {
+        toast.info('已是最新版本');
+      } else {
+        toast.error('当前环境不支持在线更新检查');
+      }
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await axios.post('/api/auth/logout');
@@ -681,6 +704,20 @@ export default function SettingsPage() {
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>版本</span>
             <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>v{APP_VERSION}</span>
           </div>
+          {/* 检查更新：手动触发 SW 更新检测；发现新版后由 controllerchange 自动刷新应用（阅读页外） */}
+          <button
+            type="button"
+            data-testid="check-update"
+            onClick={handleCheckUpdate}
+            disabled={checkingUpdate}
+            className="flex w-full items-center justify-between px-4 py-3.5 tap-row active:opacity-60 transition-opacity disabled:opacity-50"
+            style={{ borderBottom: '0.5px solid var(--color-border)' }}
+          >
+            <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>检查更新</span>
+            <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+              {checkingUpdate ? '检查中…' : '点击检查'}
+            </span>
+          </button>
           <div className="flex items-center justify-between px-4 py-3.5 tap-row"
             style={{ borderBottom: '0.5px solid var(--color-border)' }}>
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>构建时间</span>
