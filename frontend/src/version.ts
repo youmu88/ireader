@@ -73,5 +73,6 @@
  * 2.60.1 (2026-08-15): [BUGFIX] SW 缓存版本长期未 bump——用户端持续运行旧版（阅读顶栏「有时白有时黑」真根因之一）。根因：public/sw.js 的 CACHE_VERSION v3 / SW_VERSION 2.0.0 自 2.56.0 起未随前端迭代变更，SW 更新检测基于文件字节差异 → 浏览器不重装 SW、预缓存/旧缓存不刷新；导航请求又是 StaleWhileRevalidate（先返回旧缓存、后台更新、下次导航才生效）→ 部署新版后用户仍可能反复运行旧版前端（旧版 useEffect 竞态随机白），表现为「升级后第一次正常、之后看心情」。修复：①CACHE_VERSION v3→v4、SW_VERSION 2.0.0→2.1.0（强制重装 SW、清理旧缓存、预缓存最新 index.html）；②导航请求改 NetworkFirst（在线始终返回最新 index.html，离线回退缓存）——部署后用户首次打开即新版；③registerSW 监听 controllerchange：新 SW 接管后非阅读页自动刷新让新版立即生效（阅读页不打断）；④规则沉淀：SW 版本必须随前端迭代 bump（sw.js 头部注释 + 本记录）。
  * ⚠️ 发布规则：每次前端功能/修复迭代，必须同步 bump public/sw.js 的 CACHE_VERSION（浏览器据此重装 SW）——否则用户端可能长期运行旧版代码。
  * 2.61.0 (2026-08-15): [FEATURE] 检查更新入口 + 新版就绪提示（可选优化点落地）— ①设置页「关于」新增「检查更新」：点击触发 SW 更新检测（checkSWUpdate 重构：update() 后检测 installing/waiting + controllerchange 短窗口，消除 skipWaiting 竞态误报），有新版 → Toast「检测到新版本，正在刷新应用…」+ 3s 兑底刷新（controllerchange 自动刷新为主），无新版 →「已是最新版本」，环境不支持 → 明确提示；②阅读中 SW 更新完成（controllerchange）不强制刷新（避免打断阅读），改为 Toast「新版本已就绪，返回书架后自动生效」+ sessionStorage 待生效标记，ReaderPage 卸载时检测标记并 reload 应用新版；③SW CACHE_VERSION v4→v5（本版本新增功能，遵循发布规则同步 bump）
+ * 2.61.1 (2026-10-14): [DOCS] 评审文档全量复核修订——comprehensive-audit-and-upgrade-plan.md 逐条对照代码复核（30/33 断言属实、3 项表述修正、行号校准、新增 23 项遗漏发现），纯文档变更无代码影响
  */
-export const APP_VERSION = '2.61.0';
+export const APP_VERSION = '2.61.1';
