@@ -15,7 +15,20 @@ import type { ReaderLocation, ReaderSettings, TocItem } from './types';
 import { buildRenditionThemeCss, DEFAULT_READER_SETTINGS, READER_THEMES } from './theme';
 import { searchBook, type SearchableBook, type SearchResult } from './searchBook';
 import { buildTxtFeed } from './buildTxtFeed';
-import { attachScrollDamping, loadScrollDamping } from './scrollDamping';
+import {
+  attachScrollDamping,
+  attachPagedGestures,
+  claimContainerTouchAction,
+  releaseContainerTouchAction,
+  loadScrollDamping,
+  type HorizontalSwipeDir,
+} from './scrollDamping';
+import { loadReadingMode, type ReadingMode } from './readingMode';
+
+/** 正文点按分区（Phase 1：左 1/4 上一页、右 1/4 下一页、中 1/2 菜单开关） */
+export type TapZone = 'left' | 'center' | 'right';
+/** 点按判定位移阈值（px）：与 scrollDamping 方向锁阈值一致，消除微拖双触发（D11） */
+const TAP_SLOP_PX = 6;
 
 // ── epub.js 运行时类型（动态 import，避免测试/SSR 环境直接加载） ──
 interface EpubNavigationTocItem {
@@ -81,6 +94,8 @@ export interface LoadOptions {
   requestHeaders?: Record<string, string>;
   /** 初始排版设置 */
   settings?: ReaderSettings;
+  /** 阅读模式（Phase 1：paged 分页 / scrolled 连续滚动；缺省读全局设置，默认 paged） */
+  mode?: ReadingMode;
 }
 
 /** TXT 章节输入（loadTxt 用） */
@@ -105,9 +120,11 @@ export class EpubBookController {
   private book: EpubBook | null = null;
   private rendition: EpubRendition | null = null;
   private listeners = new Set<LocationListener>();
-  private tapListeners = new Set<() => void>();
+  private tapListeners = new Set<(zone: TapZone) => void>();
   private locationsReady = false;
   private lastLocation: ReaderLocation | null = null;
+  /** 阅读模式（Phase 1 双模式：load 时从 options/全局设置读定，切换需重进阅读） */
+  private mode: ReadingMode = 'paged';
   /** 点按桥接：已绑定 pointer 的 iframe 内容文档（hooks.content 每次触发时去重，防重复绑定） */
   private tapBoundDocs = new Set<Document>();
   private tapStart: { x: number; y: number } | null = null;
@@ -126,6 +143,8 @@ export class EpubBookController {
   async load(source: string | ArrayBuffer, container: HTMLElement, options: LoadOptions = {}): Promise<TocItem[]> {
     const ePub = (await import('epubjs')).default;
     const settings = options.settings ?? DEFAULT_READER_SETTINGS;
+    this.mode = options.mode ?? loadReadingMode();
+    const paged = this.mode === 'paged';
 
     const epubOpts: Record<string, unknown> = {};
     if (typeof source === 'string' && options.requestHeaders) epubOpts.requestHeaders = options.requestHeaders;
@@ -139,10 +158,11 @@ export class EpubBookController {
     this.rendition = this.book.renderTo(container, {
       width: '100%',
       height: '100%',
-      // 连续滚动模式：flow 与 manager 必须成对指定，epub.js 才选用 ContinuousViewManager
-      // （多章节拼接进同一滚动容器）；只传 flow 会回退 DefaultViewManager 单章替换模式（表现为只能看一章）
-      flow: 'scrolled-continuous',
-      manager: 'continuous',
+      // 双阅读模式（Phase 1）：paged = epub.js 原生分栏分页（DefaultViewManager）；
+      // scrolled = 连续滚动（flow 与 manager 必须成对指定才选用 ContinuousViewManager，
+      // 只传 flow 会回退单章替换模式——表现为只能看一章）
+      flow: paged ? 'paginated' : 'scrolled-continuous',
+      manager: paged ? 'default' : 'continuous',
       spread: 'none',
       // 点击桥接关键配置：epub.js iframe 默认 sandbox="allow-same-origin"（无 allow-scripts）。
       // WebKit bug 218086：无 allow-scripts 的 sandbox iframe，父页面在 contentDocument 上绑定的事件
@@ -155,6 +175,14 @@ export class EpubBookController {
     // div.epub-container（overflow-y: scroll）；触摸/滚轮事件则在 iframe 内容文档——阻尼须事件与滚动
     // 目标分离（历史缺陷：滚动 iframe 内容文档 documentElement 导致垂直滚动失效，根因见 scrollDamping）
     this.scrollTarget = container.querySelector<HTMLElement>('.epub-container') ?? null;
+    if (paged) {
+      // 翻页过渡（apple-books 设计 §3：180ms 量级滑动过渡）：epub.js paginated 经 scrollLeft 翻页，
+      // smooth 滚动行为使翻页呈现滑动过渡而非瞬移
+      if (this.scrollTarget) this.scrollTarget.style.scrollBehavior = 'smooth';
+    } else if (this.scrollTarget) {
+      // touch-action 容器生命周期（refactor 决策 2）：容器属性由容器持有者声明一次
+      claimContainerTouchAction(this.scrollTarget);
+    }
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
     // 内容管线：hooks.content 单次注册（主题注入 + 点按桥接）+ getContents 兜底 + relocated 重扫
@@ -172,6 +200,8 @@ export class EpubBookController {
   async loadTxt(chapters: TxtFeedSectionInput[], container: HTMLElement, options: LoadOptions = {}): Promise<TocItem[]> {
     const ePub = (await import('epubjs')).default;
     const settings = options.settings ?? DEFAULT_READER_SETTINGS;
+    this.mode = options.mode ?? loadReadingMode();
+    const paged = this.mode === 'paged';
     const feed = buildTxtFeed(chapters);
 
     // epub.js 支持以「章节数组」作为书源：每项 { id, href, html（XHTML 字符串） }
@@ -181,16 +211,21 @@ export class EpubBookController {
     this.rendition = this.book.renderTo(container, {
       width: '100%',
       height: '100%',
-      // 连续滚动模式：与 EPUB 一致，flow+manager 成对指定启用 ContinuousViewManager（多章拼接）
-      flow: 'scrolled-continuous',
-      manager: 'continuous',
+      // 双阅读模式：与 EPUB 同构（paged 分页 / scrolled 连续滚动需 flow+manager 成对指定）
+      flow: paged ? 'paginated' : 'scrolled-continuous',
+      manager: paged ? 'default' : 'continuous',
       spread: 'none',
       // 点击桥接关键配置：同 EPUB，sandbox 需含 allow-scripts 才能让父页面监听到 iframe 内事件
       // （WebKit 218086：无 allow-scripts 的 sandbox iframe 阻断父页面 contentDocument 事件监听）
       allowScriptedContent: true,
     });
-    // 同 EPUB：解析真实滚动容器（父页面 div.epub-container）供滚动阻尼装配
+    // 同 EPUB：解析真实滚动容器（父页面 div.epub-container）
     this.scrollTarget = container.querySelector<HTMLElement>('.epub-container') ?? null;
+    if (paged) {
+      if (this.scrollTarget) this.scrollTarget.style.scrollBehavior = 'smooth';
+    } else if (this.scrollTarget) {
+      claimContainerTouchAction(this.scrollTarget);
+    }
     this.applySettings(settings);
     this.rendition.on('relocated', (raw: unknown) => this.handleRelocated(raw));
     this.bindContentPipeline();
@@ -213,6 +248,33 @@ export class EpubBookController {
   /** 跳转章节 href（目录点击） */
   goTo(href: string): Promise<unknown> | undefined {
     return this.rendition?.display(href);
+  }
+
+  /** 下一页/屏（Phase 1）：paged 直通 rendition；scrolled 平滑滚动一视口（章节边界由连续容器自然衔接） */
+  async next(): Promise<void> {
+    if (this.mode === 'paged') {
+      await this.rendition?.next();
+      return;
+    }
+    const st = this.scrollTarget;
+    if (!st) return;
+    st.scrollBy({ top: st.clientHeight, behavior: 'smooth' });
+  }
+
+  /** 上一页/屏（Phase 1）：语义同 next() 反向 */
+  async prev(): Promise<void> {
+    if (this.mode === 'paged') {
+      await this.rendition?.prev();
+      return;
+    }
+    const st = this.scrollTarget;
+    if (!st) return;
+    st.scrollBy({ top: -st.clientHeight, behavior: 'smooth' });
+  }
+
+  /** 横滑翻页（scrollDamping 手势回调 → 翻页驱动） */
+  private handleSwipe(dir: HorizontalSwipeDir): void {
+    void (dir === 'next' ? this.next() : this.prev());
   }
 
   /** 跳转全书百分比位置（进度滑块；locations 未就绪时静默忽略） */
@@ -263,8 +325,8 @@ export class EpubBookController {
     };
   }
 
-  /** 订阅正文点按（用于显隐底部菜单）。返回退订函数。 */
-  onTap(cb: () => void): () => void {
+  /** 订阅正文点按（携带分区：left 上一页 / right 下一页 / center 菜单开关）。返回退订函数。 */
+  onTap(cb: (zone: TapZone) => void): () => void {
     this.tapListeners.add(cb);
     return () => {
       this.tapListeners.delete(cb);
@@ -283,6 +345,7 @@ export class EpubBookController {
     this.unbindTap();
     for (const cleanup of this.dampingCleanups.values()) cleanup();
     this.dampingCleanups.clear();
+    if (this.scrollTarget) releaseContainerTouchAction(this.scrollTarget);
     this.scrollTarget = null;
     this.rendition?.destroy();
     this.book?.destroy();
@@ -356,26 +419,42 @@ export class EpubBookController {
     contents.addStylesheetCss?.(this.themeCss, THEME_STYLE_KEY);
   }
 
-  /** 为单个内容文档直挂点按监听（幂等：已绑定的文档跳过） */
+  /** 为单个内容文档直挂点按监听（幂等：已绑定的文档跳过；D11：补 pointercancel 清理悬挂手势） */
   private attachTapDoc(doc: Document | undefined): void {
     if (!doc || this.tapBoundDocs.has(doc)) return;
     this.tapBoundDocs.add(doc);
     doc.addEventListener('pointerdown', this.handleTapStart, { passive: true });
     doc.addEventListener('pointerup', this.handleTapEnd, { passive: true });
+    doc.addEventListener('pointercancel', this.handleTapCancel, { passive: true });
     doc.addEventListener('click', this.handleTapClick);
+    // 键盘翻页：点按正文后焦点在 iframe 内，键盘事件派发到内容文档（不跨文档冒泡），
+    // 必须在内容文档同样监听（父页面 window 监听由 ReaderPage 负责，覆盖未聚焦场景）
+    doc.addEventListener('keydown', this.handleKeydown);
   }
 
-  /** 为单个内容文档装配滚动阻尼（幂等：已装配的文档跳过；滚动目标为真实 .epub-container 容器） */
+  /** 为单个内容文档装配手势（幂等：已装配的文档跳过）。
+   *  scrolled → 滚动阻尼（垂直）+ 横滑翻页；paged → 仅横滑翻页（无滚动容器）。
+   *  滚动容器解析失败时 fail-fast 报错（外部依赖边界校验，refactor 决策 4）。 */
   private attachDampingDoc(doc: Document | undefined): void {
-    if (!doc || !this.scrollTarget || this.dampingCleanups.has(doc)) return;
-    this.dampingCleanups.set(doc, attachScrollDamping(doc, this.scrollTarget, loadScrollDamping));
+    if (!doc || this.dampingCleanups.has(doc)) return;
+    if (this.mode === 'paged') {
+      this.dampingCleanups.set(doc, attachPagedGestures(doc, { onHorizontalSwipe: dir => this.handleSwipe(dir) }));
+      return;
+    }
+    if (!this.scrollTarget) {
+      console.error('[EpubBookController] 滚动容器（.epub-container）解析失败，滚动阻尼未装配');
+      return;
+    }
+    this.dampingCleanups.set(doc, attachScrollDamping(doc, this.scrollTarget, loadScrollDamping, { onHorizontalSwipe: dir => this.handleSwipe(dir) }));
   }
 
   private unbindTap(): void {
     for (const doc of this.tapBoundDocs) {
       doc.removeEventListener('pointerdown', this.handleTapStart);
       doc.removeEventListener('pointerup', this.handleTapEnd);
+      doc.removeEventListener('pointercancel', this.handleTapCancel);
       doc.removeEventListener('click', this.handleTapClick);
+      doc.removeEventListener('keydown', this.handleKeydown);
     }
     this.tapBoundDocs.clear();
     this.tapStart = null;
@@ -387,26 +466,65 @@ export class EpubBookController {
     this.tapStart = { x: e.clientX, y: e.clientY };
   };
 
-  /** pointerup 位移 < 10px 视为点按（滚动/拖动的 pointerup 位移大，不触发）；触发后记录时间戳供 click 去重 */
+  /** D11：pointercancel 清理——被系统手势（边缘返回/通知等）取消的指针不再留下悬挂 tapStart */
+  private handleTapCancel = (): void => {
+    this.tapStart = null;
+  };
+
+  /** 键盘翻页（Phase 1）：←/PageUp 上一页；→/PageDown/空格 下一页（内容文档侧，正文聚焦时生效） */
+  private handleKeydown = (e: KeyboardEvent): void => {
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      e.preventDefault();
+      void this.prev();
+    } else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+      e.preventDefault();
+      void this.next();
+    }
+  };
+
+  /**
+   * pointerup 点按判定（D11 加固）:
+   *  - 位移 ≤ 6px（与方向锁阈值统一，消除 6~10px 微拖既滚动又弹菜单的双触发）
+   *  - 选区守卫：文字选择未收起时不触发（选中文字的抬起不翻转菜单）
+   *  - 链接守卫：点在书内链接（a[href]）上不触发（保留链接默认行为）
+   *  - 分区路由：左 1/4 = left、右 1/4 = right、中 1/2 = center（由 UI 层映射翻页/菜单）
+   */
   private handleTapEnd = (e: PointerEvent): void => {
     const start = this.tapStart;
     this.tapStart = null;
     if (!start) return;
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
-    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
+    if (Math.abs(dx) > TAP_SLOP_PX || Math.abs(dy) > TAP_SLOP_PX) return;
+    const target = e.target;
+    if (target instanceof Element) {
+      const selection = target.ownerDocument?.getSelection?.();
+      if (selection && !selection.isCollapsed) return; // 选区守卫
+      if (target.closest('a[href]')) return;           // 链接守卫
+    }
+    const viewWidth = (e.target as Element | null)?.ownerDocument?.defaultView?.innerWidth
+      ?? (typeof window !== 'undefined' ? window.innerWidth : 0);
+    const zone: TapZone = e.clientX < viewWidth * 0.25 ? 'left'
+      : e.clientX > viewWidth * 0.75 ? 'right' : 'center';
     this.lastTapAt = Date.now();
-    this.emitTap();
+    this.emitTap(zone);
   };
 
   /** click 兜底（pointer 事件不可用的环境）；若 pointerup 刚触发过（<400ms）则忽略防双触发 */
-  private handleTapClick = (): void => {
+  private handleTapClick = (e: MouseEvent): void => {
     if (Date.now() - this.lastTapAt < 400) return;
+    const target = e.target;
+    if (target instanceof Element && target.closest('a[href]')) return; // 链接守卫
+    const viewWidth = target instanceof Element
+      ? (target.ownerDocument?.defaultView?.innerWidth || window.innerWidth)
+      : window.innerWidth;
+    const zone: TapZone = e.clientX < viewWidth * 0.25 ? 'left'
+      : e.clientX > viewWidth * 0.75 ? 'right' : 'center';
     this.lastTapAt = Date.now();
-    this.emitTap();
+    this.emitTap(zone);
   };
 
-  private emitTap(): void {
-    for (const cb of this.tapListeners) cb();
+  private emitTap(zone: TapZone): void {
+    for (const cb of this.tapListeners) cb(zone);
   }
 }

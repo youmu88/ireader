@@ -5,7 +5,9 @@
 /** 阅读主题（对标 Apple Books 四色） */
 export type ReaderTheme = 'white' | 'sepia' | 'gray' | 'black';
 
-/** 阅读器设置（固定垂直滚动模式，仅保留排版相关项） */
+/**
+ * 阅读器设置（排版相关项；阅读模式 paged/scrolled 为独立全局设置，见 reader/readingMode.ts）
+ */
 export interface ReaderSettings {
   /** 字号百分比（60-200，默认 100） */
   fontSize: number;

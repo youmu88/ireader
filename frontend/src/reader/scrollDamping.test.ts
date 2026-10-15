@@ -6,9 +6,15 @@ import {
   clampScrollDamping,
   dampingMultiplier,
   frictionCoeff,
+  scaleDelta,
   loadScrollDamping,
   saveScrollDamping,
   attachScrollDamping,
+  attachPagedGestures,
+  claimContainerTouchAction,
+  releaseContainerTouchAction,
+  SWIPE_PAGE_THRESHOLD,
+  EDGE_GUARD_PX,
 } from './scrollDamping';
 
 afterEach(() => {
@@ -181,14 +187,51 @@ describe('attachScrollDamping — 触摸（移动端主场景）', () => {
     cleanup();
   });
 
-  it('水平手势不拦截（交还原生，如返回滑动）', () => {
-    const { eventDoc, scrollTarget, getTop } = makeEnv();
-    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 5);
+  it('横滑翻页（Phase 1）：右滑 ≥ 阈值触发 prev 并接管（preventDefault）', () => {
+    const { eventDoc, scrollTarget } = makeEnv();
+    const swipeCb = vi.fn();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 5, { onHorizontalSwipe: swipeCb });
     vi.spyOn(performance, 'now').mockReturnValue(1000);
     fireTouch(eventDoc, 'touchstart', [pt(50, 200)]);
-    const ev = fireTouch(eventDoc, 'touchmove', [pt(150, 200)]); // adx=100 > ady=0 → 水平
-    expect(ev.defaultPrevented).toBe(false);
-    expect(getTop()).toBe(0);
+    const ev = fireTouch(eventDoc, 'touchmove', [pt(50 + SWIPE_PAGE_THRESHOLD + 10, 200)]); // 右滑 dx=58
+    expect(ev.defaultPrevented).toBe(true);
+    expect(swipeCb).toHaveBeenCalledWith('prev');
+    expect(getTopSafe(scrollTarget)).toBe(0); // 横滑不产生垂直滚动
+    cleanup();
+  });
+
+  it('横滑翻页：左滑 ≥ 阈值触发 next；小于阈值不触发（正常阅读微横移）', () => {
+    const { eventDoc, scrollTarget } = makeEnv();
+    const swipeCb = vi.fn();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 5, { onHorizontalSwipe: swipeCb });
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+    fireTouch(eventDoc, 'touchstart', [pt(200, 200)]);
+    fireTouch(eventDoc, 'touchmove', [pt(200 - (SWIPE_PAGE_THRESHOLD - 8), 200)]); // 左滑不足阈值
+    expect(swipeCb).not.toHaveBeenCalled();
+    fireTouch(eventDoc, 'touchmove', [pt(200 - SWIPE_PAGE_THRESHOLD - 5, 200)]); // 左滑达阈值
+    expect(swipeCb).toHaveBeenCalledWith('next');
+    cleanup();
+  });
+
+  it('横滑边缘保护：屏幕边缘起手交还系统返回手势，不触发翻页', () => {
+    const { eventDoc, scrollTarget } = makeEnv();
+    const swipeCb = vi.fn();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 5, { onHorizontalSwipe: swipeCb });
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+    fireTouch(eventDoc, 'touchstart', [pt(EDGE_GUARD_PX - 10, 200)]); // 左边缘内起手
+    fireTouch(eventDoc, 'touchmove', [pt(EDGE_GUARD_PX + 80, 200)]); // 大幅右滑
+    expect(swipeCb).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it('斜向大位移（垂直分量超限）不触发横滑翻页', () => {
+    const { eventDoc, scrollTarget } = makeEnv();
+    const swipeCb = vi.fn();
+    const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 5, { onHorizontalSwipe: swipeCb });
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+    fireTouch(eventDoc, 'touchstart', [pt(100, 100)]);
+    fireTouch(eventDoc, 'touchmove', [pt(200, 200)]); // dx=100，dy=100 超垂直分量上限
+    expect(swipeCb).not.toHaveBeenCalled();
     cleanup();
   });
 
@@ -245,31 +288,93 @@ describe('attachScrollDamping — 触摸（移动端主场景）', () => {
     cleanup();
   });
 
-  it('touch-action 设置在真实滚动容器（scrollTarget）上，cleanup 还原并移除触摸监听', () => {
+  it('touch-action 已移出装配函数（refactor 决策 2）：attach 不再触碰容器属性，由持有者 claim/release 管理', () => {
     const { eventDoc, scrollTarget, getTop } = makeEnv();
-    const initial = scrollTarget.style.touchAction; // jsdom 未设置时为 undefined，真机为 ''
+    const initial = scrollTarget.style.touchAction;
     const cleanup = attachScrollDamping(eventDoc, scrollTarget, () => 5);
-    expect(scrollTarget.style.touchAction).toBe('pan-x pinch-zoom');
-    cleanup();
-    expect(scrollTarget.style.touchAction).toBe(initial); // 还原为装配前的初始值（还原语义，不硬编码具体值）
-    // 触摸不再被拦截
+    expect(scrollTarget.style.touchAction).toBe(initial); // attach 不再设置
+    // 阻尼接管照常生效（与 touch-action 解耦）
     vi.spyOn(performance, 'now').mockReturnValue(1000);
     fireTouch(eventDoc, 'touchstart', [pt(50, 200)]);
     const ev = fireTouch(eventDoc, 'touchmove', [pt(50, 100)]);
-    expect(ev.defaultPrevented).toBe(false);
-    expect(getTop()).toBe(0);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(getTop()).toBeCloseTo(100 * dampingMultiplier(5), 5);
+    cleanup();
   });
 
-  it('多个 iframe 文档共享同一滚动容器：touch-action 引用计数，末次卸载才还原', () => {
-    const { eventDoc, scrollTarget } = makeEnv();
-    const doc2 = document.implementation.createHTMLDocument('iframe-2');
+  it('claim/releaseContainerTouchAction：容器属性生命周期由持有者管理（refactor 决策 2）', () => {
+    const { scrollTarget } = makeEnv();
     const initial = scrollTarget.style.touchAction;
-    const c1 = attachScrollDamping(eventDoc, scrollTarget, () => 3);
-    const c2 = attachScrollDamping(doc2, scrollTarget, () => 3);
+    claimContainerTouchAction(scrollTarget);
     expect(scrollTarget.style.touchAction).toBe('pan-x pinch-zoom');
-    c1();
-    expect(scrollTarget.style.touchAction).toBe('pan-x pinch-zoom'); // 仍有一个引用
-    c2();
-    expect(scrollTarget.style.touchAction).toBe(initial); // 全部卸载才还原
+    releaseContainerTouchAction(scrollTarget);
+    expect(scrollTarget.style.touchAction).toBe(initial);
+  });
+
+  it('claim 引用计数：重复 claim 后需等量 release 才还原（多书/多容器切换安全）', () => {
+    const { scrollTarget } = makeEnv();
+    const initial = scrollTarget.style.touchAction;
+    claimContainerTouchAction(scrollTarget);
+    claimContainerTouchAction(scrollTarget);
+    releaseContainerTouchAction(scrollTarget);
+    expect(scrollTarget.style.touchAction).toBe('pan-x pinch-zoom');
+    releaseContainerTouchAction(scrollTarget);
+    expect(scrollTarget.style.touchAction).toBe(initial);
+  });
+
+  it('scaleDelta：统一增量缩放入口（wheel 与 touch 共享）', () => {
+    expect(scaleDelta(100, 10)).toBeCloseTo(25, 5);
+    expect(scaleDelta(100, 1)).toBeCloseTo(90, 5);
+  });
+
+  it('attachPagedGestures：垂直事件完全不接管（paged 无滚动容器）', () => {
+    const { eventDoc, getTop } = makeEnv();
+    const swipeCb = vi.fn();
+    const cleanup = attachPagedGestures(eventDoc, { onHorizontalSwipe: swipeCb });
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+    fireTouch(eventDoc, 'touchstart', [pt(50, 300)]);
+    const ev = fireTouch(eventDoc, 'touchmove', [pt(50, 100)]); // 垂直
+    expect(ev.defaultPrevented).toBe(false);
+    expect(getTop()).toBe(0);
+    expect(swipeCb).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it('attachPagedGestures：横滑翻页仍生效（paged 手势）', () => {
+    const { eventDoc } = makeEnv();
+    const swipeCb = vi.fn();
+    const cleanup = attachPagedGestures(eventDoc, { onHorizontalSwipe: swipeCb });
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+    fireTouch(eventDoc, 'touchstart', [pt(300, 200)]);
+    const ev = fireTouch(eventDoc, 'touchmove', [pt(300 - SWIPE_PAGE_THRESHOLD - 10, 200)]); // 左滑
+    expect(ev.defaultPrevented).toBe(true);
+    expect(swipeCb).toHaveBeenCalledWith('next');
+    cleanup();
+  });
+
+  it('attachPagedGestures：wheel deltaX 累计达阈值翻页（触控板），节流防连翻', () => {
+    const { eventDoc } = makeEnv();
+    const wheelPageCb = vi.fn();
+    const cleanup = attachPagedGestures(eventDoc, { onWheelPage: wheelPageCb });
+    let now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    // deltaX=50 ≥ 40 → 立即 prev（右滑语义，与 TouchGesture 横滑统一：正 = prev）
+    eventDoc.dispatchEvent(new WheelEvent('wheel', { deltaX: 50, deltaY: 0, cancelable: true }));
+    expect(wheelPageCb).toHaveBeenCalledTimes(1);
+    expect(wheelPageCb).toHaveBeenCalledWith('prev');
+    // 节流窗口内（250ms）第二次不触发
+    now += 100;
+    eventDoc.dispatchEvent(new WheelEvent('wheel', { deltaX: 50, deltaY: 0, cancelable: true }));
+    expect(wheelPageCb).toHaveBeenCalledTimes(1);
+    // 窗口过后反向累计（负 = next）
+    now += 300;
+    eventDoc.dispatchEvent(new WheelEvent('wheel', { deltaX: -60, deltaY: 0, cancelable: true }));
+    expect(wheelPageCb).toHaveBeenCalledTimes(2);
+    expect(wheelPageCb).toHaveBeenLastCalledWith('next');
+    cleanup();
   });
 });
+
+function getTopSafe(el: HTMLElement): number {
+  return el.scrollTop;
+}

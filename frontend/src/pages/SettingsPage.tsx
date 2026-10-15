@@ -21,6 +21,7 @@ import { checkSWUpdate } from '../sw';
 import axios from 'axios';
 import { Button, IconButton, ToggleSwitch, toast } from '../components/ui';
 import { loadScrollDamping, saveScrollDamping, SCROLL_DAMPING_MIN, SCROLL_DAMPING_MAX } from '../reader/scrollDamping';
+import { loadReadingMode, saveReadingMode, type ReadingMode } from '../reader/readingMode';
 
 export default function SettingsPage() {
   // @ts-ignore
@@ -113,6 +114,15 @@ export default function SettingsPage() {
   const handleScrollDampingChange = (v: number) => {
     setScrollDamping(v);
     saveScrollDamping(v);
+  };
+
+  // ── 阅读模式（Phase 1：paged 分页 / scrolled 连续滚动；切换后下次进入阅读生效） ──
+  const [readerMode, setReaderMode] = useState<ReadingMode>(loadReadingMode);
+  const handleReadingModeChange = (m: ReadingMode) => {
+    if (m === readerMode) return;
+    setReaderMode(m);
+    saveReadingMode(m);
+    toast.info('阅读模式已切换，下次进入阅读生效');
   };
 
   // Load initial data
@@ -549,6 +559,30 @@ export default function SettingsPage() {
         </h2>
         <div className="rounded-2xl overflow-hidden shadow-ios-sm"
           style={{ background: 'var(--color-bg-card)' }}>
+          {/* 阅读模式（Phase 1：paged 分页 / scrolled 连续滚动） */}
+          <div className="flex items-center justify-between px-4 py-3.5 tap-row"
+            style={{ borderBottom: '0.5px solid var(--color-border)' }}>
+            <div>
+              <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>阅读模式</span>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
+                翻页：点按两侧/横滑/键盘 · 滚动：连续滚动
+              </p>
+            </div>
+            <div className="flex rounded-full p-0.5 shrink-0"
+              style={{ background: 'rgba(120,120,128,0.16)' }}>
+              {(['paged', 'scrolled'] as const).map(m => (
+                <button key={m} type="button"
+                  onClick={() => handleReadingModeChange(m)}
+                  aria-label={m === 'paged' ? '阅读模式：翻页' : '阅读模式：滚动'}
+                  className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
+                  style={readerMode === m
+                    ? { background: '#007aff', color: '#ffffff' }
+                    : { color: 'var(--color-text-secondary)' }}>
+                  {m === 'paged' ? '翻页' : '滚动'}
+                </button>
+              ))}
+            </div>
+          </div>
           {/* 主题切换 */}
           <div className="flex items-center justify-between px-4 py-3.5 tap-row"
             style={{ borderBottom: '0.5px solid var(--color-border)' }}>

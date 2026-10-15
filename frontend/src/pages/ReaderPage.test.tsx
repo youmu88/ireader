@@ -18,7 +18,7 @@ const controllerMocks = vi.hoisted(() => {
     search: vi.fn().mockResolvedValue([]),
     applySettings: vi.fn(),
     onLocationChange: vi.fn().mockReturnValue(() => {}),
-    onTap: vi.fn().mockReturnValue(() => {}),
+    onTap: vi.fn((_cb: (zone: 'left' | 'center' | 'right') => void) => () => {}),
     generateLocations: vi.fn().mockResolvedValue(500),
     isLocationsReady: false,
     currentLocation: null,
@@ -74,8 +74,8 @@ const mockBook = (format: 'epub' | 'txt') => {
   });
 };
 
-// 捕获正文点按回调（epub.js click 桥接 → onTap），测试中模拟“点按正文”
-let tapCb: (() => void) | undefined;
+// 捕获正文点按回调（epub.js click 桥接 → onTap），测试中模拟“点按正文”（携带分区）
+let tapCb: ((zone: 'left' | 'center' | 'right') => void) | undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -83,7 +83,7 @@ beforeEach(() => {
   controllerMocks.instance.load.mockResolvedValue([{ id: 'c1', label: '第一章', href: 'ch1.xhtml' }]);
   controllerMocks.instance.loadTxt.mockResolvedValue([{ id: 'c1', label: '第一章', href: 'txt-0.xhtml' }]);
   controllerMocks.instance.onLocationChange.mockReturnValue(() => {});
-  controllerMocks.instance.onTap.mockImplementation((cb: () => void) => {
+  controllerMocks.instance.onTap.mockImplementation((cb: (zone: 'left' | 'center' | 'right') => void) => {
     tapCb = cb;
     return () => {};
   });
@@ -128,20 +128,20 @@ describe('ReaderPage', () => {
     expect(options.requestHeaders).toBeUndefined();
   });
 
-  it('点按正文（epub.js click 桥接）切换底部工具栏显隐', async () => {
+  it('点按正文中央分区（epub.js click 桥接）切换底部工具栏显隐；左右分区翻页', async () => {
     mockBook('epub');
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
 
     // 初始隐藏
     expect(screen.getByTestId('reader-chrome-bottom').className).toContain('translate-y-full');
-    // 点按正文 → 显示
-    act(() => tapCb?.());
+    // 点按正文中央分区 → 显示
+    act(() => tapCb?.('center'));
     expect(screen.getByTestId('reader-chrome-bottom').className).toContain('translate-y-0');
     // 底栏菜单书名
     expect(screen.getByText('测试之书')).toBeDefined();
-    // 再点按正文 → 隐藏
-    act(() => tapCb?.());
+    // 再点按正文中央分区 → 隐藏
+    act(() => tapCb?.('center'));
     expect(screen.getByTestId('reader-chrome-bottom').className).toContain('translate-y-full');
   });
 
@@ -149,7 +149,7 @@ describe('ReaderPage', () => {
     mockBook('epub');
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
-    act(() => tapCb?.());
+    act(() => tapCb?.('center'));
     const bar = screen.getByTestId('reader-menu-bar');
     const texts = Array.from(bar.querySelectorAll('button, p')).map(el => el.textContent ?? '');
     const idx = (s: string) => texts.findIndex(t => t.includes(s));
@@ -163,7 +163,7 @@ describe('ReaderPage', () => {
     mockBook('epub');
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
-    act(() => tapCb?.());
+    act(() => tapCb?.('center'));
 
     // 打开目录（getByRole 精确命中底栏按钮，避免与抽屉容器 aria-label 冲突）
     fireEvent.click(screen.getByRole('button', { name: '目录' }));
@@ -191,7 +191,7 @@ describe('ReaderPage', () => {
     ]);
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
-    act(() => tapCb?.());
+    act(() => tapCb?.('center'));
     fireEvent.click(screen.getByRole('button', { name: '搜索' }));
     // 面板内输入关键词（防抖 300ms 后触发 controller.search）
     fireEvent.change(screen.getByLabelText('搜索全书'), { target: { value: '关键词' } });
@@ -240,7 +240,7 @@ describe('ReaderPage', () => {
     mockBook('epub');
     renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
-    act(() => tapCb?.());
+    act(() => tapCb?.('center'));
     fireEvent.click(screen.getByLabelText('字体与主题'));
     fireEvent.click(screen.getByRole('button', { name: '主题-黑色' }));
     // applySettings 必须以最新主题调用（正文与周边同步；防加载竞态导致正文停留在旧主题）
@@ -259,7 +259,7 @@ describe('ReaderPage', () => {
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
     // 初始白色 → 打开 aA 面板切换黑色主题
     expect(screen.getByTestId('reader-statusbar-cover')).toHaveStyle({ background: 'rgb(255, 255, 255)' });
-    act(() => tapCb?.());
+    act(() => tapCb?.('center'));
     fireEvent.click(screen.getByLabelText('字体与主题'));
     fireEvent.click(screen.getByRole('button', { name: '主题-黑色' }));
     // 顶栏/根背景/状态栏覆盖层立即变为黑色（不依赖退出重进）
@@ -280,7 +280,7 @@ describe('ReaderPage', () => {
     const { unmount } = renderReader();
     await waitFor(() => expect(controllerMocks.instance.load).toHaveBeenCalledTimes(1));
     // 白色 → 黑色 → 灰色（三次主题切换，模拟历史还原 bug 的触发路径）
-    act(() => tapCb?.());
+    act(() => tapCb?.('center'));
     fireEvent.click(screen.getByLabelText('字体与主题'));
     fireEvent.click(screen.getByRole('button', { name: '主题-黑色' }));
     await waitFor(() => expect(document.body.style.background).toBe('rgb(0, 0, 0)'));

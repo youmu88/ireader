@@ -365,20 +365,20 @@ flowchart TB
 - [x] P1（原 Phase 4 提前，经拍板并入）：进度版本号服务端权威，客户端值不参与 max 计算（D24；过期版本拒写保护保留）
 - [x] P1：backend/secUserEmail.json（真实邮箱白名单）移出仓库：.gitignore + 保留部署目录文件（D34；工作区文件保留、仅移出 git 索引；缺失时空白名单=禁止注册、已有账号登录不受影响；新部署需手动放置或环境变量注入）
 
-### Phase 1 · 阅读核心体验（翻页 + 手势）
+### Phase 1 · 阅读核心体验（翻页 + 手势）✅ 已实施（v2.63.0，2026-10-15；方案 A 双模式/分页默认/阻尼重构一并做，均经用户拍板）
 
-- [ ] P0：EpubBookController 增加 mode 参数，paged 模式启用 `flow:'paginated'`，scrolled 保持现状（3.3-1）
-- [ ] P0：控制器实现并暴露 next()/prev()：paged 直通 rendition，scrolled 映射滚动一屏（3.3-2）
-- [ ] P0：点按分区路由：左 1/4 上一页、右 1/4 下一页、中 1/2 菜单（onTap 内按 clientX 分区）（3.3-3）
-- [ ] P0：横滑翻页：scrollDamping 方向锁拦截横滑，位移≥48px 触发翻页/切章（3.3-3，D12）
-- [ ] P1：键盘 ←/→/PageUp/PageDown/空格 绑定翻页（3.3-3）
-- [ ] P1：paged 模式 180ms 翻页过渡动画（3.3-3）
-- [ ] P1：设置页新增阅读模式切换并持久化（3.3-1）
-- [ ] P1：tap 桥接补 pointercancel 清理（D11，EpubBookController.ts:363-365）
-- [ ] P1：handleTapEnd 加选区 isCollapsed 与链接元素守卫（D11，:391-400）
-- [ ] P2：tap 位移阈值统一 6px，消除微拖双触发（D11）
-- [ ] P1：实施 scroll-damping-refactor-design.md 三层管线重构（已设计未实施）
-- [ ] P1：翻页/手势单元测试：分区路由、横滑阈值、pointercancel、选区守卫；更新 ReaderPage.test.tsx 基线
+- [x] P0：EpubBookController 增加 mode 参数，paged 模式启用 `flow:'paginated'`（+scroll-behavior smooth 翻页过渡），scrolled 保持现状（3.3-1）
+- [x] P0：控制器实现并暴露 next()/prev()：paged 直通 rendition；scrolled 平滑滚动一视口（3.3-2）
+- [x] P0：点按分区路由：左 1/4 上一页、右 1/4 下一页、中 1/2 菜单（onTap 按分区回调，3.3-3）
+- [x] P0：横滑翻页：scrollDamping 方向锁拦截横滑，位移≥48px 且垂直分量≤48px 触发；屏幕边缘 28px 内起手交还系统返回手势（3.3-3，D12）
+- [x] P1：键盘 ←/→/PageUp/PageDown/空格 绑定翻页（3.3-3；父页面 window + iframe 内容文档双监听——点按正文后焦点在 iframe 内，键盘事件不跨文档冒泡）
+- [x] P1：paged 模式翻页滑动过渡（实施口径：scroll-behavior smooth 而非 translateX 包装，效果对齐滑动过渡体验）
+- [x] P1：设置页新增阅读模式切换并持久化（外观区首项；切换后 toast 提示下次进入阅读生效）
+- [x] P1：tap 桥接补 pointercancel 清理（D11）
+- [x] P1：handleTapEnd 加选区 isCollapsed 与链接元素守卫（D11；click 兜底路径同步加链接守卫）
+- [x] P2：tap 位移阈值统一 6px（D11）
+- [x] P1：scroll-damping-refactor-design 三层管线重构落地（TouchGesture/Momentum 类化、touch-action 容器生命周期化 claim/release、scaleDelta 统一、fail-fast、变更广播；两处有意偏差：friction 派生公式按行为等价红线保留原插值、level 缓存降级为订阅广播——均已记录）
+- [x] P1：翻页/手势单元测试（分区路由/横滑阈值/pointercancel/选区守卫/键盘/双模式 next/prev）+ ReaderPage.test.tsx 基线更新（tapCb 带 zone 参数）
 
 ### Phase 2 · TTS 闭环
 

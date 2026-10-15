@@ -92,6 +92,7 @@ describe('EpubBookController', () => {
     const toc = await controller.load('https://x/book.epub', container, {
       initialCfi: 'epubcfi(/6/2!/4/2)',
       requestHeaders: { Authorization: 'Bearer t' },
+      mode: 'scrolled', // 显式指定滚动模式（默认为 paged，见下用例）
     });
 
     expect(mocks.ePub).toHaveBeenCalledWith('https://x/book.epub/', {
@@ -105,6 +106,15 @@ describe('EpubBookController', () => {
     expect(toc).toHaveLength(2);
     expect(toc[0].label).toBe('第一章'); // trim
     expect(toc[1].subitems?.[0].href).toBe('ch2.xhtml#s1');
+  });
+
+  it('load：默认模式为 paged（用户拍板），flow paginated + manager default + 翻页平滑过渡', async () => {
+    localStorage.removeItem('ireader_reading_mode');
+    await controller.load('url', container);
+    expect(mocks.book.renderTo).toHaveBeenCalledWith(
+      container,
+      expect.objectContaining({ flow: 'paginated', manager: 'default', spread: 'none' }),
+    );
   });
 
   it('load：无初始 CFI 时 display() 从头开始；ArrayBuffer 来源不传 requestHeaders', async () => {
@@ -275,11 +285,11 @@ describe('EpubBookController', () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
-  it('loadTxt：以 scrolled-continuous 渲染并注册 hooks.content 点按桥接', async () => {
+  it('loadTxt：以 scrolled-continuous 渲染并注册 hooks.content 点按桥接（显式滚动模式）', async () => {
     await controller.loadTxt(
       [{ id: 't1', title: '第一章', text: '正文' }],
       container,
-      { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75 } },
+      { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75 }, mode: 'scrolled' },
     );
     expect(mocks.book.renderTo).toHaveBeenCalledWith(
       container,
@@ -308,7 +318,7 @@ describe('EpubBookController', () => {
     localContainer.appendChild(scroller);
     const dampingDoc = document.implementation.createHTMLDocument('epub-damping');
     mocks.rendition.getContents.mockReturnValue([{ document: dampingDoc, addStylesheetCss: vi.fn() }]);
-    await controller.load('url', localContainer, { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75 } });
+    await controller.load('url', localContainer, { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75 }, mode: 'scrolled' });
 
     // wheel 被拦截（事件在 iframe 内容文档，滚动落在 .epub-container）
     const ev = new WheelEvent('wheel', { deltaY: 100, cancelable: true, bubbles: true });
@@ -336,5 +346,107 @@ describe('EpubBookController', () => {
     const ev3 = new WheelEvent('wheel', { deltaY: 100, cancelable: true, bubbles: true });
     dampingDoc.dispatchEvent(ev3);
     expect(ev3.defaultPrevented).toBe(false);
+  });
+
+  // ── Phase 1：双模式翻页 + 点按分区 + D11 守卫 ──
+
+  it('next/prev（paged）：直通 rendition.next/prev', async () => {
+    await controller.load('url', container, { mode: 'paged' });
+    await controller.next();
+    expect(mocks.rendition.next).toHaveBeenCalledTimes(1);
+    await controller.prev();
+    expect(mocks.rendition.prev).toHaveBeenCalledTimes(1);
+  });
+
+  it('next/prev（scrolled）：平滑滚动一视口（滚动容器 clientHeight）', async () => {
+    const scroller = document.createElement('div');
+    scroller.className = 'epub-container';
+    const scrollBy = vi.fn();
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 600 });
+    scroller.scrollBy = scrollBy;
+    const localContainer = document.createElement('div');
+    localContainer.appendChild(scroller);
+    await controller.load('url', localContainer, { mode: 'scrolled' });
+
+    await controller.next();
+    expect(scrollBy).toHaveBeenCalledWith({ top: 600, behavior: 'smooth' });
+    await controller.prev();
+    expect(scrollBy).toHaveBeenLastCalledWith({ top: -600, behavior: 'smooth' });
+  });
+
+  it('tap 分区路由（Phase 1）：左 1/4→left、右 1/4→right、中 1/2→center', async () => {
+    await controller.load('url', container);
+    const listener = vi.fn();
+    controller.onTap(listener);
+
+    emitTap(10, 10);   // jsdom innerWidth 1024 → x<256 → left
+    expect(listener).toHaveBeenLastCalledWith('left');
+    emitTap(900, 10);  // x>768 → right
+    expect(listener).toHaveBeenLastCalledWith('right');
+    emitTap(500, 10);  // 中间 → center
+    expect(listener).toHaveBeenLastCalledWith('center');
+  });
+
+  it('D11 选区守卫：文字选择未收起时点按不触发（选中抬起不翻转菜单）', async () => {
+    await controller.load('url', container);
+    const listener = vi.fn();
+    controller.onTap(listener);
+    const selSpy = vi.spyOn(contentDoc, 'getSelection').mockReturnValue({ isCollapsed: false } as unknown as Selection);
+    // target 需为 Element 才进守卫路径：在 body 上派发
+    contentDoc.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    contentDoc.body.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+    expect(listener).not.toHaveBeenCalled();
+    selSpy.mockRestore();
+  });
+
+  it('D11 链接守卫：点在书内链接（a[href]）上不触发点按', async () => {
+    await controller.load('url', container);
+    const listener = vi.fn();
+    controller.onTap(listener);
+    contentDoc.body.innerHTML = '<a href="https://x" id="lnk">link</a>';
+    const link = contentDoc.getElementById('lnk')!;
+    link.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    link.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+    expect(listener).not.toHaveBeenCalled();
+    contentDoc.body.innerHTML = '';
+  });
+
+  it('D11 pointercancel：被系统手势取消的指针清理 tapStart，游离 pointerup 不再误触发', async () => {
+    await controller.load('url', container);
+    const listener = vi.fn();
+    controller.onTap(listener);
+    contentDoc.dispatchEvent(new MouseEvent('pointerdown', { clientX: 20, clientY: 20, bubbles: true }));
+    contentDoc.dispatchEvent(new MouseEvent('pointercancel', { bubbles: true }));
+    contentDoc.dispatchEvent(new MouseEvent('pointerup', { clientX: 20, clientY: 20, bubbles: true }));
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('D11 阈值统一 6px：位移 5px 触发点按、8px 不触发（与方向锁一致，消除微拖双触发）', async () => {
+    await controller.load('url', container);
+    const listener = vi.fn();
+    controller.onTap(listener);
+    emitDrag(500, 300, 505, 300); // dx=5 ≤ 6 → 点按
+    expect(listener).toHaveBeenCalledTimes(1);
+    emitDrag(500, 300, 508, 300); // dx=8 > 6 → 拖动
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('键盘翻页（Phase 1）：内容文档 keydown ←/→/PageUp/PageDown/空格 驱动 next/prev（正文聚焦场景）', async () => {
+    // 独立内容文档：共享 fixture 的 contentDoc 上累积了历史用例实例的监听（未 destroy），会污染调用计数
+    const kbDoc = document.implementation.createHTMLDocument('epub-kb');
+    mocks.rendition.getContents.mockReturnValue([{ document: kbDoc, addStylesheetCss: vi.fn() }]);
+    await controller.load('url', container, { mode: 'paged' });
+    const kd = (key: string) =>
+      kbDoc.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    kd('ArrowRight');
+    expect(mocks.rendition.next).toHaveBeenCalledTimes(1);
+    kd('PageDown');
+    expect(mocks.rendition.next).toHaveBeenCalledTimes(2);
+    kd(' ');
+    expect(mocks.rendition.next).toHaveBeenCalledTimes(3);
+    kd('ArrowLeft');
+    expect(mocks.rendition.prev).toHaveBeenCalledTimes(1);
+    kd('PageUp');
+    expect(mocks.rendition.prev).toHaveBeenCalledTimes(2);
   });
 });

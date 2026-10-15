@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { EpubBookController, type TxtFeedSectionInput } from '../reader/EpubBookController';
+import { loadReadingMode } from '../reader/readingMode';
 import { READER_THEMES } from '../reader/theme';
 import type { ReaderLocation, TocItem } from '../reader/types';
 import { useReaderSettings } from '../reader/useReaderSettings';
@@ -125,8 +126,14 @@ export default function ReaderPage() {
           setLocation(loc);
           scheduleSave(loc);
         });
-        // 正文点按（epub.js 桥接 iframe 内 click）→ 显隐底栏；不叠加覆盖层，滚动手势直达
-        controller.onTap(() => setChromeVisible(v => !v));
+        // 正文点按（epub.js 桥接 iframe 内 click）→ 分区路由：中 1/2 显隐底栏，左 1/4 上一页，右 1/4 下一页（Phase 1）
+        controller.onTap(zone => {
+          if (zone === 'center') {
+            setChromeVisible(v => !v);
+            return;
+          }
+          void (zone === 'left' ? controller.prev() : controller.next());
+        });
         void controller.generateLocations().then(() => {
           if (!cancelled) setLocationsReady(true);
         });
@@ -148,6 +155,7 @@ export default function ReaderPage() {
           controller.loadTxt(feedInputs, viewerRef.current!, {
             initialCfi: initialCfiTxt,
             settings,
+            mode: loadReadingMode(),
           }),
           20000,
           'loadTxt',
@@ -177,6 +185,7 @@ export default function ReaderPage() {
           initialCfi,
           requestHeaders,
           settings,
+          mode: loadReadingMode(),
         }),
         20000,
         'load-epub',
@@ -224,6 +233,23 @@ export default function ReaderPage() {
   useEffect(() => {
     controllerRef.current?.applySettings(settings);
   }, [settings]);
+
+  // ── 键盘翻页（Phase 1）：←/PageUp 上一页，→/PageDown/空格 下一页 ──
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const c = controllerRef.current;
+      if (!c) return;
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        void c.prev();
+      } else if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+        e.preventDefault();
+        void c.next();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // ── 阅读主题 → 浏览器镀铬层（状态栏覆盖层 + html/body 根背景 + theme-color）统一收敛 ──
   // 三处同步均由 useReaderChromeTheme 单一 hook 管理：声明式状态栏覆盖层（渲染驱动）+ 命令式根背景/meta（初始值还原）。
