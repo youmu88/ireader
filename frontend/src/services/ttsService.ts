@@ -38,6 +38,8 @@ export interface TTSSettings {
   speed: number;
   apiUrl: string | null;
   apiKey: string | null;
+  /** D25：后端脱敏后标记是否已保存 apiKey（true 时 apiKey 为掩码 ****xxxx） */
+  hasApiKey?: boolean;
   model: string | null;
   preGenerateConcurrency: number;
   firstChunkMaxSize: number;
@@ -57,24 +59,29 @@ export interface HealthResult {
 
 const API_BASE = '/api/tts';
 
+/** D25：掩码 apiKey（GET /settings 脱敏产物）不回传，由后端回退用户已保存真值 */
+function isMaskedApiKey(apiKey?: string): boolean {
+  return !!apiKey && apiKey.startsWith('****');
+}
+
 /**
- * 获取 TTS 源列表
+ * 获取 TTS 源列表（安全加固 D8：后端已挂鉴权，需携带 token）
  */
 export async function fetchSources(): Promise<TTSource[]> {
-  const res = await fetch(`${API_BASE}/sources`);
+  const res = await fetch(`${API_BASE}/sources`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error('Failed to fetch TTS sources');
   const json = await res.json();
   return json.data || [];
 }
 
 /**
- * 获取音色列表
+ * 获取音色列表（安全加固 D8/D25：携带 token；掩码 apiKey 不回传）
  */
 export async function fetchVoices(apiUrl?: string, apiKey?: string): Promise<VoiceInfo[]> {
   let url = `${API_BASE}/voices?`;
   if (apiUrl) url += `apiUrl=${encodeURIComponent(apiUrl)}&`;
-  if (apiKey) url += `apiKey=${encodeURIComponent(apiKey)}&`;
-  const res = await fetch(url);
+  if (!isMaskedApiKey(apiKey) && apiKey) url += `apiKey=${encodeURIComponent(apiKey)}&`;
+  const res = await fetch(url, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error('Failed to fetch voices');
   const json = await res.json();
   if (!json.success) throw new Error(json.error || 'Failed to fetch voices');
@@ -82,13 +89,13 @@ export async function fetchVoices(apiUrl?: string, apiKey?: string): Promise<Voi
 }
 
 /**
- * 获取可用模型列表
+ * 获取可用模型列表（安全加固 D8/D25：同 fetchVoices）
  */
 export async function fetchModels(apiUrl?: string, apiKey?: string): Promise<ModelInfo[]> {
   let url = `${API_BASE}/models?`;
   if (apiUrl) url += `apiUrl=${encodeURIComponent(apiUrl)}&`;
-  if (apiKey) url += `apiKey=${encodeURIComponent(apiKey)}&`;
-  const res = await fetch(url);
+  if (!isMaskedApiKey(apiKey) && apiKey) url += `apiKey=${encodeURIComponent(apiKey)}&`;
+  const res = await fetch(url, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error('Failed to fetch models');
   const json = await res.json();
   if (!json.success) throw new Error(json.error || 'Failed to fetch models');
@@ -96,13 +103,13 @@ export async function fetchModels(apiUrl?: string, apiKey?: string): Promise<Mod
 }
 
 /**
- * 测试 TTS 服务连接
+ * 测试 TTS 服务连接（安全加固 D8/D25：同 fetchVoices）
  */
 export async function testConnection(apiUrl?: string, apiKey?: string): Promise<HealthResult> {
   let url = `${API_BASE}/health?`;
   if (apiUrl) url += `apiUrl=${encodeURIComponent(apiUrl)}&`;
-  if (apiKey) url += `apiKey=${encodeURIComponent(apiKey)}&`;
-  const res = await fetch(url);
+  if (!isMaskedApiKey(apiKey) && apiKey) url += `apiKey=${encodeURIComponent(apiKey)}&`;
+  const res = await fetch(url, { headers: getAuthHeaders() });
   if (res.status === 502) {
     return { success: false, error: 'TTS service unavailable' };
   }

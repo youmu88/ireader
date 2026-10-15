@@ -12,21 +12,39 @@ import { ttsSettings, ttsCache, ttsGenerationJobs, books, ttsGlobalResources, tt
 import { findCache, isCacheValid, saveToCache, clearAllCache, findCachedSegmentsByBook } from '../services/ttsCacheService.js';
 import { findTtsGlobalResource, createTtsGlobalResource, createTtsRef } from '../services/globalResourceService.js';
 import { requireAuth } from '../middleware/auth.js';
+import { unsafeApiUrlReason } from '../middleware/urlGuard.js';
 import { regenerateAllForNewVoice, createFullBookGenerationJob, cancelJob, cancelJobs, cancelAllUserJobs, deleteJobs, clearTerminatedJobs } from '../services/ttsGenerationService.js';
 
 export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').initDatabase>, dataDir?: string) {
   const router = Router();
 
-  // ── TTS 源列表（无需登录，属于通用服务信息） ──
-  router.get('/sources', (_req: Request, res: Response) => {
+  // ── 安全加固辅助（Phase 0，D8/D25） ──
+  /** GET /settings 脱敏前缀：以此开头的 apiKey 视为「未修改」 */
+  const MASKED_PREFIX = '****';
+
+  /** D25 配套：apiKey 为掩码或缺省时，回退当前用户 settings 中已保存的真值 */
+  function resolveEffectiveApiKey(userId: string, apiKey: string | undefined): string | undefined {
+    if (apiKey && !apiKey.startsWith(MASKED_PREFIX)) return apiKey;
+    const row = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get() as any;
+    return row?.apiKey || undefined;
+  }
+
+  // ── TTS 源列表（安全加固 D8：此前免鉴权，现挂 requireAuth） ──
+  router.get('/sources', requireAuth, (_req: Request, res: Response) => {
     const sources = getSources();
     res.json({ success: true, data: sources });
   });
 
-  // ── 音色列表（无需登录；支持自定义 apiUrl/apiKey 查询参数） ──
-  router.get('/voices', async (req: Request, res: Response) => {
+  // ── 音色列表（安全加固 D8/D25：需登录；apiUrl 仅 http/https；apiKey 掩码/缺省回退用户设置） ──
+  router.get('/voices', requireAuth, async (req: Request, res: Response) => {
+    const badUrl = unsafeApiUrlReason(req.query.apiUrl);
+    if (badUrl) {
+      res.status(400).json({ success: false, error: badUrl });
+      return;
+    }
+    const userId = req.user!.userId;
     const apiUrl = req.query.apiUrl as string | undefined;
-    const apiKey = req.query.apiKey as string | undefined;
+    const apiKey = resolveEffectiveApiKey(userId, req.query.apiKey as string | undefined);
     const result = await getVoices(apiUrl, apiKey);
     if (!result.success) {
       res.status(502).json(result);
@@ -35,10 +53,16 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     res.json(result);
   });
 
-  // ── 模型列表（无需登录；支持自定义 apiUrl/apiKey 查询参数） ──
-  router.get('/models', async (req: Request, res: Response) => {
+  // ── 模型列表（安全加固 D8/D25：同 voices） ──
+  router.get('/models', requireAuth, async (req: Request, res: Response) => {
+    const badUrl = unsafeApiUrlReason(req.query.apiUrl);
+    if (badUrl) {
+      res.status(400).json({ success: false, error: badUrl });
+      return;
+    }
+    const userId = req.user!.userId;
     const apiUrl = req.query.apiUrl as string | undefined;
-    const apiKey = req.query.apiKey as string | undefined;
+    const apiKey = resolveEffectiveApiKey(userId, req.query.apiKey as string | undefined);
     const result = await getModels(apiUrl, apiKey);
     if (!result.success) {
       res.status(502).json(result);
@@ -47,10 +71,16 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     res.json(result);
   });
 
-  // ── 健康检查 / 连接测试（无需登录；支持自定义 apiUrl/apiKey 查询参数） ──
-  router.get('/health', async (req: Request, res: Response) => {
+  // ── 健康检查 / 连接测试（安全加固 D8/D25：同 voices） ──
+  router.get('/health', requireAuth, async (req: Request, res: Response) => {
+    const badUrl = unsafeApiUrlReason(req.query.apiUrl);
+    if (badUrl) {
+      res.status(400).json({ success: false, error: badUrl });
+      return;
+    }
+    const userId = req.user!.userId;
     const apiUrl = req.query.apiUrl as string | undefined;
-    const apiKey = req.query.apiKey as string | undefined;
+    const apiKey = resolveEffectiveApiKey(userId, req.query.apiKey as string | undefined);
     const result = await checkHealth(apiUrl, apiKey);
     if (!result.success) {
       res.status(502).json(result);
@@ -170,10 +200,16 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     res.send(result.audio);
   });
 
-  // ── 连接测试（POST 版本，无需登录；支持自定义 apiUrl/apiKey） ──
-  router.post('/test', async (req: Request, res: Response) => {
+  // ── 连接测试（POST 版本；安全加固 D8/D25：同 voices） ──
+  router.post('/test', requireAuth, async (req: Request, res: Response) => {
+    const badUrl = unsafeApiUrlReason(req.body.apiUrl);
+    if (badUrl) {
+      res.status(400).json({ success: false, error: badUrl });
+      return;
+    }
+    const userId = req.user!.userId;
     const apiUrl = req.body.apiUrl as string | undefined;
-    const apiKey = req.body.apiKey as string | undefined;
+    const apiKey = resolveEffectiveApiKey(userId, req.body.apiKey as string | undefined);
     const result = await checkHealth(apiUrl, apiKey);
     if (!result.success) {
       res.status(502).json(result);
@@ -198,6 +234,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           speed: 1.0,
           apiUrl: null as string | null,
           apiKey: null as string | null,
+          hasApiKey: false,
           preGenerateConcurrency: 3,
           firstChunkMaxSize: 32,
           normalChunkMaxSize: 128,
@@ -208,7 +245,14 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         res.json({ success: true, data: defaults });
         return;
       }
-      res.json({ success: true, data: row });
+      // 安全加固 D25：apiKey 脱敏返回（掩码 + 尾 4 位），明文不再出后端；
+      // 前端保存时回传掩码值，PUT 端识别后不覆盖真值
+      const masked = {
+        ...row,
+        apiKey: row.apiKey ? `${MASKED_PREFIX}${row.apiKey.slice(-4)}` : null,
+        hasApiKey: !!row.apiKey,
+      };
+      res.json({ success: true, data: masked });
     } catch (error) {
       res.status(500).json({ success: false, error: 'Failed to read TTS settings' });
     }
@@ -229,7 +273,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       if (voiceId !== undefined) updateData.voiceId = voiceId;
       if (speed !== undefined) updateData.speed = speed;
       if (apiUrl !== undefined) updateData.apiUrl = apiUrl || null;
-      if (apiKey !== undefined) updateData.apiKey = apiKey || null;
+      // 安全加固 D25：掩码值（GET 脱敏产物）回传视为「未修改」，不覆盖真值
+      if (apiKey !== undefined && !String(apiKey).startsWith(MASKED_PREFIX)) updateData.apiKey = apiKey || null;
       if (preGenerateConcurrency !== undefined) updateData.preGenerateConcurrency = preGenerateConcurrency;
       if (firstChunkMaxSize !== undefined) updateData.firstChunkMaxSize = firstChunkMaxSize;
       if (normalChunkMaxSize !== undefined) updateData.normalChunkMaxSize = normalChunkMaxSize;

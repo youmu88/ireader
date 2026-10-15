@@ -14,6 +14,7 @@ import { fileURLToPath } from 'url';
 import { sql } from 'drizzle-orm';
 import { users, categories } from '../db/schema.js';
 import { generateToken, requireAuth } from '../middleware/auth.js';
+import { createLoginRateLimiter } from '../middleware/rateLimit.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -51,21 +52,21 @@ function loadWhitelist(): Set<string> {
   }
 }
 
+/**
+ * 密码哈希（PBKDF2 + SHA-512 + 随机盐）
+ * 格式：salt:hash（导出供 createUser CLI 复用，保持单一真源）
+ */
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+  return `${salt}:${hash}`;
+}
+
 export function createAuthRouter(db: any): Router {
   const router = Router();
 
   // 启动时加载白名单
   const emailWhitelist = loadWhitelist();
-
-  /**
-   * 密码哈希（PBKDF2 + SHA-512 + 随机盐）
-   * 格式：salt:hash
-   */
-  function hashPassword(password: string): string {
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
-    return `${salt}:${hash}`;
-  }
 
   function verifyPassword(password: string, storedHash: string): boolean {
     const [salt, hash] = storedHash.split(':');
@@ -176,9 +177,18 @@ export function createAuthRouter(db: any): Router {
   });
 
   // ── POST /api/auth/login — 登录（支持 email 或 username） ──
+  // 安全加固（Phase 0，D7 配套）：登录限速——内存滑动窗，同 IP 窗口内失败达 5 次后拒绝（429），
+  // 防暴力破解并缓解 pbkdf2Sync 的 CPU 消耗型 DoS；成功登录不计入失败。
+  const loginLimiter = createLoginRateLimiter();
   router.post('/login', (req: Request, res: Response) => {
     try {
       const { email, password } = req.body;
+
+      const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+      if (!loginLimiter.allow(clientIp)) {
+        res.status(429).json({ success: false, error: '尝试过于频繁，请 1 分钟后再试' });
+        return;
+      }
 
       if (!email || !password) {
         res.status(400).json({ success: false, error: '请输入邮箱/用户名和密码' });
@@ -196,11 +206,13 @@ export function createAuthRouter(db: any): Router {
       }
 
       if (!user) {
+        loginLimiter.recordFailure(clientIp);
         res.status(401).json({ success: false, error: '邮箱/用户名或密码错误' });
         return;
       }
 
       if (!verifyPassword(password, user.passwordHash)) {
+        loginLimiter.recordFailure(clientIp);
         res.status(401).json({ success: false, error: '邮箱/用户名或密码错误' });
         return;
       }

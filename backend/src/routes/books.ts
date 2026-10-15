@@ -417,7 +417,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   });
 
   // ── GET /api/books/:id/cover - 获取图书封面 ──
-  router.get('/:id/cover', (req: Request, res: Response, next: NextFunction) => {
+  // 安全加固 D23：optionalAuth（与 file 路由同契约：带 token 校验归属，无 token 放行——
+  // 书架封面为 <img src> 直链无法携带 Authorization header，与 2.48.1 epub.js 子资源同理），
+  // 并去掉占位图中的书名/首字母回显（未登录可枚举场景下的信息泄露收口）。
+  router.get('/:id/cover', optionalAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
       const book = db.select().from(books).where(sql`id = ${req.params.id}`).get();
       if (!book) throw new AppError(404, '图书不存在');
@@ -436,7 +439,7 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       }
 
       // Generate an SVG placeholder cover on the fly
-      const initials = (book.title || '?').charAt(0).toUpperCase();
+      // 安全加固 D23：占位图不回显书名/首字母，仅保留按 book.id 哈希的渐变底色 + 通用书本图形
       const hue = (hashCode(book.id) % 360);
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400">
         <defs>
@@ -446,16 +449,10 @@ export function createBooksRouter(db: any, dataDir: string): Router {
           </linearGradient>
         </defs>
         <rect width="300" height="400" fill="url(#bg)" rx="12" />
-        <text x="150" y="200" text-anchor="middle" dominant-baseline="central"
-              font-size="96" font-weight="bold" fill="rgba(255,255,255,0.9)"
-              font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">
-          ${initials}
-        </text>
-        <text x="150" y="360" text-anchor="middle" font-size="14"
-              fill="rgba(255,255,255,0.7)"
-              font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">
-          ${escapeXml(book.title)}
-        </text>
+        <g fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="6" stroke-linejoin="round">
+          <path d="M96 118 h80 a22 22 0 0 1 22 22 v142 h-102 a10 10 0 0 1 -10 -10 z" />
+          <path d="M100 126 h74 a14 14 0 0 1 14 14 v132" />
+        </g>
       </svg>`;
 
       res.setHeader('Content-Type', 'image/svg+xml');

@@ -19,8 +19,12 @@ import { createCategoriesRouter } from './routes/categories.js';
 import { createProgressRouter } from './routes/progress.js';
 import { createTtsRouter } from './routes/tts.js';
 import { config } from 'dotenv';
+import { assertJwtSecret } from './middleware/auth.js';
 
 config();
+
+// 安全加固 D6：JWT 密钥启动强校验（缺失/过短即拒启，防止可离线伪造任意用户 token）
+assertJwtSecret();
 
 const PORT = parseInt(process.env.PORT || '10000', 10);
 const DATA_DIR = process.env.DATA_DIR || path.join(process.env.HOME || process.cwd(), '.ireader', 'data');

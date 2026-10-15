@@ -550,6 +550,17 @@ ENVEOF
 start_service() {
   log "启动 iReader 服务 (部署目录: ${APP_DIR})..."
 
+  # 安全加固（Phase 0 / D6）：确保部署目录 .env 存在且含强随机 JWT_SECRET（已配置则不动）。
+  # 注意：首次生成即更换签名密钥，已登录设备的 token 将失效需重新登录（一次性代价）。
+  if [ ! -f "${ENV_FILE}" ]; then
+    log "创建环境配置 ${ENV_FILE}"
+    touch "${ENV_FILE}"
+  fi
+  if ! grep -q "^JWT_SECRET=" "${ENV_FILE}" 2>/dev/null; then
+    echo "JWT_SECRET=$(openssl rand -hex 32)" >> "${ENV_FILE}"
+    log "已自动生成 JWT_SECRET → ${ENV_FILE}"
+  fi
+
   # 写入启动脚本（供手动重启使用，与部署目录解耦）
   cat > "${APP_DIR}/start.sh" <<'STARTEOF'
 #!/usr/bin/env bash

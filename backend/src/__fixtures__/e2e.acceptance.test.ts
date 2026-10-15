@@ -277,7 +277,8 @@ describe('E2E Full Flow Acceptance', () => {
   // ════════════════════════════════════════════
   describe('5. TTS Settings', () => {
     it('5.1 should get TTS sources', async () => {
-      const res = await request(app).get('/api/tts/sources');
+      // D8 安全加固后 sources 需要鉴权（带 token）
+      const res = await request(app).get('/api/tts/sources').set(auth());
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);

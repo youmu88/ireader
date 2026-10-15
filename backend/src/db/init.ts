@@ -5,7 +5,21 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 
-export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
+/** initDatabase 可选项（Phase 0 安全加固 D7） */
+export interface InitDatabaseOptions {
+  /**
+   * 首个用户（仅 createUser CLI 传入）：空库时创建该账号并初始化默认分类/TTS 设置；
+   * 服务启动不传——空库仅打印创建指引；旧版(v0.1)数据迁移必须显式提供（防静默后门）
+   */
+  initialUser?: {
+    username: string;
+    email?: string | null;
+    passwordHash: string;
+    displayName?: string;
+  };
+}
+
+export function initDatabase(dbPath?: string, options?: InitDatabaseOptions): ReturnType<typeof drizzle> {
   const resolvedPath = dbPath || path.join(process.env.DATA_DIR || process.cwd(), 'ireader.sqlite');
   
   const dir = path.dirname(resolvedPath);
@@ -440,22 +454,34 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
 
   const userCount = sqlite.prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number };
   if (userCount.cnt === 0) {
-    // 创建默认管理员用户（密码：admin123）
+    // 安全加固 D7（Phase 0）：移除空库自动创建默认管理员弱口令账号的后门逻辑。
+    // 首个账号统一走 CLI：`pnpm create-user -- <用户名> <邮箱> <密码>`（scripts/createUser.ts）；
+    // 服务启动对空库仅打印指引；旧版(v0.1)数据迁移必须显式传入 initialUser（防静默后门）。
     const defaultUserId = 'default-user';
-    const salt = crypto.randomBytes(16).toString('hex');
-    const passwordHash = crypto.pbkdf2Sync('admin123', salt, 100000, 64, 'sha512').toString('hex');
-    const fullHash = `${salt}:${passwordHash}`;
+    const oldBooksCount = sqlite.prepare('SELECT COUNT(*) as cnt FROM books').get() as { cnt: number };
+    const legacyDataPending = oldBooksCount.cnt > 0;
+
+    if (legacyDataPending && !options?.initialUser) {
+      throw new Error(
+        '[初始化失败] 检测到旧版(v0.1)数据库数据且无任何用户。' +
+        '为消除默认管理员后门（D7），已停止自动创建账号：' +
+        '请运行 `pnpm create-user -- <用户名> <邮箱> <密码>` 创建首个账号，旧数据将自动迁移到该账号。'
+      );
+    }
+
     const now = new Date().toISOString();
 
-    sqlite.prepare(`
-      INSERT INTO users (id, username, password_hash, display_name, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(defaultUserId, 'admin', fullHash, '管理员', now, now);
+    if (options?.initialUser) {
+      const { username, email, passwordHash, displayName } = options.initialUser;
+      sqlite.prepare(`
+        INSERT INTO users (id, username, email, password_hash, display_name, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(defaultUserId, username, email || null, passwordHash, displayName || username, now, now);
+    } else {
+      console.log('[初始化] 空数据库：请运行 `pnpm create-user -- <用户名> <邮箱> <密码>` 创建首个账号后再登录');
+    }
 
-    // 检查旧表是否有数据需要迁移
-    const oldBooksCount = sqlite.prepare('SELECT COUNT(*) as cnt FROM books').get() as { cnt: number };
-
-    if (oldBooksCount.cnt > 0) {
+    if (legacyDataPending && options?.initialUser) {
       // 检查 books 表是否有 user_id 列（旧表没有则已用新 DDL 重建，需要从临时表迁移）
       const columns = sqlite.prepare("PRAGMA table_info('books')").all() as { name: string }[];
       const hasUserId = columns.some(c => c.name === 'user_id');
@@ -483,20 +509,22 @@ export function initDatabase(dbPath?: string): ReturnType<typeof drizzle> {
       }
     }
 
-    // 为新用户创建默认分类
-    const defaultCat = sqlite.prepare("SELECT id FROM categories WHERE user_id = ? AND name = '未分类'").get(defaultUserId);
-    if (!defaultCat) {
-      sqlite.prepare("INSERT INTO categories (id, user_id, name, sort) VALUES (?, ?, '未分类', 0)")
-        .run(crypto.randomUUID(), defaultUserId);
-    }
+    if (options?.initialUser) {
+      // 为首个用户创建默认分类
+      const defaultCat = sqlite.prepare("SELECT id FROM categories WHERE user_id = ? AND name = '未分类'").get(defaultUserId);
+      if (!defaultCat) {
+        sqlite.prepare("INSERT INTO categories (id, user_id, name, sort) VALUES (?, ?, '未分类', 0)")
+          .run(crypto.randomUUID(), defaultUserId);
+      }
 
-    // 为新用户创建默认 TTS 设置
-    const ttsExist = sqlite.prepare('SELECT user_id FROM tts_settings WHERE user_id = ?').get(defaultUserId);
-    if (!ttsExist) {
-      sqlite.prepare(`
-        INSERT INTO tts_settings (user_id, enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
-        VALUES (?, 1, 'edgetts', 'zh-CN-XiaoxiaoNeural', 1.0, 3, 32, 128, ?)
-      `).run(defaultUserId, now);
+      // 为首个用户创建默认 TTS 设置
+      const ttsExist = sqlite.prepare('SELECT user_id FROM tts_settings WHERE user_id = ?').get(defaultUserId);
+      if (!ttsExist) {
+        sqlite.prepare(`
+          INSERT INTO tts_settings (user_id, enabled, source, voice_id, speed, pre_generate_concurrency, first_chunk_max_size, normal_chunk_max_size, updated_at)
+          VALUES (?, 1, 'edgetts', 'zh-CN-XiaoxiaoNeural', 1.0, 3, 32, 128, ?)
+        `).run(defaultUserId, now);
+      }
     }
   }
 

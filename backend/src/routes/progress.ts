@@ -39,7 +39,8 @@ export function createProgressRouter(db: any): Router {
 
       // ── 冲突合并策略 ──────────────────────────────────────────
       // 规则：高版本优先；同版本时后写入（updatedAt 更大）优先。
-      // 服务端始终将版本号设为 max(existing, incoming) + 1，保证单调递增。
+      // 安全加固 D24：版本号服务端权威——一律由服务端 +1 生成，客户端传入值
+      // 不参与计算（防投毒超大版本号永久阻塞其他设备同步）。
       let resolvedVersion: number;
       if (existing) {
         const existingVersion: number = existing.progressVersion ?? 0;
@@ -53,9 +54,10 @@ export function createProgressRouter(db: any): Router {
           });
           return;
         }
-        resolvedVersion = Math.max(existingVersion, incomingVersion) + 1;
+        resolvedVersion = existingVersion + 1;
       } else {
-        resolvedVersion = incomingVersion;
+        // 首次写入版本号固定为 1，同样不采纳客户端传入值
+        resolvedVersion = 1;
       }
 
       const progressData = {

@@ -68,7 +68,7 @@ describe('TTS Routes', () => {
 
   describe('GET /api/tts/sources', () => {
     it('should return OpenAI-compatible source', async () => {
-      const res = await request(app).get('/api/tts/sources');
+      const res = await request(app).get('/api/tts/sources').set('Authorization', `Bearer ${authToken}`);
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
@@ -79,7 +79,7 @@ describe('TTS Routes', () => {
 
   describe('GET /api/tts/voices', () => {
     it('should return voices list or error gracefully', async () => {
-      const res = await request(app).get(`/api/tts/voices?apiUrl=${TTS_BASE}&apiKey=${TTS_API_KEY}`);
+      const res = await request(app).get(`/api/tts/voices?apiUrl=${TTS_BASE}&apiKey=${TTS_API_KEY}`).set('Authorization', `Bearer ${authToken}`);
       if (ttsVoicesAvailable) {
         expect(res.status).toBe(200);
         expect(res.body.success).toBe(true);
@@ -94,7 +94,7 @@ describe('TTS Routes', () => {
 
   describe('GET /api/tts/models', () => {
     it('should return models list or error gracefully', async () => {
-      const res = await request(app).get(`/api/tts/models?apiUrl=${TTS_BASE}&apiKey=${TTS_API_KEY}`);
+      const res = await request(app).get(`/api/tts/models?apiUrl=${TTS_BASE}&apiKey=${TTS_API_KEY}`).set('Authorization', `Bearer ${authToken}`);
       if (ttsModelsAvailable) {
         expect(res.status).toBe(200);
         expect(res.body.success).toBe(true);
@@ -110,7 +110,7 @@ describe('TTS Routes', () => {
 
   describe('GET /api/tts/health', () => {
     it('should return health status or error gracefully', async () => {
-      const res = await request(app).get(`/api/tts/health?apiUrl=${TTS_BASE}&apiKey=${TTS_API_KEY}`);
+      const res = await request(app).get(`/api/tts/health?apiUrl=${TTS_BASE}&apiKey=${TTS_API_KEY}`).set('Authorization', `Bearer ${authToken}`);
       if (ttsVoicesAvailable) {
         expect(res.status).toBe(200);
         expect(res.body.success).toBe(true);
@@ -150,6 +150,7 @@ describe('TTS Routes', () => {
       try {
         const res = await request(app)
           .post('/api/tts/test')
+          .set('Authorization', `Bearer ${authToken}`)
           .send({ apiUrl: TTS_BASE, apiKey: TTS_API_KEY });
         if (ttsVoicesAvailable) {
           expect(res.status).toBe(200);

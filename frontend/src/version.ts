@@ -74,5 +74,6 @@
  * ⚠️ 发布规则：每次前端功能/修复迭代，必须同步 bump public/sw.js 的 CACHE_VERSION（浏览器据此重装 SW）——否则用户端可能长期运行旧版代码。
  * 2.61.0 (2026-08-15): [FEATURE] 检查更新入口 + 新版就绪提示（可选优化点落地）— ①设置页「关于」新增「检查更新」：点击触发 SW 更新检测（checkSWUpdate 重构：update() 后检测 installing/waiting + controllerchange 短窗口，消除 skipWaiting 竞态误报），有新版 → Toast「检测到新版本，正在刷新应用…」+ 3s 兑底刷新（controllerchange 自动刷新为主），无新版 →「已是最新版本」，环境不支持 → 明确提示；②阅读中 SW 更新完成（controllerchange）不强制刷新（避免打断阅读），改为 Toast「新版本已就绪，返回书架后自动生效」+ sessionStorage 待生效标记，ReaderPage 卸载时检测标记并 reload 应用新版；③SW CACHE_VERSION v4→v5（本版本新增功能，遵循发布规则同步 bump）
  * 2.61.1 (2026-10-14): [DOCS] 评审文档全量复核修订——comprehensive-audit-and-upgrade-plan.md 逐条对照代码复核（30/33 断言属实、3 项表述修正、行号校准、新增 23 项遗漏发现），纯文档变更无代码影响
+ * 2.62.0 (2026-10-14): [SECURITY] Phase 0 安全加固 — JWT_SECRET 启动强校验+部署自动生成(D6)；移除空库自动建 admin/admin123 后门改 CLI 创建+登录限速(D7)；TTS 五接口挂鉴权+apiUrl 协议校验+前端 TTS 请求补 token(D8)；封面 optionalAuth+占位图去书名回显(D23)；apiKey 明文回显改掩码脱敏+掩码回写不覆盖(D25)；阅读进度版本号服务端权威防投毒(D24)；CI 改 pnpm+移除 runner 自部署(D26)；SW CACHE_VERSION v5→v6
  */
-export const APP_VERSION = '2.61.1';
+export const APP_VERSION = '2.62.0';

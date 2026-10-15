@@ -381,7 +381,7 @@ export default function SettingsPage() {
             <div className="px-4 py-3.5"
               style={{ borderBottom: '0.5px solid var(--color-border)' }}>
               <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--color-text-muted)' }}>
-                API Key <span className="text-[10px] opacity-60">（可选）</span>
+                API Key <span className="text-[10px] opacity-60">（可选；**** 开头为已保存掩码，保存时不覆盖，清空则删除）</span>
               </label>
               <div className="flex items-center gap-2">
                 <input type={showApiKey ? 'text' : 'password'} value={apiKey}

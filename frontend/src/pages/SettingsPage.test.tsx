@@ -6,6 +6,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import SettingsPage from './SettingsPage';
+import { APP_VERSION } from '../version';
 
 // ── SW 检查 mock ──
 const swMocks = vi.hoisted(() => ({ checkSWUpdate: vi.fn() }));
@@ -57,7 +58,7 @@ describe('SettingsPage 检查更新', () => {
   it('渲染「检查更新」入口并显示当前版本', async () => {
     render(<SettingsPage />);
     expect(await screen.findByTestId('check-update')).toBeDefined();
-    expect(screen.getByText(/v2\.61\.0/)).toBeDefined();
+    expect(screen.getByText(new RegExp(`v${APP_VERSION.replace(/\./g, '\\.')}`))).toBeDefined();
   });
 
   it('检测到新版本：toast.success 提示正在刷新，并触发 reload 兑底', async () => {
