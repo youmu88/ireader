@@ -363,7 +363,7 @@ flowchart TB
 - [x] P1：backend/.env.example 补 JWT_SECRET/TTS_API_URL/TTS_API_KEY 并修正过期变量名（D6/D9 配套，另删除无人读取的 TTS_URL/EDGETTS_URL/MEGATTS3_URL）
 - [x] P1（原 Phase 4 提前，经拍板并入）：GET /settings apiKey 掩码脱敏 + PUT 掩码不覆盖 + voices/models/health 掩码回退（D25）
 - [x] P1（原 Phase 4 提前，经拍板并入）：进度版本号服务端权威，客户端值不参与 max 计算（D24；过期版本拒写保护保留）
-- [ ] P1：backend/secUserEmail.json（真实邮箱白名单）移出仓库：.gitignore + 环境变量/挂载注入（D34）
+- [x] P1：backend/secUserEmail.json（真实邮箱白名单）移出仓库：.gitignore + 保留部署目录文件（D34；工作区文件保留、仅移出 git 索引；缺失时空白名单=禁止注册、已有账号登录不受影响；新部署需手动放置或环境变量注入）
 
 ### Phase 1 · 阅读核心体验（翻页 + 手势）
 
