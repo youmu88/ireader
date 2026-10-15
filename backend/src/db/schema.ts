@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { DEFAULT_TTS_VOICE } from '../services/ttsConstants.js';
 
 // ── 用户表 ──
 export const users = sqliteTable('users', {
@@ -162,7 +163,7 @@ export const ttsSettings = sqliteTable('tts_settings', {
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   source: text('source').notNull().default('openai'),
   model: text('model'),
-  voiceId: text('voice_id').notNull().default('alloy'),
+  voiceId: text('voice_id').notNull().default(DEFAULT_TTS_VOICE),
   speed: real('speed').notNull().default(1.0),
   apiUrl: text('api_url'),
   apiKey: text('api_key'),

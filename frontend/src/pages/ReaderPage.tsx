@@ -19,6 +19,8 @@ import { useReaderChromeTheme } from '../reader/useReaderChromeTheme';
 import { ReaderChrome } from '../reader/components/ReaderChrome';
 import { ReaderMenuBar } from '../reader/components/ReaderMenuBar';
 import { ReaderBottomBar } from '../reader/components/ReaderBottomBar';
+import { TtsOverlay } from '../reader/components/TtsOverlay';
+import { useTtsSession } from '../reader/tts/useTtsSession';
 import { FontSettingsPanel } from '../reader/components/FontSettingsPanel';
 import { TocPanel } from '../reader/components/TocPanel';
 import { SearchPanel } from '../reader/components/SearchPanel';
@@ -81,6 +83,37 @@ export default function ReaderPage() {
   settingsRef.current = settings;
   const { loadInitialCfi, scheduleSave } = useReaderProgress({ bookId });
   const themeSpec = READER_THEMES[settings.theme];
+
+  // ── 听书会话（Phase 2）：段高亮联动由 onSegmentStart 驱动 ──
+  const handleTtsSegmentStart = useCallback((seg: { text: string }) => {
+    controllerRef.current?.highlightSegment(seg.text);
+  }, []);
+  const tts = useTtsSession({
+    bookId,
+    bookTitle: book?.title ?? '',
+    format: book?.format ?? 'epub',
+    controllerRef,
+    chapterHref: location?.chapterHref ?? null,
+    onSegmentStart: handleTtsSegmentStart,
+  });
+  const ttsActive = tts.session.status !== 'idle';
+
+  const handleToggleTts = useCallback(() => {
+    if (tts.session.status === 'idle') {
+      tts.start();
+      setChromeVisible(false); // 沉浸听书：收起菜单露出播放条
+    } else if (tts.session.status === 'paused') {
+      tts.resume();
+    } else if (tts.session.status === 'playing') {
+      tts.pause();
+    }
+  }, [tts]);
+
+  const handleTtsRateChange = useCallback(() => {
+    const rates = [1.0, 1.25, 1.5, 2.0];
+    const next = rates[(rates.indexOf(tts.session.rate) + 1) % rates.length] ?? 1.0;
+    tts.setRate(next);
+  }, [tts]);
 
   // ── 沉浸式阅读引导：非 standalone 且深色主题时提示从主屏幕图标打开 ──
   // iOS 系统状态栏颜色仅由系统控制（网页无法修改）；只有「从主屏幕的 iReader 图标进入」
@@ -345,8 +378,25 @@ export default function ReaderPage() {
           chromeBackground={themeSpec.chromeBackground}
           chromeColor={themeSpec.chromeColor}
           onSeek={handleSeek}
+          ttsActive={ttsActive}
+          onToggleTts={handleToggleTts}
         />
       </ReaderChrome>
+
+      <TtsOverlay
+        visible={ttsActive}
+        status={tts.session.status}
+        text={tts.session.currentText}
+        chapterTitle={tts.session.currentChapterTitle}
+        rate={tts.session.rate}
+        failedCount={tts.session.failedCount}
+        chromeBackground={themeSpec.chromeBackground}
+        chromeColor={themeSpec.chromeColor}
+        onToggle={handleToggleTts}
+        onStop={tts.stop}
+        onSkip={tts.skipSegment}
+        onRateChange={handleTtsRateChange}
+      />
 
       {!isStandalone && themeSpec.dark && !immersiveTipDismissed && (
         <div

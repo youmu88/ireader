@@ -95,8 +95,9 @@ export function evictExcessVoices(
 
   for (const entry of toDelete) {
     // 删除该音色对应的 TTS 缓存（tts_cache 表中匹配 voice 的记录）
+    // 修复：补 book_id 维度，避免误删该用户其他书的同音色缓存（跨书误删）
     const ttsEntries = db.select().from(ttsCache)
-      .where(sql`user_id = ${userId} AND voice = ${entry.voice}`)
+      .where(sql`user_id = ${userId} AND book_id = ${bookId} AND voice = ${entry.voice}`)
       .all();
     for (const ttsEntry of ttsEntries) {
       try {

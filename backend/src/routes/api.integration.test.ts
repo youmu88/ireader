@@ -4,6 +4,7 @@ import request from 'supertest';
 import path from 'path';
 import fs from 'fs';
 import { initDatabase } from '../db/init.js';
+import { users, books, categories as categoriesTable } from '../db/schema.js';
 import { createAuthRouter } from './auth.js';
 import { createBooksRouter } from './books.js';
 import { createCategoriesRouter } from './categories.js';
@@ -18,12 +19,14 @@ describe('API Integration', () => {
   const testDataDir = path.join('/tmp', testId);
   let app: express.Express;
   let authToken: string;
+  let db: ReturnType<typeof initDatabase>;
 
   beforeAll(async () => {
     // Create test data directory
     fs.mkdirSync(testDataDir, { recursive: true });
 
-    const db = initDatabase(testDbPath);
+    const dbInstance = initDatabase(testDbPath);
+    db = dbInstance;
     app = express();
     app.use(express.json());
     app.use('/api/auth', createAuthRouter(db));
@@ -176,6 +179,42 @@ describe('API Integration', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
+    });
+
+    it('GET /api/books?category_id 不得泄露他人书籍（D3 同类：链式 where 覆盖 user_id）', async () => {
+      // 场景：userB 的书直挂 userA 的分类 id（模拟越权查询）；修复前 category 条件
+      // 覆盖 user_id → A 能看到 B 的书；修复后 and() 组合只返回本人书籍
+      const now = new Date().toISOString();
+      const userBId = uuidv4();
+      const bookBId = uuidv4();
+      db.insert(users).values({
+        id: userBId, username: 'd3-other', email: 'd3-other@test.local',
+        passwordHash: 'salt:hash', displayName: null, createdAt: now, updatedAt: now,
+      }).run();
+
+      const meRes = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${authToken}`);
+      const mainUserId = meRes.body.data.userId as string;
+      const mainCatId = uuidv4();
+      const bookAId = uuidv4();
+      db.insert(categoriesTable).values({ id: mainCatId, userId: mainUserId, name: 'D3分类', parentId: null, sort: 0 }).run();
+      db.insert(books).values({
+        id: bookAId, userId: mainUserId, title: 'D3-A', author: null, format: 'txt',
+        categoryId: mainCatId, filePath: '/tmp/d3-a.txt', coverPath: null, fileHash: null,
+        size: 1, status: 'ready', parseError: null, createdAt: now, updatedAt: now, pinned: 0,
+      }).run();
+      db.insert(books).values({
+        id: bookBId, userId: userBId, title: 'D3-B', author: null, format: 'txt',
+        categoryId: mainCatId, filePath: '/tmp/d3-b.txt', coverPath: null, fileHash: null,
+        size: 1, status: 'ready', parseError: null, createdAt: now, updatedAt: now, pinned: 0,
+      }).run();
+
+      const res = await request(app)
+        .get(`/api/books?category_id=${mainCatId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(res.status).toBe(200);
+      const ids = (res.body.data || []).map((b: { id: string }) => b.id);
+      expect(ids).toContain(bookAId);
+      expect(ids).not.toContain(bookBId);
     });
 
     it('GET /api/books/:id should return 404 for non-existent', async () => {

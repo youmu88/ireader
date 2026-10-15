@@ -250,6 +250,52 @@ export class EpubBookController {
     return this.rendition?.display(href);
   }
 
+  // ── TTS 段落高亮（Phase 2 播放层联动） ──
+
+  private ttsHighlightEl: HTMLElement | null = null;
+  private ttsHighlightPrevBg = '';
+
+  /**
+   * 高亮当前朗读段：在内容文档 TreeWalker 中定位包含段文本前缀的块级元素。
+   * scrolled 模式滚动跟随（scrollIntoView）；paged 模式不滚动（避免破坏分页）。
+   * 定位失败静默返回 false（降级为仅 overlay 文本展示）。
+   */
+  highlightSegment(text: string): boolean {
+    this.clearHighlight();
+    const doc = this.rendition?.getContents?.()?.[0]?.document as Document | undefined;
+    const needle = text.trim().replace(/\s+/g, ' ').slice(0, 16);
+    if (!doc?.body || !needle) return false;
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const normalized = (node.textContent || '').replace(/\s+/g, ' ');
+      if (normalized.includes(needle)) {
+        const el = (node.parentElement?.closest('p,div,h1,h2,h3,h4,h5,h6,li,blockquote,section') ||
+          node.parentElement) as HTMLElement | null;
+        if (!el) return false;
+        this.ttsHighlightEl = el;
+        this.ttsHighlightPrevBg = el.style.background;
+        el.setAttribute('data-tts-active', 'true');
+        el.style.background = 'rgba(255, 200, 0, 0.28)';
+        if (this.mode === 'scrolled') {
+          try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { /* ignore */ }
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** 清除段落高亮（样式还原） */
+  clearHighlight(): void {
+    if (this.ttsHighlightEl) {
+      this.ttsHighlightEl.style.background = this.ttsHighlightPrevBg;
+      this.ttsHighlightEl.removeAttribute('data-tts-active');
+      this.ttsHighlightEl = null;
+      this.ttsHighlightPrevBg = '';
+    }
+  }
+
   /** 下一页/屏（Phase 1）：paged 直通 rendition；scrolled 平滑滚动一视口（章节边界由连续容器自然衔接） */
   async next(): Promise<void> {
     if (this.mode === 'paged') {
@@ -356,6 +402,7 @@ export class EpubBookController {
     this.locationsReady = false;
     this.themeCss = '';
     this.contentPipelineBound = false;
+    this.clearHighlight();
   }
 
   // ── 内部 ──────────────────────────────────────────────

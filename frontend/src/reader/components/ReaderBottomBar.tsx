@@ -13,6 +13,9 @@ export interface ReaderBottomBarProps {
   chromeBackground: string;
   chromeColor: string;
   onSeek: (percentage: number) => void;
+  /** 听书入口（Phase 2）：ttsActive=会话进行中 */
+  ttsActive?: boolean;
+  onToggleTts?: () => void;
 }
 
 export function ReaderBottomBar({
@@ -21,6 +24,8 @@ export function ReaderBottomBar({
   chromeBackground,
   chromeColor,
   onSeek,
+  ttsActive = false,
+  onToggleTts,
 }: ReaderBottomBarProps) {
   const percentage = location?.percentage ?? 0;
   const showGlobal = locationsReady && location?.globalPage != null && location?.totalPages != null;
@@ -45,9 +50,26 @@ export function ReaderBottomBar({
         className="w-full cursor-pointer disabled:cursor-default disabled:opacity-30 accent-current"
         aria-label="阅读进度"
       />
-      <div className="flex justify-between mt-2 text-xs" style={{ opacity: 0.7 }}>
+      <div className="flex justify-between items-center mt-2 text-xs" style={{ opacity: 0.7 }}>
         <span>{pageText}</span>
-        <span>{locationsReady ? `${Math.round(percentage * 100)}%` : '页码计算中…'}</span>
+        <span className="flex items-center gap-3">
+          <span>{locationsReady ? `${Math.round(percentage * 100)}%` : '页码计算中…'}</span>
+          {onToggleTts && (
+            <button
+              type="button"
+              data-testid="tts-entry"
+              onClick={onToggleTts}
+              className="rounded-full px-2 py-0.5 font-medium"
+              style={{
+                background: ttsActive ? 'rgba(10,132,255,0.85)' : 'rgba(128,128,128,0.22)',
+                color: ttsActive ? '#ffffff' : 'inherit',
+              }}
+              aria-label={ttsActive ? '停止听书' : '开始听书'}
+            >
+              🔊 听书
+            </button>
+          )}
+        </span>
       </div>
     </div>
   );

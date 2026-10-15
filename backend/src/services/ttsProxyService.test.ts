@@ -198,11 +198,21 @@ describe('ttsProxyService', () => {
       expect(result.status).toBe(400);
     });
 
-    it('should require apiUrl', async () => {
+    it('should fall back to DEFAULT_API_URL when apiUrl is missing (D9)', async () => {
+      // D9：apiUrl 未配置不再 400，回退 DEFAULT_API_URL；用 mock 验证实际请求打到回退地址
+      const mockAudioData = new ArrayBuffer(64);
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Map([['content-type', 'audio/wav']]),
+        arrayBuffer: () => Promise.resolve(mockAudioData),
+      });
       const result = await mod.synthesize({ input: 'hello', apiUrl: '' });
-      expect(result.success).toBe(false);
-      expect(result.status).toBe(400);
-      expect(result.error).toBe('apiUrl is required');
+      expect(result.success).toBe(true);
+      const calledUrl = String(mockFetch.mock.calls[0][0]);
+      expect(calledUrl.startsWith(mod.getDefaultConfig().apiUrl)).toBe(true);
+      // resolveApiUrl 单元断言
+      expect(mod.resolveApiUrl(undefined)).toBe(mod.getDefaultConfig().apiUrl);
+      expect(mod.resolveApiUrl('http://custom:9')).toBe('http://custom:9');
     });
 
     it('should return audio on successful synthesis', async () => {

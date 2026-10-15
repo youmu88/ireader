@@ -9,7 +9,8 @@ import crypto from 'crypto';
 import { sql, inArray, and, eq } from 'drizzle-orm';
 import { ttsGenerationJobs, ttsGenerationSegments, contentSegments, bookChapters, ttsSettings, books } from '../db/schema.js';
 import { ensureBookSegments } from './contentSegmentService.js';
-import { saveToCache } from './ttsCacheService.js';
+import { saveToCache, generateCacheKey, computeApiUrlHash } from './ttsCacheService.js';
+import { DEFAULT_TTS_VOICE } from './ttsConstants.js';
 import { parseTxt, getChapterContent, normalizeHtmlText } from '../parser/index.js';
 import path from 'path';
 import fs from 'fs';
@@ -44,18 +45,25 @@ function computeEngineConfigHash(source: string, model?: string, apiUrl?: string
 }
 
 /** 从用户 TTS 设置中读取 source 和引擎配置 */
-function resolveEngineConfig(db: any, userId: string): { source: string; model?: string; apiUrl?: string; apiKey?: string; engineConfigHash: string } {
+function resolveEngineConfig(db: any, userId: string): { source: string; model?: string; apiUrl?: string; apiKey?: string; engineConfigHash: string; firstChunkMaxSize?: number; normalChunkMaxSize?: number } {
   const settings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get() as any;
   const source = settings?.source || 'openai';
   const model = settings?.model || undefined;
   const apiUrl = settings?.apiUrl || undefined;
   const apiKey = settings?.apiKey || undefined;
-  return { source, model, apiUrl, apiKey, engineConfigHash: computeEngineConfigHash(source, model, apiUrl) };
+  return {
+    source, model, apiUrl, apiKey,
+    engineConfigHash: computeEngineConfigHash(source, model, apiUrl),
+    // D15：分片旋钮接线（undefined 时 ensureBookSegments 内部回退 200）
+    firstChunkMaxSize: settings?.firstChunkMaxSize,
+    normalChunkMaxSize: settings?.normalChunkMaxSize,
+  };
 }
 
 // ===== 并发控制 =====
 
-const MAX_CONCURRENT_JOBS = 2; // 最多同时运行 2 个生成任务
+// D15：并发上限不再硬编码，运行时读用户设置 preGenerateConcurrency（默认 3，原硬编码 2）
+const DEFAULT_PREGENERATE_CONCURRENCY = 3;
 const STUCK_JOB_TIMEOUT_MS = 30 * 60 * 1000; // 30 分钟无更新视为卡住
 const activeJobs = new Set<string>();
 
@@ -80,7 +88,7 @@ function createGenerationSegmentRows(db: any, jobId: string, segments: any[], no
  * 为章节填充 normalizedText。
  * P1-3 后新上传的书籍已在 DB 持久化 normalizedText，此函数仅作为遗留数据兜底。
  */
-function hydrateChapterTexts(db: any, bookId: string, chapters: any[]): any[] {
+export function hydrateChapterTexts(db: any, bookId: string, chapters: any[]): any[] {
   const needsHydration = chapters.some((c) => !c.normalizedText);
   if (!needsHydration) return chapters;
 
@@ -194,10 +202,16 @@ async function synthesizeWithTimeout(
   timeoutMs: number = 120000,
 ): Promise<any> {
   const { synthesize } = await import('./ttsProxyService.js');
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('TTS 合成超时')), timeoutMs),
-  );
-  return Promise.race([synthesize(params), timeout]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('TTS 合成超时')), timeoutMs);
+  });
+  try {
+    return await Promise.race([synthesize(params), timeout]);
+  } finally {
+    // 修复：定时器不清理导致每段泄漏 ≤120s（大量段时句柄堆积）
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**
@@ -215,14 +229,13 @@ export function resolveTtsConfig(
 ): { enabled: boolean; voice: string; speed: number } {
   const settings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get() as any;
   const enabled = !settings || settings.enabled !== false;
-  const voice = overrides.voice || settings?.voiceId || 'zh-CN-XiaoxiaoNeural';
+  // D10 修复：schema 键名为 voiceId（原误读 voice_id 永远 undefined）；缺省音色收敛单常量
+  const voice = overrides.voice || settings?.voiceId || DEFAULT_TTS_VOICE;
   const speed = overrides.speed ?? settings?.speed ?? 1.0;
   return { enabled, voice, speed };
 }
 
 export function tryProcessQueue(db: any, dataDir: string): void {
-  if (activeJobs.size >= MAX_CONCURRENT_JOBS) return;
-
   // 先恢复卡住的任务
   recoverStuckJobs(db);
 
@@ -233,6 +246,12 @@ export function tryProcessQueue(db: any, dataDir: string): void {
     .get();
 
   if (nextJob) {
+    // D15 接线：并发上限读任务属主的 preGenerateConcurrency 设置（原硬编码 2）
+    const ownerSettings = db.select().from(ttsSettings)
+      .where(sql`user_id = ${nextJob.userId}`).get() as any;
+    const concurrencyLimit = Math.max(1, Number(ownerSettings?.preGenerateConcurrency) || DEFAULT_PREGENERATE_CONCURRENCY);
+    if (activeJobs.size >= concurrencyLimit) return;
+
     activeJobs.add(nextJob.id);
     processJob(db, dataDir, nextJob).finally(() => {
       activeJobs.delete(nextJob.id);
@@ -267,7 +286,7 @@ export function createFullBookGenerationJob(
   const chapterIds = rawChapters.map((c: any) => c.id);
   const chapters = hydrateChapterTexts(db, bookId, rawChapters);
 
-  const segments = ensureBookSegments(db, bookId, chapters);
+  const segments = ensureBookSegments(db, bookId, chapters, engine);
   const totalChunks = segments.length;
 
   // 去重检查：相同书+音色+速度+source 的未完成任务不重复创建
@@ -334,7 +353,7 @@ export function createPartialGenerationJob(
   const chapterIds = rawChapters.map((c: any) => c.id);
   const chapters = hydrateChapterTexts(db, bookId, rawChapters);
 
-  const segments = ensureBookSegments(db, bookId, chapters);
+  const segments = ensureBookSegments(db, bookId, chapters, engine);
   const totalChunks = segments.length;
 
   const job: GenerationJob = {
@@ -393,26 +412,47 @@ async function processPersistedSegments(db: any, dataDir: string, job: Generatio
       continue;
     }
     const startedAt = new Date().toISOString();
-    db.update(ttsGenerationSegments).set({ status: 'running', attemptCount: (row.attemptCount || 0) + 1, startedAt, updatedAt: startedAt }).where(sql`id = ${row.id}`).run();
-    try {
-      const result = await synthesizeWithTimeout({ input: segment.text, voice: job.voice, speed: job.speed, model, response_format: 'wav', apiUrl, apiKey });
-      if (!result.success || !result.audio) throw new Error(result.error || 'TTS 合成失败');
-      saveToCache(db, dataDir, segment.text, job.voice, job.speed, result.audio, 'wav', job.userId, job.bookId, segment.chapterId, segment.segmentIndex, source);
-
+    // 段失败自动重试 1 次（共最多 2 次尝试）；重试间短暂退避，避免对故障 TTS 服务连击
+    const MAX_ATTEMPTS = 2;
+    let attempt = row.attemptCount || 0;
+    let succeeded = false;
+    let lastError = '';
+    let resultAudio: Buffer | null = null;
+    while (attempt < MAX_ATTEMPTS) {
+      attempt++;
+      db.update(ttsGenerationSegments).set({ status: 'running', attemptCount: attempt, startedAt, updatedAt: startedAt }).where(sql`id = ${row.id}`).run();
+      try {
+        const result = await synthesizeWithTimeout({ input: segment.text, voice: job.voice, speed: job.speed, model, response_format: 'wav', apiUrl, apiKey });
+        if (!result.success || !result.audio) throw new Error(result.error || 'TTS 合成失败');
+        saveToCache(db, dataDir, segment.text, job.voice, job.speed, result.audio, 'wav', job.userId, job.bookId, segment.chapterId, segment.segmentIndex, source, model || '', apiUrl);
+        resultAudio = result.audio;
+        succeeded = true;
+        break;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        if (attempt < MAX_ATTEMPTS) {
+          db.update(ttsGenerationSegments).set({ status: 'pending', error: `第${attempt}次失败将重试: ${lastError}`, updatedAt: new Date().toISOString() }).where(sql`id = ${row.id}`).run();
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+    }
+    if (succeeded) {
       // 写入全局资源（跨用户共享）
       try {
         const { findTtsGlobalResource, createTtsGlobalResource } = await import('./globalResourceService.js');
-        const textHash = crypto.createHash('md5').update(`${source}|${job.voice}|${job.speed}|${segment.text}`).digest('hex');
+        // D14：全局资源 textHash 与缓存键同源（含 model/apiUrlHash 身份），换引擎不误命中
+        const textHash = generateCacheKey(segment.text, job.voice, job.speed, source, model || '', computeApiUrlHash(apiUrl));
         const { userBookRefs } = await import('../db/schema.js');
-        const userRef = db.select().from(userBookRefs).where(sql`local_book_id = ${job.bookId} AND deleted_at IS NULL`).get() as any;
+        // D13：归属过滤——只认任务属主自己的书映射，防止跨用户串书
+        const userRef = db.select().from(userBookRefs).where(sql`local_book_id = ${job.bookId} AND user_id = ${job.userId} AND deleted_at IS NULL`).get() as any;
         const globalBookId = userRef?.globalBookId || job.bookId;
         let resource = findTtsGlobalResource(db, textHash, job.voice, job.speed, globalBookId, source);
         if (!resource) {
           const globalAudioDir = path.join(dataDir, 'tts-global');
           if (!fs.existsSync(globalAudioDir)) fs.mkdirSync(globalAudioDir, { recursive: true });
           const globalAudioPath = path.join(globalAudioDir, `${textHash}.wav`);
-          if (!fs.existsSync(globalAudioPath)) fs.writeFileSync(globalAudioPath, result.audio);
-          resource = createTtsGlobalResource(db, globalBookId, segment.chapterId, textHash, job.voice, job.speed, globalAudioPath, result.audio.length, segment.segmentIndex, source);
+          if (!fs.existsSync(globalAudioPath)) fs.writeFileSync(globalAudioPath, resultAudio!);
+          resource = createTtsGlobalResource(db, globalBookId, segment.chapterId, textHash, job.voice, job.speed, globalAudioPath, resultAudio!.length, segment.segmentIndex, source);
         }
         const { ttsRefs } = await import('../db/schema.js');
         const refExists = db.select().from(ttsRefs).where(sql`user_id = ${job.userId} AND global_resource_id = ${resource.id}`).get();
@@ -426,9 +466,8 @@ async function processPersistedSegments(db: any, dataDir: string, job: Generatio
       const finishedAt = new Date().toISOString();
       db.update(ttsGenerationSegments).set({ status: 'completed', audioResourceId: row.audioResourceId || null, finishedAt, error: null, updatedAt: finishedAt }).where(sql`id = ${row.id}`).run();
       completed++;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      db.update(ttsGenerationSegments).set({ status: 'failed', error: message, updatedAt: new Date().toISOString() }).where(sql`id = ${row.id}`).run();
+    } else {
+      db.update(ttsGenerationSegments).set({ status: 'failed', error: lastError, updatedAt: new Date().toISOString() }).where(sql`id = ${row.id}`).run();
     }
     const progress = total > 0 ? Math.round((completed / total) * 100) : 100;
     db.update(ttsGenerationJobs).set({ progress, totalChunks: total, completedChunks: completed, updatedAt: new Date().toISOString() }).where(sql`id = ${job.id}`).run();
@@ -572,11 +611,12 @@ export function getAllBooksTTSStats(
 /**
  * 删除任务（不限状态，可直接删除 failed/completed 等任务）
  */
-export function deleteJobs(db: any, jobIds: string[]): number {
+export function deleteJobs(db: any, jobIds: string[], userId?: string): number {
   let count = 0;
   for (const id of jobIds) {
+    // D13：userId 提供时强制归属校验，禁止删除他人任务
     const job = db.select().from(ttsGenerationJobs)
-      .where(sql`id = ${id}`)
+      .where(userId ? sql`id = ${id} AND user_id = ${userId}` : sql`id = ${id}`)
       .get();
     if (!job) continue;
     // 如果任务正在运行，先从 activeJobs 移除
@@ -584,7 +624,7 @@ export function deleteJobs(db: any, jobIds: string[]): number {
     // 事务封装：级联删除 segment rows + job，避免孤立 segments
     db.transaction((tx: any) => {
       tx.delete(ttsGenerationSegments).where(sql`job_id = ${id}`).run();
-      tx.delete(ttsGenerationJobs).where(sql`id = ${id}`).run();
+      tx.delete(ttsGenerationJobs).where(userId ? sql`id = ${id} AND user_id = ${userId}` : sql`id = ${id}`).run();
     });
     count++;
   }
@@ -613,9 +653,10 @@ export function clearTerminatedJobs(db: any, userId: string): number {
  * 取消单个生成任务
  * 从 activeJobs 移除以停止实际处理，更新状态为 'failed'
  */
-export function cancelJob(db: any, jobId: string): boolean {
+export function cancelJob(db: any, jobId: string, userId?: string): boolean {
+  // D13：userId 提供时强制归属校验，禁止取消他人任务
   const job = db.select().from(ttsGenerationJobs)
-    .where(sql`id = ${jobId}`)
+    .where(userId ? sql`id = ${jobId} AND user_id = ${userId}` : sql`id = ${jobId}`)
     .get();
 
   if (!job) return false;
@@ -630,7 +671,7 @@ export function cancelJob(db: any, jobId: string): boolean {
       error: '用户取消了任务',
       updatedAt: new Date().toISOString(),
     })
-    .where(sql`id = ${jobId}`)
+    .where(userId ? sql`id = ${jobId} AND user_id = ${userId}` : sql`id = ${jobId}`)
     .run();
 
   return true;
@@ -639,10 +680,10 @@ export function cancelJob(db: any, jobId: string): boolean {
 /**
  * 批量取消生成任务
  */
-export function cancelJobs(db: any, jobIds: string[]): number {
+export function cancelJobs(db: any, jobIds: string[], userId?: string): number {
   let count = 0;
   for (const id of jobIds) {
-    if (cancelJob(db, id)) count++;
+    if (cancelJob(db, id, userId)) count++;
   }
   return count;
 }

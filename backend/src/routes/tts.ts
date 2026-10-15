@@ -8,12 +8,14 @@ import fs from 'fs';
 import path from 'path';
 import { sql } from 'drizzle-orm';
 import { getSources, getVoices, getModels, checkHealth, synthesize } from '../services/ttsProxyService.js';
-import { ttsSettings, ttsCache, ttsGenerationJobs, books, ttsGlobalResources, ttsRefs, userBookRefs } from '../db/schema.js';
-import { findCache, isCacheValid, saveToCache, clearAllCache, findCachedSegmentsByBook } from '../services/ttsCacheService.js';
+import { ttsSettings, ttsCache, ttsGenerationJobs, books, ttsGlobalResources, ttsRefs, userBookRefs, bookChapters } from '../db/schema.js';
+import { findCache, isCacheValid, saveToCache, clearAllCache, findCachedSegmentsByBook, generateCacheKey, computeApiUrlHash } from '../services/ttsCacheService.js';
 import { findTtsGlobalResource, createTtsGlobalResource, createTtsRef } from '../services/globalResourceService.js';
+import { DEFAULT_TTS_VOICE } from '../services/ttsConstants.js';
 import { requireAuth } from '../middleware/auth.js';
 import { unsafeApiUrlReason } from '../middleware/urlGuard.js';
-import { regenerateAllForNewVoice, createFullBookGenerationJob, cancelJob, cancelJobs, cancelAllUserJobs, deleteJobs, clearTerminatedJobs } from '../services/ttsGenerationService.js';
+import { regenerateAllForNewVoice, createFullBookGenerationJob, cancelJob, cancelJobs, cancelAllUserJobs, deleteJobs, clearTerminatedJobs, hydrateChapterTexts } from '../services/ttsGenerationService.js';
+import { ensureBookSegments } from '../services/contentSegmentService.js';
 
 export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').initDatabase>, dataDir?: string) {
   const router = Router();
@@ -100,20 +102,24 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     const apiKey = userSettings?.apiKey || undefined;
     const model = userSettings?.model || undefined;
     const source = 'openai';  // 统一标识，用于缓存键
+    // D14：缓存身份 = source|model|apiUrlHash|voice|speed|text（换模型/引擎不误命中）
+    const apiUrlHash = computeApiUrlHash(apiUrl);
+    const effectiveVoice = voice || DEFAULT_TTS_VOICE;
+    const effectiveSpeed = speed || 1.0;
 
     // ⭐ 全局资源查找：全局资源表的 book_id 是 globalBookId，需要映射
     if (!no_cache && dataDir && book_id) {
       try {
-        const textHash = crypto.createHash('md5').update(`${source}|${voice || 'alloy'}|${speed || 1.0}|${input}`).digest('hex');
+        const textHash = generateCacheKey(input, effectiveVoice, effectiveSpeed, source, model || '', apiUrlHash);
 
-        // localBookId → globalBookId 映射
+        // localBookId → globalBookId 映射（D13：补 user_id 归属过滤）
         const userRef = db.select().from(userBookRefs).where(
-          sql`local_book_id = ${book_id} AND deleted_at IS NULL`
+          sql`local_book_id = ${book_id} AND user_id = ${userId} AND deleted_at IS NULL`
         ).get() as any;
         const globalBookId = userRef?.globalBookId || book_id;
 
         // 先查全局资源（同书+同文本+同音色共享）
-        const globalRes = findTtsGlobalResource(db, textHash, voice || 'alloy', speed || 1.0, globalBookId, source);
+        const globalRes = findTtsGlobalResource(db, textHash, effectiveVoice, effectiveSpeed, globalBookId, source);
         if (globalRes && fs.existsSync(globalRes.audioPath)) {
           // 创建/更新用户的 tts_ref
           const existingRef = db.select().from(ttsRefs).where(
@@ -138,7 +144,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     // ⭐ 回退到本地缓存（按用户隔离）
     if (!no_cache && dataDir) {
       try {
-        const cached = findCache(db, input, voice || 'alloy', speed || 1.0, userId, source);
+        const cached = findCache(db, input, effectiveVoice, effectiveSpeed, userId, source, model || '', apiUrl);
         if (cached && isCacheValid(cached)) {
           const audioBuffer = fs.readFileSync(cached.audioPath);
           const ext = path.extname(cached.audioPath).toLowerCase();
@@ -152,7 +158,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
       } catch { /* 缓存读取失败，回退到实时合成 */ }
     }
 
-    const result = await synthesize({ input, voice, speed, model, response_format, apiUrl: apiUrl!, apiKey });
+    // D9：apiUrl 缺省由 synthesize 内部回退 DEFAULT_API_URL（删除 apiUrl! 非空断言）
+    const result = await synthesize({ input, voice: effectiveVoice, speed: effectiveSpeed, model, response_format, apiUrl, apiKey });
     if (!result.success) {
       res.status(result.status || 502).json({ success: false, error: result.error });
       return;
@@ -161,18 +168,19 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     // ⭐ 合成成功 → 保存到全局资源 + 本地缓存
     if (!no_cache && dataDir && result.audio) {
       try {
-        const textHash = crypto.createHash('md5').update(`${source}|${voice || 'alloy'}|${speed || 1.0}|${input}`).digest('hex');
+        const textHash = generateCacheKey(input, effectiveVoice, effectiveSpeed, source, model || '', apiUrlHash);
 
         // 检查全局是否已有（防并发重复写入）
-        // 先做 localBookId → globalBookId 映射
+        // 先做 localBookId → globalBookId 映射（D13：补 user_id 归属过滤）
         const globalBookId2 = (() => {
+          if (!book_id) return book_id;
           const ref = db.select().from(userBookRefs).where(
-            sql`local_book_id = ${book_id} AND deleted_at IS NULL`
+            sql`local_book_id = ${book_id} AND user_id = ${userId} AND deleted_at IS NULL`
           ).get() as any;
           return ref?.globalBookId || book_id;
         })();
 
-        let globalRes = findTtsGlobalResource(db, textHash, voice || 'alloy', speed || 1.0, globalBookId2, source);
+        let globalRes = findTtsGlobalResource(db, textHash, effectiveVoice, effectiveSpeed, globalBookId2, source);
         if (!globalRes && book_id) {
           // 存到全局目录
           const audioFormat = response_format || 'wav';
@@ -182,7 +190,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           const globalAudioPath = path.join(globalAudioDir, `${textHash}${audioExt}`);
           fs.writeFileSync(globalAudioPath, result.audio);
 
-          globalRes = createTtsGlobalResource(db, globalBookId2, null, textHash, voice || 'alloy', speed || 1.0, globalAudioPath, result.audio.length, null, source);
+          globalRes = createTtsGlobalResource(db, globalBookId2, null, textHash, effectiveVoice, effectiveSpeed, globalAudioPath, result.audio.length, null, source);
         }
 
         if (globalRes) {
@@ -190,7 +198,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         }
 
         // 同时保持本地缓存（向后兼容）
-        saveToCache(db, dataDir, input, voice || 'alloy', speed || 1.0, result.audio, response_format || 'wav', userId, book_id, null, null, source);
+        saveToCache(db, dataDir, input, effectiveVoice, effectiveSpeed, result.audio, response_format || 'wav', userId, book_id, null, null, source, model || '', apiUrl);
       } catch { /* 缓存写入失败不影响主流程 */ }
     }
 
@@ -230,7 +238,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           enabled: true,
           source: 'openai',
           model: null as string | null,
-          voiceId: 'alloy',
+          voiceId: DEFAULT_TTS_VOICE,
           speed: 1.0,
           apiUrl: null as string | null,
           apiKey: null as string | null,
@@ -288,7 +296,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           enabled: enabled ?? true,
           source: source ?? 'openai',
           model: model || null,
-          voiceId: voiceId ?? 'alloy',
+          voiceId: voiceId ?? DEFAULT_TTS_VOICE,
           speed: speed ?? 1.0,
           apiUrl: apiUrl || null,
           apiKey: apiKey || null,
@@ -313,7 +321,7 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
             regenerateAllForNewVoice(db, userId, voiceId, speed ?? existing.speed ?? 1.0, dataDir);
           } else {
             // 刚开启自动预合成：为所有书创建任务
-            const voice = existing?.voiceId || 'alloy';
+            const voice = existing?.voiceId || DEFAULT_TTS_VOICE;
             const spd = existing?.speed ?? 1.0;
             const userBooks = db.select().from(books).where(sql`user_id = ${userId}`).all();
             for (const b of userBooks) {
@@ -352,14 +360,22 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     try {
       const userId = req.user!.userId;
       const { bookId } = req.params;
-      const voice = (req.query.voice as string) || 'alloy';
+      const voice = (req.query.voice as string) || DEFAULT_TTS_VOICE;
       const speed = parseFloat(req.query.speed as string) || 1.0;
       const source = (req.query.source as string) || 'openai';
 
-      // 1. 查全局资源：需要将 localBookId → globalBookId
+      // D13：书籍归属校验——禁止读取他人书籍的音频
+      const bookOwner = db.select({ id: books.id }).from(books)
+        .where(sql`id = ${bookId} AND user_id = ${userId}`).get();
+      if (!bookOwner) {
+        res.status(404).json({ success: false, error: '图书不存在' });
+        return;
+      }
+
+      // 1. 查全局资源：需要将 localBookId → globalBookId（D13：补 user_id 归属过滤）
       const userRef = db.select()
         .from(userBookRefs)
-        .where(sql`local_book_id = ${bookId} AND deleted_at IS NULL`)
+        .where(sql`local_book_id = ${bookId} AND user_id = ${userId} AND deleted_at IS NULL`)
         .get() as any;
       const globalBookId = userRef?.globalBookId || bookId;
 
@@ -392,9 +408,9 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         });
       }
 
-      // 2. 补充本地缓存（未在全局资源表中的）
-      const localEntries = findCachedSegmentsByBook(db, bookId, voice, speed, userId)
-        .filter(entry => (entry.source || 'openai') === source);
+      // 2. 补充本地缓存（未在全局资源表中的）——source 过滤下沉到服务层
+      const localEntries = findCachedSegmentsByBook(db, bookId, voice, speed, userId, source)
+        ;
       for (const local of localEntries) {
         // 去重：如果已包含相同 text_hash+voice+speed 的全局资源，跳过
         const alreadyExists = segments.some(s => s.textHash === local.textHash && s.voice === local.voice && s.speed === local.speed);
@@ -477,6 +493,43 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
   });
 
 
+  // ── GET /api/tts/book/:bookId/segments?chapterId= - 章节分段查询（Phase 2 前端播放层数据源） ──
+  // 返回该章的朗读分段（segmentIndex/text/textHash）；分段由 contentSegmentService 幂等生成
+  router.get('/book/:bookId/segments', requireAuth, (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.userId;
+      const { bookId } = req.params;
+      const chapterId = req.query.chapterId as string | undefined;
+      if (!chapterId) {
+        res.status(400).json({ success: false, error: 'chapterId 为必填参数' });
+        return;
+      }
+      // D13：书籍归属校验
+      const book = db.select({ id: books.id }).from(books)
+        .where(sql`id = ${bookId} AND user_id = ${userId}`).get();
+      if (!book) {
+        res.status(404).json({ success: false, error: '图书不存在' });
+        return;
+      }
+      const chapters = db.select().from(bookChapters)
+        .where(sql`id = ${chapterId} AND book_id = ${bookId}`)
+        .all() as any[];
+      if (chapters.length === 0) {
+        res.status(404).json({ success: false, error: '章节不存在' });
+        return;
+      }
+      const hydrated = hydrateChapterTexts(db, bookId, chapters);
+      const segments = ensureBookSegments(db, bookId, hydrated);
+      res.json({
+        success: true,
+        data: segments.map(s => ({ segmentIndex: s.segmentIndex, text: s.text, textHash: s.textHash })),
+      });
+    } catch (error: any) {
+      console.error('[TTS] 查询章节分段失败:', error);
+      res.status(500).json({ success: false, error: '查询章节分段失败' });
+    }
+  });
+
   // ── GET /api/tts/jobs - 获取当前用户所有 TTS 生成任务（含书名） ──
   router.get('/jobs', requireAuth, (req: Request, res: Response) => {
     try {
@@ -504,7 +557,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
   router.delete('/jobs/:jobId', requireAuth, (req: Request, res: Response) => {
     try {
       const { jobId } = req.params;
-      const ok = cancelJob(db, jobId);
+      const userId = req.user!.userId;
+      const ok = cancelJob(db, jobId, userId);
       if (!ok) {
         res.status(404).json({ success: false, error: '任务不存在或无法取消' });
         return;
@@ -523,7 +577,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         res.status(400).json({ success: false, error: '请提供 jobIds 数组' });
         return;
       }
-      const count = cancelJobs(db, jobIds);
+      const userId = req.user!.userId;
+      const count = cancelJobs(db, jobIds, userId);
       res.json({ success: true, cancelled: count, message: `已取消 ${count} 个任务` });
     } catch (error: any) {
       res.status(500).json({ success: false, error: '批量取消任务失败' });
@@ -549,7 +604,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         res.status(400).json({ success: false, error: '请提供 jobIds 数组' });
         return;
       }
-      const count = deleteJobs(db, jobIds);
+      const userId = req.user!.userId;
+      const count = deleteJobs(db, jobIds, userId);
       res.json({ success: true, deleted: count, message: `已删除 ${count} 个任务` });
     } catch (error: any) {
       res.status(500).json({ success: false, error: '批量删除任务失败' });

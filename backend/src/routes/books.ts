@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
-import { sql } from 'drizzle-orm';
+import { sql, and } from 'drizzle-orm';
 import { books, bookChapters, readingProgress, ttsGenerationJobs, ttsSettings, ttsCache, globalBooks, bookContentCache } from '../db/schema.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
@@ -471,11 +471,13 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       const categoryId = req.query.category_id as string | undefined;
       
       // 1. Fetch books with the new pinned field
-      let query = db.select().from(books).where(sql`user_id = ${userId}`);
+      // D3 同类修复：drizzle 链式 .where() 是赋值覆盖（非 AND 组合）——
+      // 原写法分类筛选时 user_id 条件被覆盖 → 跨用户书籍泄露；改 and() 单传
+      const bookConditions = [sql`user_id = ${userId}`];
       if (categoryId) {
-        query = query.where(sql`category_id = ${categoryId}`);
+        bookConditions.push(sql`category_id = ${categoryId}`);
       }
-      const allBooks = query.all() as Array<any>;
+      const allBooks = db.select().from(books).where(and(...bookConditions)).all() as Array<any>;
       
       // 2. Fetch last read time per book from readingProgress (aggregate in SQL)
       let lastReadMap = new Map<string, string>();
@@ -953,6 +955,13 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       const { voice, speed, chapterCount } = req.body;
 
       const ttsGen = await import('../services/ttsGenerationService.js');
+      // D13：书籍归属校验——禁止为他人书籍创建生成任务
+      const bookOwner = db.select({ id: books.id }).from(books)
+        .where(sql`id = ${bookId} AND user_id = ${userId}`).get();
+      if (!bookOwner) {
+        next(new AppError(404, '图书不存在'));
+        return;
+      }
       const cfg = ttsGen.resolveTtsConfig(db, userId, { voice, speed });
 
       // 如果 TTS 功能被关闭，则返回
@@ -1244,6 +1253,13 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       const jobs: { id: string; job: any; error?: string }[] = [];
       for (const id of ids) {
         try {
+          // D13：逐本归属校验——非本人书籍直接报错不入队
+          const owner = db.select({ id: books.id }).from(books)
+            .where(sql`id = ${id} AND user_id = ${userId}`).get();
+          if (!owner) {
+            jobs.push({ id, job: null, error: '图书不存在' });
+            continue;
+          }
           const job = ttsGen.createFullBookGenerationJob(db, id, userId, cfg.voice, cfg.speed, dataDir);
           jobs.push({ id, job });
         } catch (err: any) {

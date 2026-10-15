@@ -8,7 +8,7 @@ import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import { sql } from 'drizzle-orm';
+import { sql, and } from 'drizzle-orm';
 import { ttsCache } from '../db/schema.js';
 
 // ===== 类型定义 =====
@@ -29,10 +29,27 @@ export interface CacheEntry {
 // ===== 缓存键生成 =====
 
 /**
- * 根据文本、音色、语速生成唯一的缓存键（MD5）
+ * 计算 apiUrl 指纹（缓存键身份维度，D14）：换引擎/换地址不得命中旧音频。
+ * 无 apiUrl 返回空串（与未配置语义一致）。
  */
-export function generateCacheKey(text: string, voice: string, speed: number, source = 'openai'): string {
-  return crypto.createHash('md5').update(`${source}|${voice}|${speed}|${text}`).digest('hex');
+export function computeApiUrlHash(apiUrl?: string | null): string {
+  if (!apiUrl) return '';
+  return crypto.createHash('sha256').update(apiUrl).digest('hex').slice(0, 8);
+}
+
+/**
+ * 根据文本、音色、语速生成唯一的缓存键（D14：v2_ 前缀 + source|model|apiUrlHash 身份维度）
+ * v2_ 前缀同时用于历史键（纯 md5 hex）的一次性清理识别（evictLegacyCacheKeys）
+ */
+export function generateCacheKey(
+  text: string,
+  voice: string,
+  speed: number,
+  source = 'openai',
+  model = '',
+  apiUrlHash = '',
+): string {
+  return `v2_${crypto.createHash('md5').update(`${source}|${model}|${apiUrlHash}|${voice}|${speed}|${text}`).digest('hex')}`;
 }
 
 // ===== 缓存目录 =====
@@ -67,15 +84,23 @@ export function findCache(
   speed: number,
   userId?: string,
   source = 'openai',
+  model = '',
+  apiUrl?: string | null,
 ): CacheEntry | null {
-  const textHash = generateCacheKey(text, voice, speed, source);
-  let query: any = db.select()
+  const textHash = generateCacheKey(text, voice, speed, source, model, computeApiUrlHash(apiUrl));
+  // D3 修复：drizzle 链式 .where() 是赋值覆盖而非 AND 组合，必须 and(...) 单次传入，
+  // 否则带 userId 时文本/音色条件全部失效 → 任意文本命中任意缓存音频（错音）
+  const conditions = [
+    sql`text_hash = ${textHash}`,
+    sql`voice = ${voice}`,
+    sql`speed = ${speed}`,
+    sql`source = ${source}`,
+  ];
+  if (userId) conditions.push(sql`user_id = ${userId}`);
+  const result = db.select()
     .from(ttsCache)
-    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed} AND source = ${source}`);
-  if (userId) {
-    query = query.where(sql`user_id = ${userId}`);
-  }
-  const result = query.get();
+    .where(and(...conditions))
+    .get();
   return result || null;
 }
 
@@ -119,8 +144,10 @@ export function saveToCache(
   chapterId?: string | null,
   segmentIndex?: number | null,
   source = 'openai',
+  model = '',
+  apiUrl?: string | null,
 ): CacheEntry {
-  const textHash = generateCacheKey(text, voice, speed, source);
+  const textHash = generateCacheKey(text, voice, speed, source, model, computeApiUrlHash(apiUrl));
   const cacheDir = getCacheDir(dataDir);
   const audioPath = getCacheFilePath(cacheDir, textHash, format);
   const effectiveUserId = userId || 'default-user';
@@ -146,10 +173,16 @@ export function saveToCache(
     createdAt: now,
   }).onConflictDoNothing().run();
 
-  // 查询最终记录（可能是本次插入的，也可能是并发竞争者先插入的）
+  // 查询最终记录（可能是本次插入的，也可能是并发竞争者先插入的）——D3：and() 单传
   const final = db.select()
     .from(ttsCache)
-    .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed} AND source = ${source} AND user_id = ${effectiveUserId}`)
+    .where(and(
+      sql`text_hash = ${textHash}`,
+      sql`voice = ${voice}`,
+      sql`speed = ${speed}`,
+      sql`source = ${source}`,
+      sql`user_id = ${effectiveUserId}`,
+    ))
     .get() as CacheEntry;
 
   if (final && final.id !== id) {
@@ -178,15 +211,21 @@ export function findCachedSegmentsByBook(
   voice: string,
   speed: number,
   userId?: string,
+  source = 'openai',
 ): CacheEntry[] {
-  let query: any = db.select()
+  // D3 修复：and() 单传（原链式覆盖导致 batch-cache 跨书返回全部缓存）
+  const conditions = [
+    sql`book_id = ${bookId}`,
+    sql`voice = ${voice}`,
+    sql`speed = ${speed}`,
+    sql`source = ${source}`,
+  ];
+  if (userId) conditions.push(sql`user_id = ${userId}`);
+  const results = db.select()
     .from(ttsCache)
-    .where(sql`book_id = ${bookId} AND voice = ${voice} AND speed = ${speed}`)
-    .orderBy(sql`chapter_id ASC, segment_index ASC, created_at ASC`);
-  if (userId) {
-    query = query.where(sql`user_id = ${userId}`);
-  }
-  const results = query.all();
+    .where(and(...conditions))
+    .orderBy(sql`chapter_id ASC, segment_index ASC, created_at ASC`)
+    .all();
   // 过滤掉无效缓存（文件不存在或 hash 不匹配）
   return results.filter((entry: any) => isCacheValid(entry));
 }
@@ -202,8 +241,11 @@ export function clearCacheByText(
   text: string,
   voice: string,
   speed: number,
+  source = 'openai',
+  model = '',
+  apiUrl?: string | null,
 ): void {
-  const textHash = generateCacheKey(text, voice, speed);
+  const textHash = generateCacheKey(text, voice, speed, source, model, computeApiUrlHash(apiUrl));
   const entry = db.select()
     .from(ttsCache)
     .where(sql`text_hash = ${textHash} AND voice = ${voice} AND speed = ${speed}`)
@@ -229,11 +271,10 @@ export function clearAllCache(
   dataDir: string,
   userId?: string,
 ): number {
-  let query: any = db.select().from(ttsCache);
-  if (userId) {
-    query = query.where(sql`user_id = ${userId}`);
-  }
-  const allEntries = query.all();
+  // D3 修复：and() 单传（原链式覆盖导致 DELETE 丢条件）
+  const conditions = userId ? [sql`user_id = ${userId}`] : [];
+  const selectBase = db.select().from(ttsCache);
+  const allEntries = (conditions.length ? selectBase.where(and(...conditions)) : selectBase).all();
   let deleted = 0;
   for (const entry of allEntries) {
     try {
@@ -241,13 +282,33 @@ export function clearAllCache(
         fs.unlinkSync(entry.audioPath);
       }
     } catch { /* 忽略 */ }
-    let delQuery: any = db.delete(ttsCache).where(sql`id = ${entry.id}`);
-    if (userId) {
-      delQuery = delQuery.where(sql`user_id = ${userId}`);
-    }
-    delQuery.run();
+    const delConditions = [sql`id = ${entry.id}`];
+    if (userId) delConditions.push(sql`user_id = ${userId}`);
+    db.delete(ttsCache).where(and(...delConditions)).run();
     deleted++;
   }
+  return deleted;
+}
+
+/**
+ * 历史缓存键一次性清理（D14 配套）：v2_ 前缀之外的记录均为旧键算法产物，
+ * 新键查询永不命中，保留只会占用磁盘/数据库。启动时幂等调用。
+ */
+export function evictLegacyCacheKeys(
+  db: ReturnType<typeof import('../db/init.js').initDatabase>,
+): number {
+  const legacy = db.select().from(ttsCache)
+    .where(sql`text_hash NOT LIKE 'v2_%'`)
+    .all() as CacheEntry[];
+  let deleted = 0;
+  for (const entry of legacy) {
+    try {
+      if (fs.existsSync(entry.audioPath)) fs.unlinkSync(entry.audioPath);
+    } catch { /* 忽略 */ }
+    db.delete(ttsCache).where(sql`id = ${entry.id}`).run();
+    deleted++;
+  }
+  if (deleted > 0) console.log(`[TTS Cache] 已清理旧版本缓存键记录 ${deleted} 条（D14 键升级）`);
   return deleted;
 }
 

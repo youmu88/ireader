@@ -188,6 +188,7 @@ API 层：翻页方法不存在
 6. **【P1】死旋钮（D15）**：preGenerateConcurrency/firstChunkMaxSize/normalChunkMaxSize 有存取有 UI 但零消费者（分片硬编码 200：contentSegmentService.ts:17；并发硬编码 2：ttsGenerationService.ts:58）。
 7. 其他：voiceCacheService.ts:99 LRU 淘汰按 user+voice 缺 book 维度（跨书误删）；ttsGenerationService.ts:192-201 setTimeout 不清理（每段泄漏 ≤120s 定时器）；:396-432 段失败无自动重试；缺省音色三处不一致（index.ts:106 回退 Xiaoxiao vs schema.ts:165 默认 alloy vs init.ts:498 种子 Xiaoxiao）。
 8. **复核新增发现（2026-10-14）**：①source 枚举跨链路不一致（缓存/预生成链路与 edge 链路的 source 标签不统一，前端播放层重建时必须统一 source 口径，否则缓存二分）；②缓存指纹为无盐 md5 且无版本号，缓存键升级（4.2-4）后历史条目无法被动失效，需一次性清理；③IDOR 第四处：ttsGenerationService.ts:407 userBookRefs 查询同样缺 user_id 过滤（初稿仅列 tts.ts 三处）。
+9. **Phase 2 实施期同类发现（2026-10-15）**：books.ts 图书列表接口 `query = query.where(category_id)` 链式覆盖 user_id 条件——分类筛选时跨用户书籍泄露（D3 同机制第四实例，非首稿排查清单内）；已改 and() 单传修复，补集成回归用例（api.integration.test.ts「category_id 不得泄露他人书籍」）。修复清单：D3（ttsCacheService 三处+books 列表一处）、D9、D10、D13、D14、D15、段重试、定时器清理、LRU 补 book 维度、README 纠偏、新增 segments 接口；前端播放层 reader/tts 五模块+TtsOverlay+听书入口+段高亮（2.64.0）。
 
 ### 4.2 技术方案
 
@@ -382,20 +383,20 @@ flowchart TB
 
 ### Phase 2 · TTS 闭环
 
-- [ ] P0：ttsCacheService 三处链式 `.where()` 改 and() 单传（findCache/findCachedSegmentsByBook/clearAllCache）（D3，:72-77/:184-187/:244-247）
-- [ ] P0：补回归测试：不同文本不得命中同一缓存音频、batch-cache 不跨书（D3）
-- [ ] P0：ttsProxyService 统一 resolveApiUrl()，synthesize 与后台生成共享默认回退（D9）
-- [ ] P0：index.ts:106 `voice_id` 改 `voiceId`；缺省音色收敛单常量（D10）
-- [ ] P1：缓存键升级含 model/apiUrlHash，历史缓存标记重建（D14）
-- [ ] P1：jobs 取消/删除/清空补 user_id 条件；tts-generate 校验书籍归属；userBookRefs 补 user_id（D13）
-- [ ] P1：死旋钮接线：并发/分片大小真实读 settings（D15）
-- [ ] P1：段失败自动重试 1 次；synthesizeWithTimeout 定时器清理（ttsGenerationService.ts:192-201,396-432）
-- [ ] P0：前端重建 reader/tts 播放层：Player/Scheduler/useTtsSession（4.2）
-- [ ] P0：ReaderBottomBar 听书入口 + 播放中段落高亮自动跟随/自动翻页（paged 模式复用 next()）（4.2-2）
-- [ ] P1：TtsOverlay 迷你播放条 + MediaSession 锁屏控制（4.2-2）
-- [ ] P1：no_cache 参数随请求携带，开关生效（4.2-3）
-- [ ] P1：voiceCacheService LRU 淘汰补 book 维度；README TTS 章节纠偏（删除"501"失实描述）
-- [ ] P2：source 枚举跨链路统一；tts.ts:125 apiUrl! 断言移除；userBookRefs 第四处补 user_id（ttsGenerationService.ts:407）
+- [x] P0：ttsCacheService 三处链式 `.where()` 改 and() 单传（findCache/findCachedSegmentsByBook/clearAllCache）（D3，:72-77/:184-187/:244-247）
+- [x] P0：补回归测试：不同文本不得命中同一缓存音频、batch-cache 不跨书（D3）
+- [x] P0：ttsProxyService 统一 resolveApiUrl()，synthesize 与后台生成共享默认回退（D9）
+- [x] P0：index.ts:106 `voice_id` 改 `voiceId`；缺省音色收敛单常量（D10）
+- [x] P1：缓存键升级含 model/apiUrlHash，历史缓存标记重建（D14）
+- [x] P1：jobs 取消/删除/清空补 user_id 条件；tts-generate 校验书籍归属；userBookRefs 补 user_id（D13）
+- [x] P1：死旋钮接线：并发/分片大小真实读 settings（D15）
+- [x] P1：段失败自动重试 1 次；synthesizeWithTimeout 定时器清理（ttsGenerationService.ts:192-201,396-432）
+- [x] P0：前端重建 reader/tts 播放层：Player/Scheduler/useTtsSession（4.2）
+- [x] P0：ReaderBottomBar 听书入口 + 播放中段落高亮自动跟随/自动翻页（paged 模式复用 next()）（4.2-2）
+- [x] P1：TtsOverlay 迷你播放条 + MediaSession 锁屏控制（4.2-2）
+- [x] P1：no_cache 参数随请求携带，开关生效（4.2-3）
+- [x] P1：voiceCacheService LRU 淘汰补 book 维度（修复跨书误删）；README TTS 章节纠偏（"501"失实描述已改为实际接口清单）
+- [x] P2：source 枚举跨链路统一；tts.ts:125 apiUrl! 断言移除；userBookRefs 第四处补 user_id（ttsGenerationService.ts:407）
 
 ### Phase 3 · 缓存与离线闭环
 

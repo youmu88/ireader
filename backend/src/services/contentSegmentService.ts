@@ -40,13 +40,19 @@ export function splitSpeechText(text: string, maxLength = 200): string[] {
   return chunks;
 }
 
-export function ensureChapterSegments(db: any, bookId: string, chapter: any): ContentSegment[] {
+export function ensureChapterSegments(
+  db: any,
+  bookId: string,
+  chapter: any,
+  chunkSize = 200,
+): ContentSegment[] {
   const existing = db.select().from(contentSegments)
     .where(sql`chapter_id = ${chapter.id}`)
     .orderBy(contentSegments.segmentIndex)
     .all() as ContentSegment[];
   const text = String(chapter.normalizedText || '').trim();
-  const chunks = splitSpeechText(text);
+  // D15：分片大小由设置接线（normalChunkMaxSize），不再硬编码 200
+  const chunks = splitSpeechText(text, chunkSize);
   const hash = crypto.createHash('sha256').update(text).digest('hex');
   if (existing.length > 0 && existing.length === chunks.length && existing.every((s, i) => s.text === chunks[i])) return existing;
 
@@ -71,6 +77,16 @@ export function ensureChapterSegments(db: any, bookId: string, chapter: any): Co
   return result;
 }
 
-export function ensureBookSegments(db: any, bookId: string, chapters: any[]): ContentSegment[] {
-  return chapters.flatMap(chapter => ensureChapterSegments(db, bookId, chapter));
+export function ensureBookSegments(
+  db: any,
+  bookId: string,
+  chapters: any[],
+  opts?: { firstChunkMaxSize?: number; normalChunkMaxSize?: number },
+): ContentSegment[] {
+  // D15：接线设置旋钮——首个分片用 firstChunkMaxSize（快速出声），其余用 normalChunkMaxSize
+  const first = opts?.firstChunkMaxSize ?? 200;
+  const normal = opts?.normalChunkMaxSize ?? 200;
+  return chapters.map((chapter, i) =>
+    ensureChapterSegments(db, bookId, chapter, i === 0 ? first : normal),
+  ).flat();
 }

@@ -61,8 +61,12 @@ ireader/
 - `GET /api/books/:id/progress` — 获取阅读进度
 - `PUT /api/books/:id/progress` — 保存阅读进度
 
-### TTS (Phase 2+)
-- 路由已预留，当前返回 501 Not Implemented
+### TTS（Phase 2 已闭环）
+- `POST /api/tts` — 语音合成（OpenAI 兼容，带全局+本地两级缓存）
+- `GET /api/tts/book/:bookId/segments?chapterId=` — 章节朗读分段查询（播放层数据源）
+- `GET /api/tts/batch-cache/:bookId` — 批量获取已预合成音频
+- `GET/PUT /api/tts/settings` — TTS 设置（音色/语速/apiUrl/apiKey 脱敏）
+- `GET /api/tts/jobs` 等 — 后台预生成任务管理
 
 ## 部署
 

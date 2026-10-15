@@ -25,7 +25,7 @@ export interface TTSOptions {
   speed?: number;
   model?: string;
   response_format?: string;
-  apiUrl: string;  // 必填：TTS 服务基础 URL
+  apiUrl?: string;  // 可选（D9）：未配置时回退 DEFAULT_API_URL
   apiKey?: string;  // 可选：Bearer 认证
 }
 
@@ -99,6 +99,14 @@ export function getDefaultConfig() {
     apiKey: DEFAULT_API_KEY,
     model: DEFAULT_MODEL,
   };
+}
+
+/**
+ * D9：解析实际请求用的 apiUrl —— 用户设置优先，未配置时回退 DEFAULT_API_URL。
+ * synthesize 与后台预生成共享此回退，消除「未配置即 400 / 逐段失败」的开箱即坏。
+ */
+export function resolveApiUrl(apiUrl?: string | null): string {
+  return apiUrl || DEFAULT_API_URL;
 }
 
 /**
@@ -281,11 +289,8 @@ export async function synthesize(options: TTSOptions): Promise<SynthesizeResult>
     return { success: false, error: 'input is required', status: 400 };
   }
 
-  if (!apiUrl) {
-    return { success: false, error: 'apiUrl is required', status: 400 };
-  }
-
-  const baseUrl = normalizeBaseUrl(apiUrl);
+  // D9：apiUrl 未配置时回退 DEFAULT_API_URL（此前直接 400，预生成逐段失败）
+  const baseUrl = normalizeBaseUrl(resolveApiUrl(apiUrl));
   const key = apiKey || DEFAULT_API_KEY;
 
   try {

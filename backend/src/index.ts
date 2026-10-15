@@ -7,6 +7,8 @@ import { errorHandler } from './middleware/errorHandler.js';
 import healthRouter from './routes/health.js';
 import { tryProcessQueue, createFullBookGenerationJob } from './services/ttsGenerationService.js';
 import { startCleanupScheduler } from './services/globalResourceService.js';
+import { DEFAULT_TTS_VOICE } from './services/ttsConstants.js';
+import { evictLegacyCacheKeys } from './services/ttsCacheService.js';
 import { books, ttsSettings, ttsGenerationJobs } from './db/schema.js';
 import { sql } from 'drizzle-orm';
 
@@ -107,7 +109,7 @@ setTimeout(async () => {
         .get() as any;
       if (existing) continue;
       
-      const voice = settings?.voice_id || 'zh-CN-XiaoxiaoNeural';
+      const voice = settings?.voiceId || DEFAULT_TTS_VOICE;
       const speed = settings?.speed || 1.0;
       createFullBookGenerationJob(db, b.id, b.userId, voice, speed, DATA_DIR);
       created++;
@@ -119,6 +121,9 @@ setTimeout(async () => {
     console.error('[TTS] 自动创建任务失败:', (err as Error).message);
   }
 }, 1000);
+
+// D14 配套：缓存键升级后旧键（无 v2_ 前缀）永不命中，启动时幂等清理一次
+try { evictLegacyCacheKeys(db); } catch (err) { console.warn('[TTS] 旧缓存键清理失败(非致命):', (err as Error).message); }
 
 app.listen(PORT, () => {
   console.log(`📚 iReader server running at http://localhost:${PORT}`);
