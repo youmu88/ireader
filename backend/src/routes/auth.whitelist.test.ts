@@ -32,7 +32,15 @@ describe('安全账号白名单 - auth whitelist', () => {
   let db: ReturnType<typeof initDatabase>;
 
   beforeAll(async () => {
-    // 确认白名单文件存在
+    // D34 后 secUserEmail.json 已移出仓库（.gitignore）：CI/新环境无此文件时写入测试用白名单
+    // （文件已被 .gitignore，不会误提交；写入后保留供本机后续开发使用）
+    if (!fs.existsSync(SEC_EMAIL_PATH)) {
+      fs.writeFileSync(
+        SEC_EMAIL_PATH,
+        JSON.stringify(['youmu88@gmail.com', '276935214@qq.com'], null, 2),
+        'utf-8',
+      );
+    }
     expect(fs.existsSync(SEC_EMAIL_PATH)).toBe(true);
 
     db = initDatabase(testDbPath);
