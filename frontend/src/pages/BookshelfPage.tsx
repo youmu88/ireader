@@ -9,6 +9,8 @@ import {
   checkPackageStaleness,
   getAllOfflinePackageBookIds,
   getStalePackageBookIds,
+  getAllCachedBookStatuses,
+  downloadBookForOffline,
 } from '../services/offlineCacheService';
 import { useAuth } from '../contexts/AuthContext';
 import { useTtsQueue } from '../hooks/useTtsQueue';
@@ -49,8 +51,6 @@ interface BookStats {
   totalChapters: number;
   completedVoiceChapters: number;
   totalVoiceChunks: number;
-  cachedChapters: number;
-  cacheType: string | null;
   ttsCacheCount?: number;
 }
 
@@ -107,6 +107,24 @@ useEffect(() => {
       }
     })();
   }, []);
+
+  // ── 书架缓存徽标四态（D4/5.2-2）：「无」=无徽标；「部分/就绪」=本状态（数据源 IndexedDB cacheMeta）；「过期」=staleBookIds ──
+  const [cacheBadges, setCacheBadges] = useState<Record<string, 'partial' | 'ready'>>({});
+  const refreshCacheStatuses = useCallback(async () => {
+    try {
+      const statuses = await getAllCachedBookStatuses();
+      const map: Record<string, 'partial' | 'ready'> = {};
+      for (const s of statuses) {
+        // 仅有书架元数据（未下载章节）的记录 totalChapters 为空 → 视为「无缓存」不打徽标
+        if (!s.totalChapters) continue;
+        map[s.bookId] = s.cachedChapters >= s.totalChapters ? 'ready' : 'partial';
+      }
+      setCacheBadges(map);
+    } catch {
+      // 静默失败，不影响书架展示
+    }
+  }, []);
+  useEffect(() => { void refreshCacheStatuses(); }, [refreshCacheStatuses]);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingBook, setEditingBook] = useState<Book | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -218,18 +236,30 @@ useEffect(() => {
   };
 
 
-  // ── 批量缓存离线包 ──
+  // ── 批量缓存离线包（D4：真实下载写入 IndexedDB，落库后才提示成功；单本失败不中断其余） ──
   const handleBatchCache = async () => {
     if (selectedIds.size === 0) return;
     setBatchActionLoading('cache');
+    const targets = books.filter(b => selectedIds.has(b.id) && b.status === 'ready');
+    const failedTitles: string[] = [];
     try {
-      const res = await axios.post('/api/books/batch-cache', { ids: [...selectedIds] });
-      const submitted = res.data?.data?.results?.length ?? selectedIds.size;
-      toast.success(`已提交 ${submitted} 本图书的离线缓存`);
+      for (const book of targets) {
+        try {
+          await downloadBookForOffline(book);
+        } catch {
+          failedTitles.push(book.title);
+        }
+      }
+      const okCount = targets.length - failedTitles.length;
+      if (failedTitles.length === 0) {
+        toast.success(`已将 ${okCount} 本书缓存到本地`);
+      } else if (okCount > 0) {
+        toast.success(`已缓存 ${okCount} 本，${failedTitles.length} 本失败：${failedTitles.slice(0, 3).join('、')}`);
+      } else {
+        toast.error(`缓存离线包失败：${failedTitles.slice(0, 3).join('、')}`);
+      }
       exitSelectionMode();
-      await loadData();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || '缓存离线包失败');
+      await refreshCacheStatuses();
     } finally {
       setBatchActionLoading(null);
     }
@@ -745,6 +775,12 @@ useEffect(() => {
                       {book.status === 'failed' && (
                         <span className="text-xs text-ios-danger bg-ios-danger-subtle px-1.5 py-0.5 rounded" title={book.parseError || ''}>解析失败</span>
                       )}
+                      {cacheBadges[book.id] === 'ready' && !staleBookIds.has(book.id) && (
+                        <span className="text-xs text-ios-success bg-ios-success-subtle px-1.5 py-0.5 rounded" data-testid={`cache-ready-${book.id}`} title="已完整缓存到本地，可离线阅读">已离线</span>
+                      )}
+                      {cacheBadges[book.id] === 'partial' && (
+                        <span className="text-xs text-ios-primary bg-ios-primary-subtle px-1.5 py-0.5 rounded" data-testid={`cache-partial-${book.id}`} title="部分章节已缓存">部分缓存</span>
+                      )}
                       {staleBookIds.has(book.id) && (
                         <span className="text-xs text-ios-warning bg-ios-warning-subtle px-1.5 py-0.5 rounded" title="离线包已过期，进入阅读器可重新下载">离线包过期</span>
                       )}
@@ -862,6 +898,12 @@ useEffect(() => {
                         )}
                         {book.status === 'failed' && (
                           <span className="text-xs text-ios-danger bg-ios-danger-subtle px-1.5 py-0.5 rounded" title={book.parseError || ''}>解析失败</span>
+                        )}
+                        {cacheBadges[book.id] === 'ready' && !staleBookIds.has(book.id) && (
+                          <span className="text-xs text-ios-success bg-ios-success-subtle px-1.5 py-0.5 rounded" data-testid={`cache-ready-${book.id}`} title="已完整缓存到本地，可离线阅读">已离线</span>
+                        )}
+                        {cacheBadges[book.id] === 'partial' && (
+                          <span className="text-xs text-ios-primary bg-ios-primary-subtle px-1.5 py-0.5 rounded" data-testid={`cache-partial-${book.id}`} title="部分章节已缓存">部分缓存</span>
                         )}
                         {staleBookIds.has(book.id) && (
                           <span className="text-xs text-ios-warning bg-ios-warning-subtle px-1.5 py-0.5 rounded" title="离线包已过期，进入阅读器可重新下载">离线包过期</span>

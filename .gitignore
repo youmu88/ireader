@@ -18,3 +18,8 @@ backend/reparse_cli.ts
 backend/update_chapters.ts
 verify-shots/
 secUserEmail.json
+
+# 任务交接目录与 Python 缓存（不入库）
+.handoff/
+__pycache__/
+scripts/__pycache__/

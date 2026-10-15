@@ -27,9 +27,15 @@ const controllerMocks = vi.hoisted(() => {
 });
 vi.mock('../reader/EpubBookController', () => ({ EpubBookController: controllerMocks.ctor }));
 
-const offlineMocks = vi.hoisted(() => ({ getCachedEpubArchive: vi.fn() }));
+const offlineMocks = vi.hoisted(() => ({
+  getCachedEpubArchive: vi.fn(),
+  getOfflineBookMeta: vi.fn(),
+  loadTxtChaptersWithCache: vi.fn(),
+}));
 vi.mock('../services/offlineCacheService', () => ({
   getCachedEpubArchive: offlineMocks.getCachedEpubArchive,
+  getOfflineBookMeta: offlineMocks.getOfflineBookMeta,
+  loadTxtChaptersWithCache: offlineMocks.loadTxtChaptersWithCache,
 }));
 vi.mock('../services/authService', () => ({ getToken: vi.fn().mockReturnValue('test-token') }));
 vi.mock('../services/deviceId', () => ({ getDeviceId: vi.fn().mockReturnValue('device-1') }));
@@ -89,6 +95,16 @@ beforeEach(() => {
   });
   controllerMocks.instance.generateLocations.mockResolvedValue(500);
   offlineMocks.getCachedEpubArchive.mockResolvedValue(undefined);
+  offlineMocks.getOfflineBookMeta.mockResolvedValue(null);
+  offlineMocks.loadTxtChaptersWithCache.mockResolvedValue({
+    chapters: [
+      { chapterId: 'ch-1', title: '第一章', order: 1, content: '第一章正文内容' },
+      { chapterId: 'ch-2', title: '第二章', order: 2, content: '第二章正文内容' },
+    ],
+    fromCache: 0,
+    fromNetwork: 2,
+    offline: false,
+  });
   (controllerMocks.instance as Record<string, unknown>).currentLocation = null;
 
   axiosMocks.put.mockResolvedValue({ data: { success: true, conflict: false, data: { progressVersion: 2 } } });
@@ -97,13 +113,18 @@ beforeEach(() => {
 });
 
 describe('ReaderPage', () => {
-  it('TXT 书籍：成功加载 → 逐章拉取正文 → loadTxt 渲染并显示目录', async () => {
+  it('TXT 书籍：走 IndexedDB 优先数据管道 → loadTxt 渲染并显示目录', async () => {
     mockBook('txt');
     renderReader();
+    // G2：章节数据经 loadTxtChaptersWithCache 管道（版本失效清理 + 清单网络优先 + 缺失并行补齐）
+    await waitFor(() => expect(offlineMocks.loadTxtChaptersWithCache).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(controllerMocks.instance.loadTxt).toHaveBeenCalledTimes(1));
     expect(controllerMocks.instance.load).not.toHaveBeenCalled();
-    const [, , options] = controllerMocks.instance.loadTxt.mock.calls[0];
+    // 管道第一参数为 bookId
+    expect(offlineMocks.loadTxtChaptersWithCache.mock.calls[0][0]).toBe('book-1');
+    const [feedInputs, , options] = controllerMocks.instance.loadTxt.mock.calls[0];
     // 传入的章节完整（标题 + 正文文本）
+    expect(feedInputs[0]).toMatchObject({ id: 'ch-1', title: '第一章', text: '第一章正文内容' });
     expect(options.settings).toBeDefined();
   });
 

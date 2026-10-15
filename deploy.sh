@@ -427,6 +427,14 @@ do_build() {
 do_deploy() {
   log "部署到: ${APP_DIR}"
 
+  # 运行时 Node 与原生模块 ABI 对齐（关键）：
+  # better-sqlite3 等 native 模块按编译时 Node 的 ABI 绑定，必须由同一 ABI 的运行时装运行。
+  # NODE_BIN 指定目标运行时后，其目录优先入 PATH，确保 pnpm rebuild / ABI 校验 / start.sh 三者一致。
+  if [ -n "${NODE_BIN:-}" ]; then
+    export PATH="$(dirname "${NODE_BIN}"):${PATH}"
+    log "  Node ABI 对齐: ${NODE_BIN} ($("${NODE_BIN}" -v 2>/dev/null || echo '?'))"
+  fi
+
   # 清理旧 app 内容（保留 .env）
   if [ -d "${APP_DIR}" ]; then
     log "清理旧 app 目录..."
@@ -561,26 +569,34 @@ start_service() {
     log "已自动生成 JWT_SECRET → ${ENV_FILE}"
   fi
 
+  # Node 运行时选择（可经 NODE_BIN 环境变量覆盖；默认取 PATH 中的 node）。
+  # 背景：Node 24.19+ 存在 cleanup-hook 回归（better-sqlite3 Statement 终结时触发
+  # RemoveEnvironmentCleanupHook 断言崩溃，本机在 v24.20/v24.21 多次实测），
+  # 部署可显式指定稳定运行时：NODE_BIN=/path/to/node bash deploy.sh
+  # 注意：NODE_BIN 的 Node ABI 需与 pnpm rebuild 结果一致（do_deploy 开头已做 PATH 对齐）。
+  local node_bin="${NODE_BIN:-$(command -v node)}"
+  log "Node 运行时: ${node_bin} ($("${node_bin}" -v 2>/dev/null || echo '?'))"
+
   # 写入启动脚本（供手动重启使用，与部署目录解耦）
-  cat > "${APP_DIR}/start.sh" <<'STARTEOF'
+  cat > "${APP_DIR}/start.sh" <<STARTEOF
 #!/usr/bin/env bash
 set -euo pipefail
 
 # 加载环境变量
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "${SCRIPT_DIR}/.env" ]; then
+SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+if [ -f "\${SCRIPT_DIR}/.env" ]; then
   set -a
-  source "${SCRIPT_DIR}/.env"
+  source "\${SCRIPT_DIR}/.env"
   set +a
 fi
 
-export PORT="${PORT:-10000}"
-export DATA_DIR="${DATA_DIR:-${HOME}/.ireader/data}"
+export PORT="\${PORT:-10000}"
+export DATA_DIR="\${DATA_DIR:-\${HOME}/.ireader/data}"
 export NODE_ENV=production
 
-# 启动服务
-cd "${SCRIPT_DIR}/backend"
-exec node dist/index.js
+# 启动服务（运行时已由部署脚本固化）
+cd "\${SCRIPT_DIR}/backend"
+exec "${node_bin}" dist/index.js
 STARTEOF
   chmod +x "${APP_DIR}/start.sh"
 

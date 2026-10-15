@@ -46,7 +46,7 @@ const mocks = vi.hoisted(() => {
     },
     destroy: vi.fn(),
   };
-  return { book, rendition, ePub: vi.fn(() => book), contentHooks };
+  return { book, rendition, ePub: vi.fn((_src: unknown, _opts?: unknown) => book), contentHooks };
 });
 
 vi.mock('epubjs', () => ({ default: mocks.ePub }));
@@ -291,6 +291,11 @@ describe('EpubBookController', () => {
       container,
       { settings: { fontSize: 100, theme: 'white', lineHeight: 1.75 }, mode: 'scrolled' },
     );
+    // 书源必须为内存 EPUB（ArrayBuffer）：epub.js 不支持裸数组书源
+    // （数组会被 Book 构造当作 options 吞掉 → ready 永不 resolve；2026-10-15 修复回归防护）
+    const ePubCalls = mocks.ePub.mock.calls;
+    const src = ePubCalls[ePubCalls.length - 1]?.[0];
+    expect(src).toBeInstanceOf(ArrayBuffer);
     expect(mocks.book.renderTo).toHaveBeenCalledWith(
       container,
       expect.objectContaining({ flow: 'scrolled-continuous', manager: 'continuous', allowScriptedContent: true }),

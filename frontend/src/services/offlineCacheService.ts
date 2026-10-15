@@ -148,7 +148,24 @@ function fingerprintText(text: string): string {
 
 function getTTSAudioKey(bookId: string, chapterId: string, segmentIndex: number, identity?: TTSAudioIdentity): string {
   if (!identity) return `${bookId}:${chapterId}:${segmentIndex}`;
-  return `${bookId}:${chapterId}:${segmentIndex}:${encodeURIComponent(identity.source)}:${encodeURIComponent(identity.voice)}:${identity.synthesisRate}:${fingerprintText(identity.text)}`;
+  return `${bookId}:${chapterId}:${segmentIndex}:${buildTTSProfileKeyPart(identity.voice, identity.synthesisRate, identity.source)}:${fingerprintText(identity.text)}`;
+}
+
+/**
+ * D18：TTS profile 匹配片段——写入键（getTTSAudioKey）与读取侧（getBookCacheStatus）共用同一构造，
+ * 顺序固定为 source:voice:synthesisRate，且与写入侧保持一致的编码，避免两侧构造差异导致覆盖率恒为 0。
+ */
+function buildTTSProfileKeyPart(voice: string, synthesisRate: number, source: string): string {
+  return `${encodeURIComponent(source)}:${encodeURIComponent(voice)}:${synthesisRate}`;
+}
+
+/** D18：判断 ttsAudio 缓存键是否匹配指定 profile（键结构：bookId:chapterId:segmentIndex:source:voice:rate:textHash） */
+function ttsKeyMatchesProfile(key: string, voice: string, synthesisRate: number, source: string): boolean {
+  const parts = key.split(':');
+  if (parts.length < 6) return false;
+  return parts[3] === encodeURIComponent(source)
+    && parts[4] === encodeURIComponent(voice)
+    && parts[5] === String(synthesisRate);
 }
 
 interface BookChapterCache {
@@ -184,6 +201,8 @@ interface CacheMeta {
   cachedAudioSegments: number;
   lastCachedAt: number;
   offlinePackage?: OfflineBookPackageMeta;
+  /** 缓存时的书籍版本（fileHash）——书重传/重解析后用于整体失效章节缓存（TXT 数据管道） */
+  bookVersionHash?: string | null;
 }
 
 /**
@@ -211,6 +230,14 @@ let dbPromise: Promise<IDBPDatabase> | null = null;
 function getDB(): Promise<IDBPDatabase> {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
+      // D19：升级阻塞可观测 + 自愈——其他标签页持旧连接时给出明确提示；本页旧连接阻塞别人升级时主动让路
+      blocked() {
+        console.warn('[offlineCache] IndexedDB 升级被其他标签页阻塞：请关闭本站其他旧版标签页后重试');
+      },
+      blocking() {
+        dbPromise?.then((db) => db.close()).catch(() => {});
+        dbPromise = null;
+      },
       upgrade(db) {
         if (!db.objectStoreNames.contains('bookChapters')) {
           const store = db.createObjectStore('bookChapters', { keyPath: 'key' });
@@ -290,13 +317,23 @@ export async function cacheBookChapters(
   const allBookChapters = await chapterStore.index('bookId').getAll(bookId) as BookChapterCache[];
   const actualCachedCount = allBookChapters.length;
   const existingMeta = await metaStore.get(bookId) as CacheMeta | undefined;
+  // 保留既有 meta 字段（format/author/coverUrl/bookVersionHash 等书架与离线元数据）：
+  // 若整体覆盖，会抹掉 cacheShelfBookMeta 写入的 format，导致离线打开被误判为 epub
+  // （ReaderPage 走 EPUB 分支 → 网络归档加载失败），TXT 离线阅读闭环失效。
   const newMeta: CacheMeta = {
+    ...(existingMeta ?? {
+      bookId,
+      bookTitle: '',
+      totalChapters: 0,
+      cachedChapters: 0,
+      totalAudioSegments: 0,
+      cachedAudioSegments: 0,
+      lastCachedAt: now,
+    }),
     bookId,
     bookTitle,
     totalChapters: Math.max(existingMeta?.totalChapters ?? 0, chapters.length),
     cachedChapters: actualCachedCount,
-    totalAudioSegments: existingMeta?.totalAudioSegments ?? 0,
-    cachedAudioSegments: existingMeta?.cachedAudioSegments ?? 0,
     lastCachedAt: now,
   };
   await metaStore.put(newMeta);
@@ -330,16 +367,23 @@ export async function cacheSingleChapter(
     cachedAt: now,
   } as BookChapterCache);
 
-  // 更新元数据
+  // 更新元数据（保留既有 meta 字段：format/author 等，避免整体覆盖丢失离线判定所需信息）
   const existingMeta = await metaStore.get(bookId) as CacheMeta | undefined;
   const existingChapters = await chapterStore.index('bookId').getAll(bookId);
   const newMeta: CacheMeta = {
+    ...(existingMeta ?? {
+      bookId,
+      bookTitle: '',
+      totalChapters: 0,
+      cachedChapters: 0,
+      totalAudioSegments: 0,
+      cachedAudioSegments: 0,
+      lastCachedAt: now,
+    }),
     bookId,
     bookTitle,
     totalChapters: existingMeta?.totalChapters ?? 1,
     cachedChapters: existingChapters.length,
-    totalAudioSegments: existingMeta?.totalAudioSegments ?? 0,
-    cachedAudioSegments: existingMeta?.cachedAudioSegments ?? 0,
     lastCachedAt: now,
   };
   await metaStore.put(newMeta);
@@ -415,11 +459,18 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function verifySha256(data: ArrayBuffer, expected: string): Promise<boolean> {
-  if (!expected || typeof crypto === 'undefined' || !crypto.subtle) return true;
+/** D17：资源校验三态——verified=校验通过；skipped=环境不支持（非安全上下文无 SubtleCrypto）显式跳过；mismatch=内容与哈希不符 */
+export type ShaVerifyResult = 'verified' | 'skipped' | 'mismatch';
+
+async function verifySha256(data: ArrayBuffer, expected: string): Promise<ShaVerifyResult> {
+  if (!expected) return 'verified'; // 服务端未提供哈希：无校验目标
+  // D17：非安全上下文（http 局域网 IP 等）无法计算 SHA-256——显式返回 skipped（由调用方打标提示），
+  // 不再静默返回 true 假装校验通过。
+  const secureContext = typeof isSecureContext === 'boolean' ? isSecureContext : true;
+  if (!secureContext || typeof crypto === 'undefined' || !crypto.subtle) return 'skipped';
   const digest = await crypto.subtle.digest('SHA-256', data);
   const actual = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
-  return actual === expected;
+  return actual === expected ? 'verified' : 'mismatch';
 }
 
 export async function getOfflinePackageMeta(bookId: string): Promise<OfflineBookPackageMeta | null> {
@@ -633,7 +684,9 @@ export async function downloadOfflineEpubPackage(
       const response = await fetch(`/api/books/${encodeURIComponent(bookId)}/file/${urlPath}`, { headers: authHeaders() });
       if (!response.ok) throw new Error(`资源下载失败：${resource.path}`);
       const data = await response.arrayBuffer();
-      if (!(await verifySha256(data, resource.hash))) throw new Error(`资源校验失败：${resource.path}`);
+      const verifyResult = await verifySha256(data, resource.hash);
+      if (verifyResult === 'mismatch') throw new Error(`资源校验失败：${resource.path}`);
+      if (verifyResult === 'skipped') console.warn(`[offlineCache] 资源 ${resource.path} 哈希校验被跳过（非安全上下文，skipped）`);
       const resourceTx = db.transaction('epubResources', 'readwrite');
       await resourceTx.objectStore('epubResources').put({
         key: `${bookId}:${resource.path}`,
@@ -693,6 +746,84 @@ export async function downloadOfflineEpubPackage(
     }
     throw error;
   }
+}
+
+// ==========================
+// 书架「缓存离线」统一入口（D4：真实写 IndexedDB 后才报成功）
+// ==========================
+
+export interface OfflineDownloadBook {
+  id: string;
+  title: string;
+  author?: string | null;
+  format: 'epub' | 'txt';
+  coverPath?: string | null;
+}
+
+/** 拉取全书章节正文（限并发 6，避免整本书逐章串行 RTT 放大加载时间） */
+async function fetchAllChapterInputs(bookId: string): Promise<ChapterCacheInput[]> {
+  const listRes = await fetch(`/api/books/${encodeURIComponent(bookId)}/chapters`, { headers: authHeaders() });
+  if (!listRes.ok) throw new Error('章节清单获取失败');
+  const listJson = await listRes.json();
+  const chapterList: Array<{ id: string; title?: string; order?: number }> = Array.isArray(listJson?.data) ? listJson.data : [];
+  if (chapterList.length === 0) throw new Error('该书没有可缓存的章节');
+
+  const inputs: ChapterCacheInput[] = new Array(chapterList.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < chapterList.length) {
+      const idx = cursor++;
+      const ch = chapterList[idx];
+      const res = await fetch(`/api/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(ch.id)}/content`, { headers: authHeaders() });
+      if (!res.ok) throw new Error(`章节正文获取失败：${ch.title || ch.id}`);
+      const json = await res.json();
+      const raw = json?.data;
+      const text = typeof raw === 'string' ? raw : raw?.content ?? raw?.text ?? '';
+      inputs[idx] = {
+        chapterId: ch.id,
+        title: ch.title || `第${idx + 1}部分`,
+        order: ch.order ?? idx + 1,
+        content: String(text),
+      };
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, chapterList.length) }, () => worker()));
+  return inputs;
+}
+
+/**
+ * 下载一本书到本地离线缓存（书架/图书管理页「缓存离线」按钮的真实实现）。
+ * 返回时数据已落 IndexedDB；任何一步失败都抛错，由调用方提示，绝不提前报成功。
+ * - EPUB：章节 + 原始归档 + 全部资源（downloadOfflineEpubPackage，含续传）
+ * - TXT：章节正文批量入库
+ * 两种格式均先写书架元数据（cacheShelfBookMeta），供离线书架与阅读器元数据回退。
+ */
+export async function downloadBookForOffline(
+  book: OfflineDownloadBook,
+  onProgress?: (completed: number, total: number) => void,
+): Promise<{ chapters: number; format: 'epub' | 'txt' }> {
+  await cacheShelfBookMeta(
+    book.id,
+    book.title,
+    book.author || '',
+    book.coverPath ? `/api/books/${encodeURIComponent(book.id)}/cover` : '',
+    book.format,
+    !!book.coverPath,
+  );
+
+  const chapters = await fetchAllChapterInputs(book.id);
+  onProgress?.(0, chapters.length);
+
+  if (book.format === 'epub') {
+    await downloadOfflineEpubPackage(book.id, book.title, chapters, onProgress, {
+      author: book.author || '',
+      coverPath: book.coverPath ?? null,
+    });
+  } else {
+    await cacheBookChapters(book.id, book.title, chapters);
+    onProgress?.(chapters.length, chapters.length);
+  }
+  return { chapters: chapters.length, format: book.format };
 }
 
 /**
@@ -832,6 +963,8 @@ export async function cacheTTSAudio(
 export async function cacheTTSAudioBatch(
   bookId: string,
   items: TTSAudioCacheInput[],
+  /** D18：本书音频总数（分母）——下载器拿到服务端清单后传入，供覆盖率/进度计算；缺省时保持既有值 */
+  totalSegments?: number,
 ): Promise<number> {
   if (items.length === 0) return 0;
   const db = await getDB();
@@ -872,6 +1005,9 @@ export async function cacheTTSAudioBatch(
   }
   const allAudio = await audioStore.index('bookId').getAll(bookId) as TTSAudioCache[];
   existingMeta.cachedAudioSegments = allAudio.length;
+  if (typeof totalSegments === 'number' && totalSegments > 0) {
+    existingMeta.totalAudioSegments = totalSegments;
+  }
   existingMeta.lastCachedAt = now;
   await metaStore.put(existingMeta);
 
@@ -978,8 +1114,7 @@ export async function getBookCacheStatus(bookId: string, profile?: TTSProfileFil
       const tx = db.transaction('ttsAudio', 'readonly');
       const audioStore = tx.objectStore('ttsAudio');
       const allAudio = await audioStore.index('bookId').getAll(bookId) as TTSAudioCache[];
-      const profileKey = `${profile.voice}:${profile.synthesisRate}:${profile.source}`;
-      const matched = allAudio.filter(a => a.key.includes(profileKey));
+      const matched = allAudio.filter(a => ttsKeyMatchesProfile(a.key, profile.voice, profile.synthesisRate, profile.source));
       currentProfileCoverage = meta.totalAudioSegments > 0 ? matched.length / meta.totalAudioSegments : 0;
     }
 
@@ -1179,7 +1314,7 @@ export async function getBookCacheDetailedStats(bookId: string): Promise<BookCac
  */
 export async function clearBookCache(bookId: string): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(['bookChapters', 'ttsAudio', 'epubResources', 'epubArchives', 'cacheMeta'], 'readwrite');
+  const tx = db.transaction(['bookChapters', 'ttsAudio', 'epubResources', 'epubArchives', 'cacheMeta', 'offlinePackages', 'downloadSessions'], 'readwrite');
   const chapterStore = tx.objectStore('bookChapters');
   const audioStore = tx.objectStore('ttsAudio');
   const resourceStore = tx.objectStore('epubResources');
@@ -1206,6 +1341,14 @@ export async function clearBookCache(bookId: string): Promise<void> {
   // 删除 EPUB 原始归档
   await tx.objectStore('epubArchives').delete(bookId);
 
+  // D19：同步清理离线包与下载会话（否则残留记录影响离线判定与续传一致性）
+  await tx.objectStore('offlinePackages').delete(bookId);
+  const sessionStore = tx.objectStore('downloadSessions');
+  const sessionKeys = await sessionStore.index('bookId').getAllKeys(bookId);
+  for (const key of sessionKeys) {
+    await sessionStore.delete(key);
+  }
+
   // 删除元数据
   await metaStore.delete(bookId);
 
@@ -1217,12 +1360,15 @@ export async function clearBookCache(bookId: string): Promise<void> {
  */
 export async function clearAllCache(): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(['bookChapters', 'ttsAudio', 'epubResources', 'epubArchives', 'cacheMeta'], 'readwrite');
+  const tx = db.transaction(['bookChapters', 'ttsAudio', 'epubResources', 'epubArchives', 'cacheMeta', 'offlinePackages', 'downloadSessions'], 'readwrite');
   await tx.objectStore('bookChapters').clear();
   await tx.objectStore('ttsAudio').clear();
   await tx.objectStore('epubResources').clear();
   await tx.objectStore('epubArchives').clear();
   await tx.objectStore('cacheMeta').clear();
+  // D19：离线包与下载会话全清（保持缓存域一致）
+  await tx.objectStore('offlinePackages').clear();
+  await tx.objectStore('downloadSessions').clear();
   await tx.done;
 }
 
@@ -1235,15 +1381,21 @@ export async function estimateCacheSize(): Promise<{ chapterBytes: number; audio
     const chapters = await db.getAll('bookChapters') as BookChapterCache[];
     const audios = await db.getAll('ttsAudio') as TTSAudioCache[];
     const resources = await db.getAll('epubResources') as EpubResourceCache[];
+    // D20：补齐 epubArchives（EPUB 原始 zip 二进制，体积大头）与 offlinePackages（离线包元数据）
+    const archives = await db.getAll('epubArchives') as EpubArchiveCache[];
+    const packages = await db.getAll('offlinePackages') as OfflineBookPackage[];
 
     const chapterBytes = chapters.reduce((sum, c) => sum + new Blob([c.content]).size, 0);
     const audioBytes = audios.reduce((sum, a) => sum + a.audioData.byteLength, 0);
     const resourceBytes = resources.reduce((sum, resource) => sum + resource.data.byteLength, 0);
+    const archiveBytes = archives.reduce((sum, a) => sum + (a.data?.byteLength || 0), 0);
+    const packageBytes = packages.reduce((sum, p) => sum + new Blob([JSON.stringify(p)]).size, 0);
 
+    const contentBytes = chapterBytes + resourceBytes + archiveBytes + packageBytes;
     return {
-      chapterBytes: chapterBytes + resourceBytes,
+      chapterBytes: contentBytes,
       audioBytes,
-      totalBytes: chapterBytes + resourceBytes + audioBytes,
+      totalBytes: contentBytes + audioBytes,
     };
   } catch {
     return { chapterBytes: 0, audioBytes: 0, totalBytes: 0 };
@@ -1359,6 +1511,170 @@ export async function getOfflineShelfBooks(): Promise<ShelfCacheMeta[]> {
 }
 
 /**
+ * TXT 数据管道结果
+ */
+export interface TxtChapterLoadResult {
+  chapters: ChapterCacheInput[];
+  fromCache: number;
+  fromNetwork: number;
+  /** true = 章节清单走本地重建（离线） */
+  offline: boolean;
+}
+
+/**
+ * TXT 阅读数据管道（IndexedDB 优先）：
+ * ① 版本失效：书籍 fileHash 变化且与缓存记录不一致 → 清除旧章节缓存（防永久读旧文本）；
+ * ② 章节清单网络优先，离线时用本地缓存重建；
+ * ③ 缺失章节限并发 6 并行补齐（单章失败跳过，不阻塞整本），成功落库并修正元数据；
+ * ④ 组装返回（保持清单顺序；离线且未缓存的章节给空占位，保证尽力可读）。
+ */
+export async function loadTxtChaptersWithCache(
+  bookId: string,
+  bookVersionHash?: string | null,
+): Promise<TxtChapterLoadResult> {
+  const db = await getDB();
+  const metaBefore = await db.get('cacheMeta', bookId) as CacheMeta | undefined;
+
+  // ① 版本失效
+  if (bookVersionHash && metaBefore?.bookVersionHash && metaBefore.bookVersionHash !== bookVersionHash) {
+    await clearBookChapterCache(bookId);
+  }
+
+  const cachedList = ((await db.getAllFromIndex('bookChapters', 'bookId', bookId)) as BookChapterCache[])
+    .sort((a, b) => (a.chapterOrder || 0) - (b.chapterOrder || 0));
+  const cachedMap = new Map(cachedList.map((c) => [c.chapterId, c]));
+
+  // ② 章节清单：网络优先，离线回退本地重建
+  let list: Array<{ id: string; title?: string; order?: number }> = [];
+  let online = true;
+  try {
+    const res = await fetch(`/api/books/${encodeURIComponent(bookId)}/chapters`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(String(res.status));
+    const json = await res.json();
+    list = Array.isArray(json?.data) ? json.data : [];
+  } catch {
+    online = false;
+  }
+  if (list.length === 0) {
+    list = cachedList.map((c) => ({ id: c.chapterId, title: c.chapterTitle, order: c.chapterOrder }));
+  }
+  if (list.length === 0) throw new Error('章节清单不可用');
+
+  // ③ 缺失章节并行补齐（限并发 6）
+  const missing = list.filter((ch) => !cachedMap.has(ch.id));
+  let fromNetwork = 0;
+  if (online) {
+    const fetched: ChapterCacheInput[] = [];
+    if (missing.length > 0) {
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < missing.length) {
+          const ch = missing[cursor++];
+          try {
+            const res = await fetch(`/api/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(ch.id)}/content`, { headers: authHeaders() });
+            if (!res.ok) continue;
+            const json = await res.json();
+            const raw = json?.data;
+            const text = typeof raw === 'string' ? raw : raw?.content ?? raw?.text ?? '';
+            fetched.push({ chapterId: ch.id, title: ch.title || '', order: ch.order ?? 0, content: String(text) });
+          } catch {
+            // 单章网络失败：跳过，不阻塞整本
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(6, missing.length) }, () => worker()));
+      fromNetwork = fetched.length;
+    }
+
+    // ④ 落库（章节 + 元数据；保留 offlinePackage 等既有字段，totalChapters 用服务端清单总数）
+    const tx = db.transaction(['bookChapters', 'cacheMeta'], 'readwrite');
+    const chapterStore = tx.objectStore('bookChapters');
+    const metaStore = tx.objectStore('cacheMeta');
+    const now = Date.now();
+    for (const f of fetched) {
+      await chapterStore.put({
+        key: `${bookId}:${f.chapterId}`,
+        bookId,
+        chapterId: f.chapterId,
+        chapterTitle: f.title,
+        chapterOrder: f.order,
+        content: f.content,
+        cachedAt: now,
+      } as BookChapterCache);
+      cachedMap.set(f.chapterId, {
+        key: `${bookId}:${f.chapterId}`,
+        bookId,
+        chapterId: f.chapterId,
+        chapterTitle: f.title,
+        chapterOrder: f.order,
+        content: f.content,
+        cachedAt: now,
+      });
+    }
+    const existingMeta = await metaStore.get(bookId) as CacheMeta | undefined;
+    const actualCached = (await chapterStore.index('bookId').getAllKeys(bookId)).length;
+    const newMeta: CacheMeta = {
+      ...(existingMeta ?? {
+        bookId,
+        bookTitle: '',
+        totalChapters: 0,
+        cachedChapters: 0,
+        totalAudioSegments: 0,
+        cachedAudioSegments: 0,
+        lastCachedAt: now,
+      }),
+      bookId,
+      totalChapters: list.length,
+      cachedChapters: actualCached,
+      lastCachedAt: now,
+      bookVersionHash: bookVersionHash ?? existingMeta?.bookVersionHash ?? null,
+    };
+    await metaStore.put(newMeta);
+    await tx.done;
+  }
+
+  // ⑤ 组装（保持清单顺序）
+  const chapters: ChapterCacheInput[] = list.map((ch, idx) => {
+    const hit = cachedMap.get(ch.id);
+    return hit
+      ? { chapterId: ch.id, title: hit.chapterTitle || ch.title || `第${idx + 1}部分`, order: hit.chapterOrder ?? idx + 1, content: hit.content }
+      : { chapterId: ch.id, title: ch.title || `第${idx + 1}部分`, order: ch.order ?? idx + 1, content: '' };
+  });
+  return { chapters, fromCache: list.length - fromNetwork, fromNetwork, offline: !online };
+}
+
+/** 阅读器元数据离线回退结果（D5 三级回退第二级） */
+export interface OfflineBookMetaFallback {
+  id: string;
+  title: string;
+  author: string | null;
+  format: 'epub' | 'txt';
+  fileHash: string | null;
+}
+
+/**
+ * 阅读器元数据离线回退：本地离线包 metadata → 书架缓存元数据，均无返回 null。
+ */
+export async function getOfflineBookMeta(bookId: string): Promise<OfflineBookMetaFallback | null> {
+  try {
+    const db = await getDB();
+    const meta = await db.get('cacheMeta', bookId) as (CacheMeta & { author?: string; format?: 'epub' | 'txt' }) | undefined;
+    const pkg = await db.get('offlinePackages', bookId) as OfflineBookPackage | undefined;
+    const title = pkg?.metadata?.title || meta?.bookTitle || '';
+    if (!title) return null;
+    return {
+      id: bookId,
+      title,
+      author: pkg?.metadata?.author || meta?.author || null,
+      format: meta?.format || (pkg?.metadata?.format as 'epub' | 'txt' | undefined) || 'epub',
+      fileHash: meta?.bookVersionHash ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 检查是否处于在线状态
  */
 export function isOnline(): boolean {
@@ -1442,7 +1758,18 @@ export async function downloadBatchCachedAudio(
         try {
           const audioRes = await fetch(seg.audioUrl);
           if (audioRes.ok) {
+            // D20：内容校验——后端 batch-cache 仅返回 audioUrl（无 sha256），
+            // 用 Content-Type 与字节长度兜底，避免把 HTML 错误页/空响应写入缓存
+            const contentType = audioRes.headers.get('content-type') || '';
+            if (!contentType.startsWith('audio/') && !contentType.includes('octet-stream')) {
+              console.warn(`[offlineCache] 音频段 ${seg.chapterId}:${seg.segIdx} Content-Type 异常（${contentType || '空'}），跳过入库`);
+              continue;
+            }
             const arrayBuffer = await audioRes.arrayBuffer();
+            if (arrayBuffer.byteLength === 0) {
+              console.warn(`[offlineCache] 音频段 ${seg.chapterId}:${seg.segIdx} 内容为空，跳过入库`);
+              continue;
+            }
             audioItems.push({
               chapterId: seg.chapterId,
               segmentIndex: seg.segIdx,
@@ -1460,9 +1787,9 @@ export async function downloadBatchCachedAudio(
     const workers = Array.from({ length: Math.min(MAX_DOWNLOAD, totalSegs) }, () => next());
     await Promise.all(workers);
 
-    // 批量写入 IndexedDB
+    // 批量写入 IndexedDB（D18：同时写入音频总数分母，保证覆盖率/进度可计算）
     if (audioItems.length > 0) {
-      await cacheTTSAudioBatch(bookId, audioItems);
+      await cacheTTSAudioBatch(bookId, audioItems, allSegments.length);
     }
 
     // 更新 session 进度（自动判定 ready）
@@ -1498,7 +1825,8 @@ export interface DownloadSession {
 
 /** 生成 profile hash（voice+synthesisRate+source） */
 export function computeProfileHash(voice: string, synthesisRate: number, source: string): string {
-  return `${voice}:${synthesisRate}:${source}`;
+  // D18：与 ttsAudio 缓存键共用同一 profile 构造（顺序 source:voice:rate 且编码一致）
+  return buildTTSProfileKeyPart(voice, synthesisRate, source);
 }
 
 /** 创建或恢复下载 session */

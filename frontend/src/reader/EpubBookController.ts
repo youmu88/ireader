@@ -14,7 +14,7 @@
 import type { ReaderLocation, ReaderSettings, TocItem } from './types';
 import { buildRenditionThemeCss, DEFAULT_READER_SETTINGS, READER_THEMES } from './theme';
 import { searchBook, type SearchableBook, type SearchResult } from './searchBook';
-import { buildTxtFeed } from './buildTxtFeed';
+import { buildTxtEpub } from './buildTxtEpub';
 import {
   attachScrollDamping,
   attachPagedGestures,
@@ -202,10 +202,11 @@ export class EpubBookController {
     const settings = options.settings ?? DEFAULT_READER_SETTINGS;
     this.mode = options.mode ?? loadReadingMode();
     const paged = this.mode === 'paged';
-    const feed = buildTxtFeed(chapters);
 
-    // epub.js 支持以「章节数组」作为书源：每项 { id, href, html（XHTML 字符串） }
-    this.book = (ePub as unknown as (src: unknown, opts: unknown) => EpubBook)(feed.sections, {});
+    // TXT 章节组装为内存 EPUB（ArrayBuffer）：epub.js 仅支持 string/Blob/ArrayBuffer 书源，
+    // 裸数组会被 Book 构造当作 options 吞掉、ready 永不 resolve（2026-10-15 修复，详见 buildTxtEpub.ts）
+    const txtEpub = await buildTxtEpub(chapters);
+    this.book = (ePub as unknown as (src: unknown, opts: unknown) => EpubBook)(txtEpub, {});
     await this.book.ready;
 
     this.rendition = this.book.renderTo(container, {
@@ -231,7 +232,7 @@ export class EpubBookController {
     this.bindContentPipeline();
     await this.rendition.display(options.initialCfi || undefined);
 
-    // TXT Feed 无 navigation.toc：由章节构建目录（href 为 section href）
+    // TXT 目录：来自内存 EPUB 的 nav.xhtml（href 与 spine section.href 同形，可直接 goTo）
     const nav = await this.book.loaded.navigation;
     return (nav.toc || []).map((item, i) => mapTocItem(item, String(i)));
   }

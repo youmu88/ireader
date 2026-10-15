@@ -10,15 +10,20 @@ import { describe, it, expect, afterEach } from 'vitest';
 import {
   cacheBookChapters,
   cacheSingleChapter,
+  cacheShelfBookMeta,
+  getOfflineBookMeta,
   getCachedChapterContent,
   getCachedChapters,
   cacheTTSAudio,
+  cacheTTSAudioBatch,
   getCachedTTSAudio,
   getBookCacheStatus,
   getAllCachedBookIds,
   clearBookCache,
   clearAllCache,
   estimateCacheSize,
+  createOrResumeDownloadSession,
+  getDownloadSession,
 } from '../offlineCacheService';
 
 const BOOK_ID = 'test-book-1';
@@ -78,6 +83,28 @@ describe('offlineCacheService', () => {
       expect(status!.totalChapters).toBe(3);
       expect(status!.isFullyCached).toBe(true);
       expect(status!.chapterCacheProgress).toBe(1);
+    });
+
+    it('缓存章节后应保留书架元数据 format/author（离线格式判定回归：防 TXT 被误判 epub）', async () => {
+      // 模拟批量缓存流程：先写书架元数据（含 format），再批量写章节内容
+      await cacheShelfBookMeta(BOOK_ID, BOOK_TITLE, '测试作者', '', 'txt', false);
+      await cacheBookChapters(BOOK_ID, BOOK_TITLE, chapters);
+      const offlineMeta = await getOfflineBookMeta(BOOK_ID);
+      expect(offlineMeta).not.toBeNull();
+      expect(offlineMeta!.format).toBe('txt');
+      expect(offlineMeta!.author).toBe('测试作者');
+      // 章节统计仍正确更新（totalChapters 不被覆盖写清零）
+      const status = await getBookCacheStatus(BOOK_ID);
+      expect(status!.totalChapters).toBe(3);
+      expect(status!.cachedChapters).toBe(3);
+    });
+
+    it('cacheSingleChapter 也应保留既有书架元数据（format 不被覆盖）', async () => {
+      await cacheShelfBookMeta(BOOK_ID, BOOK_TITLE, '作者B', '', 'txt', false);
+      await cacheSingleChapter(BOOK_ID, BOOK_TITLE, chapters[0]);
+      const offlineMeta = await getOfflineBookMeta(BOOK_ID);
+      expect(offlineMeta!.format).toBe('txt');
+      expect(offlineMeta!.author).toBe('作者B');
     });
   });
 
@@ -170,6 +197,40 @@ describe('offlineCacheService', () => {
       const size = await estimateCacheSize();
       expect(size.chapterBytes).toBeGreaterThan(0);
       expect(size.totalBytes).toBeGreaterThan(0);
+    });
+  });
+
+  describe('缓存域卫生（D17/D18/D19）', () => {
+    it('D18：getBookCacheStatus 按 profile 统计覆盖率（键序+编码与写入侧统一）', async () => {
+      await cacheBookChapters(BOOK_ID, BOOK_TITLE, [
+        { chapterId: 'ch1', title: '第一章', order: 1, content: '内容' },
+      ]);
+      const identity = { voice: 'zh-CN-XiaoxiaoNeural', synthesisRate: 1, source: 'edgetts', text: '第一段正文。' };
+      const special = { voice: 'voice:special', synthesisRate: 1.25, source: 'src:edge', text: '第二段正文。' };
+      await cacheTTSAudioBatch(BOOK_ID, [
+        { chapterId: 'ch1', segmentIndex: 0, audioData: new Uint8Array([1, 2, 3]).buffer, identity },
+        { chapterId: 'ch1', segmentIndex: 1, audioData: new Uint8Array([4, 5, 6]).buffer, identity: special },
+      ], 2);
+
+      const matched = await getBookCacheStatus(BOOK_ID, { voice: identity.voice, synthesisRate: 1, source: identity.source });
+      expect(matched!.currentProfileCoverage).toBeGreaterThan(0);
+
+      const matchedSpecial = await getBookCacheStatus(BOOK_ID, { voice: special.voice, synthesisRate: 1.25, source: special.source });
+      expect(matchedSpecial!.currentProfileCoverage).toBeGreaterThan(0);
+
+      const unmatched = await getBookCacheStatus(BOOK_ID, { voice: 'zh-CN-YunxiNeural', synthesisRate: 1, source: 'edgetts' });
+      expect(unmatched!.currentProfileCoverage).toBe(0);
+    });
+
+    it('D19：clearBookCache 同步清理下载会话（downloadSessions 域）', async () => {
+      await cacheBookChapters(BOOK_ID, BOOK_TITLE, [
+        { chapterId: 'ch1', title: '第一章', order: 1, content: '内容' },
+      ]);
+      const session = await createOrResumeDownloadSession(BOOK_ID, 'voice-a:1:edgetts', 2);
+      expect(await getDownloadSession(BOOK_ID, session.profileHash)).not.toBeNull();
+
+      await clearBookCache(BOOK_ID);
+      expect(await getDownloadSession(BOOK_ID, session.profileHash)).toBeNull();
     });
   });
 });

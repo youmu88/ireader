@@ -4,11 +4,14 @@ import UploadQueue, { type UploadQueueHandle } from '../components/UploadQueue';
 import TtsQueuePanel from '../components/TtsQueuePanel';
 import { Button, toast, confirm } from '../components/ui';
 import { useTtsQueue } from '../hooks/useTtsQueue';
+import { downloadBookForOffline } from '../services/offlineCacheService';
 
 interface Book {
   id: string;
   title: string;
   author: string | null;
+  format?: 'epub' | 'txt';
+  coverPath?: string | null;
   status: 'processing' | 'ready' | 'failed';
 }
 
@@ -95,17 +98,35 @@ export function LibraryPage() {
     }
   };
 
-  /** 批量缓存：对选中书籍提交全书离线缓存 POST /api/books/:id/cache */
+  /** 批量缓存（D4）：真实下载写入 IndexedDB，落库后才提示成功；单本失败不中断其余 */
   const handleBatchCache = async () => {
     if (selectedIds.size === 0) return;
     setBatchAction('cache');
+    const targets = books.filter(b => selectedIds.has(b.id) && b.status === 'ready');
+    const failedTitles: string[] = [];
     try {
-      const res = await axios.post('/api/books/batch-cache', { ids: [...selectedIds] });
-      const submitted = res.data?.data?.results?.length ?? selectedIds.size;
-      toast.success(`已提交 ${submitted} 本图书的离线缓存`);
+      for (const book of targets) {
+        try {
+          await downloadBookForOffline({
+            id: book.id,
+            title: book.title,
+            author: book.author,
+            format: book.format || 'epub',
+            coverPath: book.coverPath ?? null,
+          });
+        } catch {
+          failedTitles.push(book.title);
+        }
+      }
+      const okCount = targets.length - failedTitles.length;
+      if (failedTitles.length === 0) {
+        toast.success(`已将 ${okCount} 本书缓存到本地`);
+      } else if (okCount > 0) {
+        toast.success(`已缓存 ${okCount} 本，${failedTitles.length} 本失败：${failedTitles.slice(0, 3).join('、')}`);
+      } else {
+        toast.error(`缓存离线包失败：${failedTitles.slice(0, 3).join('、')}`);
+      }
       exitSelection();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || '缓存离线包失败');
     } finally {
       setBatchAction(null);
     }

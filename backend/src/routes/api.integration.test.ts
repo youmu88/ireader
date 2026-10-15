@@ -256,7 +256,6 @@ describe('API Integration', () => {
         totalChapters: 0,
         jobStatus: 'pending',
         ttsCacheCount: 0,
-        cachedChapters: 0,
       });
       expect(res.body.data['nonexistent-2']).toBeDefined();
     });
@@ -271,7 +270,7 @@ describe('API Integration', () => {
     });
   });
 
-    // ── 批量接口（v2.55.0 新增：batch-delete / batch-cache / batch-tts-generate） ──
+    // ── 批量接口（v2.55.0 新增：batch-delete / batch-tts-generate；batch-cache 已随 D16 删表移除） ──
     it('POST /api/books/batch-delete should isolate per-book failures', async () => {
       const res = await request(app)
         .post('/api/books/batch-delete')
@@ -295,19 +294,6 @@ describe('API Integration', () => {
         .set('Authorization', `Bearer ${authToken}`)
         .send({ ids: Array.from({ length: 501 }, (_, i) => `id-${i}`) });
       expect(tooMany.status).toBe(400);
-    });
-
-    it('POST /api/books/batch-cache should isolate per-book failures', async () => {
-      const res = await request(app)
-        .post('/api/books/batch-cache')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send({ ids: ['nonexistent-1', 'nonexistent-2'] });
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.results.length).toBe(2);
-      for (const r of res.body.data.results) {
-        expect(r.failed).toBeGreaterThan(0);
-      }
     });
 
     it('POST /api/books/batch-tts-generate should return a job or error per book', async () => {

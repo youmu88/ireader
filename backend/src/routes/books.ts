@@ -4,11 +4,10 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { sql, and } from 'drizzle-orm';
-import { books, bookChapters, readingProgress, ttsGenerationJobs, ttsSettings, ttsCache, globalBooks, bookContentCache } from '../db/schema.js';
+import { books, bookChapters, readingProgress, ttsGenerationJobs, ttsSettings, ttsCache, globalBooks } from '../db/schema.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { parseBook, getChapterContent, parseTxt } from '../parser/index.js';
-import { getBookCacheStats } from '../services/contentCacheService.js';
 import { computeFileHash, findGlobalBookByHash, createGlobalBook, createUserBookRef, removeUserBookRef, deleteBookForUser } from '../services/globalResourceService.js';
 import crypto from 'crypto';
 
@@ -567,17 +566,6 @@ export function createBooksRouter(db: any, dataDir: string): Router {
         .all() as Array<{ bookId: string; count: number }>;
       const ttsCacheMap = new Map(ttsCacheRows.map(r => [r.bookId, r.count]));
 
-      // 5. 内容缓存统计（book_content_cache GROUP BY，走 idx_bcc_book_user）
-      const bccRows = db.select({
-        bookId: bookContentCache.bookId,
-        count: sql<number>`count(*)`,
-        cacheType: bookContentCache.cacheType,
-      }).from(bookContentCache)
-        .where(sql`user_id = ${userId} AND book_id IN ${uniqIds}`)
-        .groupBy(bookContentCache.bookId)
-        .all() as Array<{ bookId: string; count: number; cacheType: string | null }>;
-      const bccMap = new Map(bccRows.map(r => [r.bookId, r]));
-
       const data: Record<string, any> = {};
       for (const id of uniqIds) {
         const totalChapters = chapterMap.get(id) ?? 0;
@@ -593,7 +581,6 @@ export function createBooksRouter(db: any, dataDir: string): Router {
         const jobProgress = Math.min(100, latestJob?.progress || 0);
         const pendingJobs = jobs.filter(j => j.status === 'pending' || j.status === 'processing').length;
         const failedJobs = jobs.filter(j => j.status === 'failed').length;
-        const bcc = bccMap.get(id);
         data[id] = {
           readingPercentage: progressMap.get(id) ?? 0,
           voiceGenerationRate: totalChunks > 0 ? Math.min(1, completedChunks / totalChunks) : 0,
@@ -606,8 +593,6 @@ export function createBooksRouter(db: any, dataDir: string): Router {
           jobStatus,
           jobProgress,
           ttsCacheCount: ttsCacheMap.get(id) ?? 0,
-          cachedChapters: bcc?.count ?? 0,
-          cacheType: bcc?.cacheType ?? null,
         };
       }
       res.json({ success: true, data });
@@ -659,23 +644,49 @@ export function createBooksRouter(db: any, dataDir: string): Router {
 
       const root = path.resolve(path.dirname(book.filePath), 'extracted');
       if (!fs.existsSync(root)) throw new AppError(404, 'EPUB 资源尚未解压');
-      const resources: Array<{ path: string; size: number; contentType: string; hash: string }> = [];
+
+      // D20：清单预计算——首次 walk + sha256 后落盘缓存，后续请求直接读 JSON（O(1)），
+      // 书籍文件哈希（fileHash）变化时才重新计算。清单存于 extracted 同级目录，避免被 walk 收录。
+      type ResourceEntry = { path: string; size: number; contentType: string; hash: string };
+      const manifestPath = path.resolve(path.dirname(book.filePath), `.resource-manifest-${book.id}.json`);
+      const tryReadManifest = (): ResourceEntry[] | null => {
+        try {
+          if (!fs.existsSync(manifestPath)) return null;
+          const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as { fileHash?: string; resources?: ResourceEntry[] };
+          if (parsed.fileHash !== book.fileHash || !Array.isArray(parsed.resources)) return null;
+          return parsed.resources;
+        } catch {
+          return null;
+        }
+      };
       const getContentType = (filePath: string) => {
         const ext = path.extname(filePath).toLowerCase();
         return ({ '.xhtml': 'application/xhtml+xml', '.html': 'text/html', '.htm': 'text/html', '.css': 'text/css', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.woff2': 'font/woff2', '.xml': 'application/xml' } as Record<string, string>)[ext] || 'application/octet-stream';
       };
-      const walk = (dir: string) => {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-          const absolute = path.join(dir, entry.name);
-          if (entry.isDirectory()) walk(absolute);
-          else {
-            const relative = path.relative(root, absolute).split(path.sep).join('/');
-            const data = fs.readFileSync(absolute);
-            resources.push({ path: relative, size: data.byteLength, contentType: getContentType(absolute), hash: crypto.createHash('sha256').update(data).digest('hex') });
+      let resources = tryReadManifest();
+      if (!resources) {
+        const collected: ResourceEntry[] = [];
+        const walk = (dir: string) => {
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const absolute = path.join(dir, entry.name);
+            if (entry.isDirectory()) walk(absolute);
+            else {
+              const relative = path.relative(root, absolute).split(path.sep).join('/');
+              const data = fs.readFileSync(absolute);
+              collected.push({ path: relative, size: data.byteLength, contentType: getContentType(absolute), hash: crypto.createHash('sha256').update(data).digest('hex') });
+            }
           }
+        };
+        walk(root);
+        // 排序保证确定性输出（readdir 顺序不稳定）
+        collected.sort((a, b) => a.path.localeCompare(b.path));
+        resources = collected;
+        try {
+          fs.writeFileSync(manifestPath, JSON.stringify({ fileHash: book.fileHash, resources }));
+        } catch (err) {
+          console.warn('[resources] 清单落盘失败（不影响本次响应）:', (err as Error).message);
         }
-      };
-      walk(root);
+      }
       res.json({ success: true, data: { bookId: book.id, versionHash: book.fileHash, resources } });
     } catch (err) {
       next(err);
@@ -924,29 +935,6 @@ export function createBooksRouter(db: any, dataDir: string): Router {
     }
   });
 
-  // ── POST /api/books/:id/cache - 缓存书籍内容（全书或 N 章节） ──
-  router.post('/:id/cache', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const userId = req.user!.userId;
-      const bookId = req.params.id;
-      const { type, count } = req.body; // type: 'full' | 'partial', count: number of chapters
-
-      const { cacheFullBook, cacheNChapters } = await import('../services/contentCacheService.js');
-      let result: { cached: number; failed: number };
-
-      if (type === 'full') {
-        result = await cacheFullBook(db, bookId, userId, dataDir);
-      } else {
-        const chapterCount = Math.max(1, Math.min(count || 5, 100));
-        result = await cacheNChapters(db, bookId, userId, dataDir, chapterCount);
-      }
-
-      res.json({ success: true, data: result });
-    } catch (err) {
-      next(err);
-    }
-  });
-
   // ── POST /api/books/:id/tts-generate - 后台生成 TTS 语音 ──
   router.post('/:id/tts-generate', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -1059,9 +1047,6 @@ export function createBooksRouter(db: any, dataDir: string): Router {
       // 进度 = 已完成分片 / 总分片
       const voiceGenerationRate = totalChunks > 0 ? Math.min(1, completedChunks / totalChunks) : 0;
 
-      // 内容缓存统计（已通过顶部静态导入 getBookCacheStats，传入已查 totalChapters 复用，避免重复查询）
-      const cacheStats = getBookCacheStats(db, bookId, userId, totalChapters);
-
       res.json({
         success: true,
         data: {
@@ -1076,8 +1061,6 @@ export function createBooksRouter(db: any, dataDir: string): Router {
           jobStatus,
           jobProgress,
           ttsCacheCount: cachedChunks,
-          cachedChapters: cacheStats.cachedChapters,
-          cacheType: cacheStats.cacheType,
         },
       });
     } catch (err) {
@@ -1208,29 +1191,6 @@ export function createBooksRouter(db: any, dataDir: string): Router {
         deleted++;
       }
       res.json({ success: true, data: { deleted, failed } });
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  // ── POST /api/books/batch-cache - 批量缓存全书离线包（替代前端逐本 POST /:id/cache） ──
-  router.post('/batch-cache', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const userId = req.user!.userId;
-      const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
-      if (ids.length === 0) throw new AppError(400, '请提供要缓存的图书 ID 列表');
-      if (ids.length > 500) throw new AppError(400, '单次最多缓存 500 本图书');
-      const { cacheFullBook } = await import('../services/contentCacheService.js');
-      const results: { id: string; cached: number; failed: number; error?: string }[] = [];
-      for (const id of ids) {
-        try {
-          const result = await cacheFullBook(db, id, userId, dataDir);
-          results.push({ id, cached: result.cached, failed: result.failed });
-        } catch (err: any) {
-          results.push({ id, cached: 0, failed: 1, error: err.message || '缓存失败' });
-        }
-      }
-      res.json({ success: true, data: { results } });
     } catch (err) {
       next(err);
     }

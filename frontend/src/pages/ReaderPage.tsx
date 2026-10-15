@@ -25,7 +25,7 @@ import { FontSettingsPanel } from '../reader/components/FontSettingsPanel';
 import { TocPanel } from '../reader/components/TocPanel';
 import { SearchPanel } from '../reader/components/SearchPanel';
 import type { SearchResult } from '../reader/searchBook';
-import { getCachedEpubArchive } from '../services/offlineCacheService';
+import { getCachedEpubArchive, getOfflineBookMeta, loadTxtChaptersWithCache } from '../services/offlineCacheService';
 import { getToken } from '../services/authService';
 import { Button, toast } from '../components/ui';
 
@@ -34,6 +34,8 @@ interface BookMeta {
   title: string;
   author: string | null;
   format: 'epub' | 'txt';
+  /** 书籍内容版本（后端 fileHash）——离线包/章节缓存失效比对用 */
+  fileHash?: string | null;
 }
 
 /** 沉浸式阅读引导条：用户点击「知道了」后不再打扰（localStorage 记忆） */
@@ -72,6 +74,8 @@ export default function ReaderPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  /** 离线模式提示（D5）：元数据/章节/归档任一走了本地缓存时置位 */
+  const [offlineNotice, setOfflineNotice] = useState(false);
 
   const viewerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<EpubBookController | null>(null);
@@ -142,11 +146,23 @@ export default function ReaderPage() {
     controllerRef.current = controller;
 
     (async () => {
-      const res = await axios.get(`/api/books/${bookId}`);
-      const meta = res.data?.data as BookMeta | null;
-      if (!meta) throw new Error('书籍不存在');
+      // ── 元数据三级回退（D5）：网络优先（15s 超时对齐章节/正文请求）→ 本地包/书架缓存 ──
+      let meta: BookMeta | null = null;
+      let fromLocal = false;
+      try {
+        const res = await axios.get(`/api/books/${bookId}`, { timeout: 15000 });
+        meta = res.data?.data as BookMeta | null;
+      } catch {
+        const local = await getOfflineBookMeta(bookId);
+        if (local) {
+          meta = { id: local.id, title: local.title, author: local.author, format: local.format, fileHash: local.fileHash };
+          fromLocal = true;
+        }
+      }
+      if (!meta) throw new Error('书籍不存在或暂不可用（离线且无本地缓存）');
       if (cancelled) return;
       setBook(meta);
+      if (fromLocal || (typeof navigator !== 'undefined' && navigator.onLine === false)) setOfflineNotice(true);
 
       // TXT/EPUB 共用：设置目录，绑定位置监听（驱动位置+翻页动画），异步生成全局页码
       const attachReader = (tocItems?: TocItem[]) => {
@@ -173,17 +189,15 @@ export default function ReaderPage() {
       };
 
       if (meta.format === 'txt') {
-        // TXT：拉取章节清单 → 逐章取正文 → 以 HTML Feed 渲染（复用全套阅读管线）
-        const chaptersRes = await axios.get(`/api/books/${bookId}/chapters`, { timeout: 15000 });
-        const chapters: { id: string; title: string; href: string | null }[] = chaptersRes.data?.data || [];
+        // TXT：走 IndexedDB 优先数据管道（离线可读；在线时并行补章并渐进落库；fileHash 变化自动失效旧缓存）
+        const loaded = await loadTxtChaptersWithCache(bookId, meta.fileHash);
+        if (loaded.offline) setOfflineNotice(true);
         const initialCfiTxt = await loadInitialCfi();
-        const feedInputs: TxtFeedSectionInput[] = [];
-        for (const ch of chapters) {
-          const contentRes = await axios.get(`/api/books/${bookId}/chapters/${ch.id}/content`, { timeout: 15000 });
-          const raw = contentRes.data?.data;
-          const text = typeof raw === 'string' ? raw : raw?.text ?? raw?.content ?? '';
-          feedInputs.push({ id: ch.id, title: ch.title || `第${feedInputs.length + 1}部分`, text: String(text) });
-        }
+        const feedInputs: TxtFeedSectionInput[] = loaded.chapters.map((ch, idx) => ({
+          id: ch.chapterId,
+          title: ch.title || `第${idx + 1}部分`,
+          text: ch.content,
+        }));
         const tocItemsTxt = await withTimeout(
           controller.loadTxt(feedInputs, viewerRef.current!, {
             initialCfi: initialCfiTxt,
@@ -205,24 +219,36 @@ export default function ReaderPage() {
       }
 
       const initialCfi = await loadInitialCfi();
-      // 离线包优先：有本地 epub 归档直接用 ArrayBuffer，避免网络请求
+      // 离线包优先：有本地 epub 归档直接用 ArrayBuffer，避免网络请求；
+      // 归档 versionHash 与服务端 fileHash 不一致（书被重传）→ 弃用旧归档改走网络（D5 失效策略）
       const archive = await getCachedEpubArchive(bookId).catch(() => undefined);
-      const source: string | ArrayBuffer = archive?.data ?? `/api/books/${bookId}/file`;
+      const archiveStale = !!archive && !!meta.fileHash && !!archive.versionHash && archive.versionHash !== meta.fileHash;
+      const source: string | ArrayBuffer = archive && !archiveStale ? archive.data : `/api/books/${bookId}/file`;
       const token = getToken();
-      const requestHeaders = typeof source === 'string' && token
-        ? { Authorization: `Bearer ${token}` }
-        : undefined;
-
-      const tocItems = await withTimeout(
-        controller.load(source, viewerRef.current!, {
+      const loadSource = (src: string | ArrayBuffer) => withTimeout(
+        controller.load(src, viewerRef.current!, {
           initialCfi,
-          requestHeaders,
+          requestHeaders: typeof src === 'string' && token ? { Authorization: `Bearer ${token}` } : undefined,
           settings,
           mode: loadReadingMode(),
         }),
         20000,
         'load-epub',
       );
+
+      let tocItems;
+      try {
+        tocItems = await loadSource(source);
+      } catch (err) {
+        // 网络不可用且本地归档已过期：可用性优先，兜底旧归档并提示
+        if (archiveStale && archive) {
+          setOfflineNotice(true);
+          toast.info('离线包可能已过期，正在使用本地副本');
+          tocItems = await loadSource(archive.data);
+        } else {
+          throw err;
+        }
+      }
       if (cancelled) return;
       // 注册位置监听 + 页码生成（TXT/EPUB 共用）
       setToc(tocItems);
@@ -347,6 +373,17 @@ export default function ReaderPage() {
       />
       {/* epub.js 渲染区（垂直滚动容器；上方无覆盖层，滚动手势直达） */}
       <div ref={viewerRef} className="absolute inset-0" />
+
+      {/* 离线模式横幅（D5）：元数据/章节/归档任一走了本地缓存时提示 */}
+      {offlineNotice && (
+        <div
+          data-testid="offline-banner"
+          className="absolute top-3 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-full text-xs pointer-events-none"
+          style={{ background: themeSpec.chromeBackground, color: themeSpec.chromeColor }}
+        >
+          离线模式 · 正在使用本地缓存
+        </div>
+      )}
 
       {loading && (
         <div

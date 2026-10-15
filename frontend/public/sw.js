@@ -1,25 +1,22 @@
 /**
- * iReader Service Worker v6
- * 
- * 离线缓存策略：
- * 1. 安装时预缓存所有静态资源（HTML/JS/CSS/字体/图片）
- * 2. 运行时缓存封面图片、书籍文件、TTS 音频
- * 3. 导航请求（index.html）：网络优先（NetworkFirst）——部署后用户首次打开即最新版
- * 4. 静态资源：缓存优先 + 后台更新（StaleWhileRevalidate，Vite hash 资源无版本问题）
- * 5. API 数据：网络优先 + 缓存回退（NetworkFirst）
+ * iReader Service Worker
  *
- * ⚠️ 版本规则：CACHE_VERSION / SW_VERSION 必须随前端版本迭代变更（bump）！
- *    SW 更新检测基于文件字节差异——只改前端不改 SW 版本，浏览器不会重装 SW，
- *    预缓存/旧缓存不刷新，用户端会持续运行旧版代码（如旧版阅读顶栏竞态）。
- *    本次 v3→v4：修复阅读顶栏“有时白有时黑”（用户端加载旧版）问题。
+ * 离线缓存策略：
+ * 1. 安装时预缓存 App Shell（/ 与 /index.html）
+ * 2. 导航请求：网络优先（NetworkFirst）；网络失败或 5xx 时回退缓存副本，保障弱网/宕机可用
+ * 3. 静态资源：缓存优先 + 后台更新（StaleWhileRevalidate，Vite hash 资源无版本问题）
+ * 4. 封面图片：网络优先 + 缓存回退（NetworkFirst）
+ * 5. API 数据：不拦截（离线数据由 IndexedDB 缓存层负责）
+ *
+ * ⚠️ 版本规则：CACHE_VERSION 由构建期脚本 scripts/inject-sw-version.mjs
+ *    从 src/version.ts 自动注入 dist/sw.js（无需手工 bump）。
+ *    SW 更新检测基于文件字节差异——版本变化会触发 install 重装与旧缓存清理。
  */
 
-const CACHE_VERSION = 'v8';
-const SW_VERSION = '2.2.0';
-// SW 版本号——变更时触发 install 事件，自动激活新 SW
+// 源文件占位值；发布产物 dist/sw.js 由构建期注入真实版本（v<APP_VERSION>）
+const CACHE_VERSION = 'dev';
 const STATIC_CACHE = `ireader-static-${CACHE_VERSION}`;
 const COVERS_CACHE = `ireader-covers-${CACHE_VERSION}`;
-const API_CACHE = `ireader-api-${CACHE_VERSION}`;
 
 // 需要预缓存的静态资源（构建后 Vite 生成）
 const PRECACHE_URLS = [
@@ -69,15 +66,7 @@ function isCoverImage(url) {
   return /^\/api\/books\/[^/]+\/cover/.test(url.pathname);
 }
 
-function isBookFile(url) {
-  return /^\/api\/books\/[^/]+\/file/.test(url.pathname);
-}
-
-function isAPIRequest(url) {
-  return url.pathname.startsWith('/api/');
-}
-
-// ── 导航请求：离线时返回缓存的 App Shell（StaleWhileRevalidate 化）──
+// ── 导航请求：离线时返回缓存的 App Shell ──
 function isNavigateRequest(event) {
   return event.request.mode === 'navigate';
 }
@@ -90,27 +79,27 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
 
 // ⭐ 导航请求（页面级跳转）：网络优先（NetworkFirst）
-//    在线时总是返回网络最新 index.html 并更新缓存；离线时回退缓存/离线 HTML。
-//    历史缺陷（v3）：StaleWhileRevalidate 先返回旧缓存、后台更新、下次导航才生效——
-//    部署后用户首次打开仍是旧版前端（旧版阅读顶栏竞态随机白），表现为“升级后第一次正常、之后看心情”。
+//    在线时总是返回网络最新 index.html 并更新缓存；网络失败或 5xx 时回退缓存/离线 HTML。
 if (isNavigateRequest(event)) {
+  const fallbackToCache = () =>
+    caches.match('/index.html').then((cached) => {
+      if (cached) return cached;
+      return new Response(
+        '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>iReader - 离线模式</title></head><body><div id="root"><div style="padding:40px;text-align:center;color:#666;font-family:sans-serif"><h2>📚 iReader 离线模式</h2><p>正在从本地缓存加载书籍数据...</p><p style="font-size:12px;color:#999;margin-top:20px">请确保您已预先缓存书籍</p></div></div></body></html>',
+        { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+      );
+    });
   event.respondWith(
     fetch(event.request)
       .then((response) => {
+        // 5xx（后端/网关故障）同样回退缓存副本，避免用户看到服务器错误页
+        if (response && response.status >= 500) return fallbackToCache();
         if (response && response.status === 200) {
           caches.open(STATIC_CACHE).then((cache) => cache.put('/index.html', response.clone()));
         }
         return response;
       })
-      .catch(() =>
-        caches.match('/index.html').then((cached) => {
-          if (cached) return cached;
-          return new Response(
-            '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>iReader - 离线模式</title></head><body><div id="root"><div style="padding:40px;text-align:center;color:#666;font-family:sans-serif"><h2>📚 iReader 离线模式</h2><p>正在从本地缓存加载书籍数据...</p><p style="font-size:12px;color:#999;margin-top:20px">请确保您已预先缓存书籍</p></div></div></body></html>',
-            { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
-          );
-        }),
-      )
+      .catch(fallbackToCache)
   );
   return;
 }
@@ -130,8 +119,10 @@ if (isNavigateRequest(event)) {
             }
             return response;
           }).catch(() => {
-            // 网络失败时如果无缓存，尝试返回 index.html 兜底
-            return caches.match('/index.html');
+            // 网络失败且无缓存：仅 HTML 类请求可回退 App Shell；
+            // JS/CSS/字体等按扩展名路径返回 404，避免把 index.html 当脚本/样式返回（MIME 错误）
+            if (url.pathname.endsWith('.html')) return caches.match('/index.html');
+            return new Response('', { status: 404, statusText: 'Offline: asset not cached' });
           });
           // 优先返回缓存，同时后台发起网络请求更新缓存
           return cached || fetchPromise;

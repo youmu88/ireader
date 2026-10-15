@@ -69,8 +69,8 @@ export interface TtsChapterEntry {
 
 /**
  * 构造章节推进表。
- * - TXT：后端表顺序即 feed 顺序（ReaderPage feedInputs 按 chapters 顺序构建），
- *   displayHref 按 buildTxtFeed 的 `txt-{i}.xhtml` 规则生成。
+ * - TXT：后端表顺序即内存 EPUB spine 顺序（ReaderPage feedInputs 按 chapters 顺序构建），
+ *   displayHref 按 buildTxtEpub 的 `txt-{i}.xhtml` 规则生成。
  * - EPUB：displayHref 直接用后端 href（与 relocated 的包内路径同源）。
  */
 export function buildChapterList(

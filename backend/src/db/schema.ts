@@ -89,18 +89,6 @@ export const ttsCache = sqliteTable('tts_cache', {
   createdAt: text('created_at').notNull(),
 });
 
-// ── 书籍内容缓存表 ──
-export const bookContentCache = sqliteTable('book_content_cache', {
-  id: text('id').primaryKey(),
-  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
-  chapterId: text('chapter_id'),
-  content: text('content').notNull(),
-  cacheType: text('cache_type', { enum: ['full_book', 'chapter', 'partial'] }).notNull().default('chapter'),
-  createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
-});
-
 export const contentSegments = sqliteTable('content_segments', {
   id: text('id').primaryKey(),
   bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),

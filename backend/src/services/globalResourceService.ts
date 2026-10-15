@@ -24,7 +24,6 @@ import {
   readingProgress,
   ttsGenerationJobs,
   ttsCache,
-  bookContentCache,
   voiceCache,
 } from '../db/schema.js';
 
@@ -375,7 +374,6 @@ export function cleanupExpiredResources(db: any, _dataDir: string): CleanupResul
       db.delete(bookChapters).where(sql`book_id = ${lb.id}`).run();
       db.delete(ttsGenerationJobs).where(sql`book_id = ${lb.id}`).run();
       db.delete(ttsCache).where(sql`book_id = ${lb.id}`).run();
-      db.delete(bookContentCache).where(sql`book_id = ${lb.id}`).run();
       db.delete(voiceCache).where(sql`book_id = ${lb.id}`).run();
       db.delete(books).where(sql`id = ${lb.id}`).run();
     }

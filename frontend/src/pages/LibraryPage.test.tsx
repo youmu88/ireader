@@ -5,7 +5,7 @@ import axios from 'axios';
 import { LibraryPage } from './LibraryPage';
 
 // confirm 依赖 ConfirmProvider 渲染容器，测试环境未挂载；统一 mock 为可配置 resolve
-const { confirmMock } = vi.hoisted(() => ({ confirmMock: vi.fn() }));
+const { confirmMock, mockDownloadBook } = vi.hoisted(() => ({ confirmMock: vi.fn(), mockDownloadBook: vi.fn() }));
 vi.mock('../components/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../components/ui')>();
   return { ...actual, confirm: () => confirmMock() };
@@ -13,6 +13,12 @@ vi.mock('../components/ui', async (importOriginal) => {
 
 vi.mock('axios');
 const mockedAxios = axios as any;
+
+// D4：缓存离线包改真实写 IndexedDB，mock 统一下载入口（保留其余真实实现）
+vi.mock('../services/offlineCacheService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/offlineCacheService')>();
+  return { ...actual, downloadBookForOffline: (...args: unknown[]) => mockDownloadBook(...args) };
+});
 
 function renderPage() {
   return render(
@@ -103,15 +109,17 @@ describe('LibraryPage 图书管理', () => {
     });
   });
 
-  it('batch caches selected books via single batch-cache API', async () => {
-    mockedAxios.post.mockResolvedValue({ data: { success: true, data: { results: [{ id: 'b1', cached: 1, failed: 0 }, { id: 'b2', cached: 1, failed: 0 }] } } });
+  it('batch caches selected books into local IndexedDB via downloadBookForOffline (D4)', async () => {
+    mockDownloadBook.mockResolvedValue({ chapters: 2, format: 'txt' });
     renderPage();
     await screen.findByText('示例书一');
     fireEvent.click(screen.getByText(/全选/i));
     await waitFor(() => expect(screen.getByText('2')).toBeDefined());
     fireEvent.click(screen.getByText(/缓存离线包/i));
     await waitFor(() => {
-      expect(mockedAxios.post).toHaveBeenCalledWith('/api/books/batch-cache', { ids: ['b1', 'b2'] });
+      expect(mockDownloadBook).toHaveBeenCalledTimes(2);
     });
+    // 不再走服务端假缓存链路：该流程不产生任何写请求
+    expect(mockedAxios.post).not.toHaveBeenCalled();
   });
 });

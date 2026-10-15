@@ -16,9 +16,11 @@ export function registerSW(): void {
     return;
   }
 
-  // 开发环境跳过注册，避免缓存干扰热更新
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    console.log('[SW] 开发环境跳过 Service Worker 注册');
+  // 开发环境（vite dev server）跳过注册，避免缓存干扰热更新；
+  // 生产构建不限 hostname——自托管部署（localhost:10000 / 局域网 IP）同样需要离线能力；
+  // 非安全上下文（非 https 且非 localhost）浏览器会拒绝注册，属自然降级。
+  if (import.meta.env.DEV) {
+    console.log('[SW] 开发环境（vite dev）跳过 Service Worker 注册');
     return;
   }
 
