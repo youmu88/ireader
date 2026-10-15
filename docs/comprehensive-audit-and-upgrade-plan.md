@@ -352,15 +352,17 @@ flowchart TB
 
 ## 11. Todolist（按阶段，可直接勾选跟踪）
 
-### Phase 0 · 安全加固（P0，先于一切）
+### Phase 0 · 安全加固（P0，先于一切）✅ 已实施（v2.62.0，2026-10-15；实施口径备注见各条）
 
-- [ ] P0：JWT_SECRET 启动强校验，缺失即拒绝启动并输出配置指引（D6，middleware/auth.ts:9）
-- [ ] P0：删除空库自动创建 admin/admin123 逻辑，改为首启创建向导/CLI（D7，db/init.ts:443-446）
-- [ ] P0：tts.ts 5 个免鉴权接口挂 requireAuth；apiUrl 一律取服务端 settings，拒绝请求传入（D8，tts.ts:21/27/39/51/174）
-- [ ] P0：登录接口加速率限制（内存滑动窗，5 次/分钟/IP）（D7 配套）
-- [ ] P1：封面路由鉴权 + SVG 占位图去掉书名回显（D23，books.ts:420-457）
-- [ ] P1：.github/workflows/deploy.yml 改 pnpm --frozen-lockfile、移除 runner 自部署步骤、加 pnpm rebuild 防 ABI 漂移（D26）
-- [ ] P1：backend/.env.example 补 JWT_SECRET/TTS_API_URL/TTS_API_KEY 并修正过期变量名（D6/D9 配套）
+- [x] P0：JWT_SECRET 启动强校验，缺失即拒绝启动并输出配置指引（D6，middleware/auth.ts assertJwtSecret；deploy.sh 自动生成并持久化到部署目录 .env）
+- [x] P0：删除空库自动创建 admin/admin123 逻辑，改为首启创建向导/CLI（D7，已拍板选 CLI：`pnpm create-user`；init.ts 旧数据迁移需显式传 initialUser）
+- [x] P0：tts.ts 5 个免鉴权接口挂 requireAuth；~~apiUrl 一律取服务端设置~~ 实施口径经拍板调整：允许请求传入但仅限 http/https 协议（内网允许，保本机 TTS 场景），apiKey 掩码回退设置真值（D8，tts.ts + middleware/urlGuard.ts）
+- [x] P0：登录接口加速率限制（内存滑动窗，5 次/分钟/IP）（D7 配套，middleware/rateLimit.ts；失败计数、成功不计入）
+- [x] P1：封面路由鉴权 + SVG 占位图去掉书名回显（D23，optionalAuth 与 file 路由同契约；首字母一并移除）
+- [x] P1：.github/workflows/deploy.yml 改 pnpm --frozen-lockfile、移除 runner 自部署步骤、加 pnpm rebuild 防 ABI 漂移（D26，改上传 artifact）
+- [x] P1：backend/.env.example 补 JWT_SECRET/TTS_API_URL/TTS_API_KEY 并修正过期变量名（D6/D9 配套，另删除无人读取的 TTS_URL/EDGETTS_URL/MEGATTS3_URL）
+- [x] P1（原 Phase 4 提前，经拍板并入）：GET /settings apiKey 掩码脱敏 + PUT 掩码不覆盖 + voices/models/health 掩码回退（D25）
+- [x] P1（原 Phase 4 提前，经拍板并入）：进度版本号服务端权威，客户端值不参与 max 计算（D24；过期版本拒写保护保留）
 - [ ] P1：backend/secUserEmail.json（真实邮箱白名单）移出仓库：.gitignore + 环境变量/挂载注入（D34）
 
 ### Phase 1 · 阅读核心体验（翻页 + 手势）
@@ -422,7 +424,7 @@ flowchart TB
 - [ ] P1：reading_progress 加 UNIQUE(user_id,book_id) + ON CONFLICT 更新（D29）
 - [ ] P2：books.ts 拆分 crud/uploads/files/stats 四模块（D30）
 - [ ] P2：async 路由统一错误处理（express-async-errors 或包装器）；pbkdf2/execSync 异步化；SIGTERM 优雅停机；cors 白名单（D30）
-- [ ] P2：进度版本号服务端权威 + 409；GET /settings apiKey 脱敏（D24/D25，可与 P0 一起做）
+- [ ] P2：进度版本号服务端权威 + 409；GET /settings apiKey 脱敏（D24/D25，可与 P0 一起做）→ ✅ 已提前至 Phase 0 实施（v2.62.0；409 改造未做，conflict 仍为 200+标志位以保持前端兼容）
 - [ ] P2：仓库卫生：删空文件 `1`/误建目录、.gitignore 补 .DS_Store（git 已跟踪 2 个，磁盘另有未跟踪散落）、.docx 镜像归档（3 份）、e2e 死脚本清理（e2e_reader.py 引用已删翻页按钮）或入 scripts/（D31）
 - [ ] P2：文档纠偏：README/sw.ts/offline-book-package-design/optimization-design 失实项更新（D32）
 - [ ] P2：TabView 接线或删除（D33）
