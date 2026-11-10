@@ -1,5 +1,5 @@
 import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
-import { DEFAULT_TTS_VOICE } from '../services/ttsConstants.js';
+import { DEFAULT_TTS_VOICE, DEFAULT_FIRST_CHUNK_MAX, DEFAULT_NORMAL_CHUNK_MAX } from '../services/ttsConstants.js';
 
 // ── 用户表 ──
 export const users = sqliteTable('users', {
@@ -157,8 +157,8 @@ export const ttsSettings = sqliteTable('tts_settings', {
   apiKey: text('api_key'),
   preGenerateConcurrency: integer('pre_generate_concurrency').notNull().default(3),
   autoPreSynthesize: integer('auto_pre_synthesize', { mode: 'boolean' }).notNull().default(false),
-  firstChunkMaxSize: integer('first_chunk_max_size').notNull().default(32),
-  normalChunkMaxSize: integer('normal_chunk_max_size').notNull().default(128),
+  firstChunkMaxSize: integer('first_chunk_max_size').notNull().default(DEFAULT_FIRST_CHUNK_MAX),
+  normalChunkMaxSize: integer('normal_chunk_max_size').notNull().default(DEFAULT_NORMAL_CHUNK_MAX),
   updatedAt: text('updated_at').notNull(),
 });
 

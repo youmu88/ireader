@@ -4,6 +4,7 @@ import * as schema from './schema.js';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { DEFAULT_FIRST_CHUNK_MAX, DEFAULT_NORMAL_CHUNK_MAX } from '../services/ttsConstants.js';
 
 /** initDatabase 可选项（Phase 0 安全加固 D7） */
 export interface InitDatabaseOptions {
@@ -178,8 +179,8 @@ export function initDatabase(dbPath?: string, options?: InitDatabaseOptions): Re
       api_url TEXT,
       api_key TEXT,
       pre_generate_concurrency INTEGER NOT NULL DEFAULT 3,
-      first_chunk_max_size INTEGER NOT NULL DEFAULT 32,
-      normal_chunk_max_size INTEGER NOT NULL DEFAULT 128,
+      first_chunk_max_size INTEGER NOT NULL DEFAULT ${DEFAULT_FIRST_CHUNK_MAX},
+      normal_chunk_max_size INTEGER NOT NULL DEFAULT ${DEFAULT_NORMAL_CHUNK_MAX},
       updated_at TEXT NOT NULL
     );
       CREATE TABLE IF NOT EXISTS global_books (
@@ -297,6 +298,11 @@ export function initDatabase(dbPath?: string, options?: InitDatabaseOptions): Re
       sqlite.exec(`ALTER TABLE tts_settings ADD COLUMN model TEXT;`);
       console.log('[迁移] tts_settings model 列补充完成 ✅');
     }
+
+    // 分片档位升级（ai-agent 移植）：旧默认 32/128 → 64/400。
+    // 仅升级仍等于旧默认值的行（用户自定义值不动）；幂等，重复执行无效果
+    sqlite.prepare(`UPDATE tts_settings SET first_chunk_max_size = ${DEFAULT_FIRST_CHUNK_MAX} WHERE first_chunk_max_size = 32`).run();
+    sqlite.prepare(`UPDATE tts_settings SET normal_chunk_max_size = ${DEFAULT_NORMAL_CHUNK_MAX} WHERE normal_chunk_max_size = 128`).run();
 
     // 迁移旧默认值到新标准
     const settingsRow = sqlite.prepare("SELECT source, voice_id FROM tts_settings WHERE source = 'edgetts' OR source = 'kokoro' OR source = 'megatts3' LIMIT 1").get() as any;

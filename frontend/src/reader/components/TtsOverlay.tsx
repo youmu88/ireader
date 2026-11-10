@@ -4,6 +4,7 @@
  * 独立于 ReaderChrome 渲染（菜单收起时仍可见）：当前段文本滚动展示 + 播放/暂停 +
  * 跳段 + 倍速 + 停止；章节标题与失败计数提示。
  */
+import { useState } from 'react';
 import type { TtsStatus } from '../tts/useTtsSession';
 
 export interface TtsOverlayProps {
@@ -13,6 +14,11 @@ export interface TtsOverlayProps {
   chapterTitle: string;
   rate: number;
   failedCount: number;
+  /** 章内已播秒数与总时长（进度条 seek 用） */
+  elapsed: number;
+  duration: number;
+  /** 章内拖动跳转（fraction∈[0,1]）；缺省时进度条只读 */
+  onSeek?: (fraction: number) => void;
   chromeBackground: string;
   chromeColor: string;
   onToggle: () => void;
@@ -23,6 +29,11 @@ export interface TtsOverlayProps {
 
 const RATES = [1.0, 1.25, 1.5, 2.0] as const;
 
+const fmtTime = (sec: number): string => {
+  const s = Math.max(0, Math.floor(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
 export function TtsOverlay({
   visible,
   status,
@@ -30,6 +41,9 @@ export function TtsOverlay({
   chapterTitle,
   rate,
   failedCount,
+  elapsed,
+  duration,
+  onSeek,
   chromeBackground,
   chromeColor,
   onToggle,
@@ -37,6 +51,15 @@ export function TtsOverlay({
   onSkip,
   onRateChange,
 }: TtsOverlayProps) {
+  // 拖动中仅改视觉（不中断播放），松手才提交 seek
+  const [dragFraction, setDragFraction] = useState<number | null>(null);
+  const fraction = dragFraction ?? (duration > 0 ? Math.min(1, Math.max(0, elapsed / duration)) : 0);
+  const commitSeek = (): void => {
+    if (dragFraction != null) {
+      onSeek?.(dragFraction);
+      setDragFraction(null);
+    }
+  };
   if (!visible) return null;
   const playing = status === 'playing';
   const loading = status === 'loading';
@@ -103,11 +126,25 @@ export function TtsOverlay({
           停止
         </button>
       </div>
-      <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(128,128,128,0.18)' }}>
-        <div
-          className="h-full rounded-full transition-all"
-          style={{ background: 'rgba(10,132,255,0.9)', width: playing || status === 'paused' ? '100%' : '0%', opacity: playing ? 1 : 0.4 }}
+      <div className="mt-2 flex items-center gap-2">
+        <span className="text-[10px] tabular-nums opacity-60 shrink-0">{fmtTime(elapsed)}</span>
+        <input
+          type="range"
+          min={0}
+          max={1000}
+          step={1}
+          value={Math.round(fraction * 1000)}
+          onChange={e => setDragFraction(Number(e.target.value) / 1000)}
+          onPointerUp={commitSeek}
+          onTouchEnd={commitSeek}
+          onKeyUp={commitSeek}
+          disabled={duration <= 0 || !onSeek}
+          data-testid="tts-progress"
+          className="flex-1 min-w-0 cursor-pointer"
+          style={{ accentColor: 'rgba(10,132,255,0.9)', height: 4 }}
+          aria-label="章节内播放进度"
         />
+        <span className="text-[10px] tabular-nums opacity-60 shrink-0">{fmtTime(duration)}</span>
       </div>
     </div>
   );

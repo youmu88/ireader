@@ -1,9 +1,14 @@
 /**
- * useTtsSession — 听书会话状态机（Phase 2 D2 播放层核心编排）
+ * useTtsSession — 听书会话状态机（Phase 2 D2 播放层核心编排；ai-agent 移植）
  *
  * 状态流转：idle → loading(拉设置/章节/分段/缓存索引) → playing ⇄ paused → idle
  * 章节推进：按后端章节表顺序 goTo(displayHref) → 拉分段 → 逐段播放；
- * 段推进：缓存优先/合成兜底（失败重试 1 次后跳过并计数，不中断整章）；
+ * 段推进：解码缓存优先（预解码 + 下一段预取，命中零等待）→ 合成兜底
+ *         （失败重试 1 次后跳过并计数，不中断整章）；
+ * 段级中断 vs 会话级中断：seek（章内拖动）/skip（跳段）只换播放位置，会话延续；
+ *         stop/finishSession 才终止会话（旧实现 skip 实为终止会话，已修正）。
+ * 章内进度：段时长 = 已解码真实 duration / 未解码按语速估算；elapsed/duration 每 250ms 上报，
+ *         seekTo(fraction) 换算「段 + 段内偏移」后中断当前段、循环从目标位置续播。
  * 联动：每段开始回调 onSegmentStart（驱动段落高亮 + overlay 文本）；
  *       章播完自动 goTo 下一章（scrolled/paged 通用，paged 为章粒度自动翻页）。
  * 依赖全部可注入（单测不发网络、player 用 stub 立即结束）。
@@ -33,6 +38,13 @@ import {
 
 export type TtsStatus = 'idle' | 'loading' | 'playing' | 'paused';
 
+/** 中文播报语速估算（ai-agent 实测 Kokoro 4.3~5 字/s 取中值）：未解码段的时长估算基准 */
+const SPEECH_CHARS_PER_SECOND = 4.7;
+/** 解码缓存上限（段）：400 字段 ≈ 85s ≈ 4MB，8 段 ≈ 32MB，LRU 淘汰 */
+const DECODED_CACHE_MAX = 8;
+/** 章内进度上报周期（ms） */
+const PROGRESS_TICK_MS = 250;
+
 export interface TtsSessionState {
   status: TtsStatus;
   /** 当前朗读段文本（overlay 展示） */
@@ -41,6 +53,10 @@ export interface TtsSessionState {
   currentChapterTitle: string;
   /** 整书段进度（当前章/全部章估算） */
   progress: number;
+  /** 章内已播秒数（进度条 seek 用） */
+  elapsed: number;
+  /** 章内总时长（秒，进度条 seek 用） */
+  duration: number;
   failedCount: number;
   rate: number;
 }
@@ -82,9 +98,14 @@ const INITIAL_STATE: TtsSessionState = {
   currentSegmentIndex: -1,
   currentChapterTitle: '',
   progress: 0,
+  elapsed: 0,
+  duration: 0,
   failedCount: 0,
   rate: 1.0,
 };
+
+/** 段解码缓存键（章内唯一） */
+const segKeyOf = (chapterId: string, segmentIndex: number): string => `${chapterId}:${segmentIndex}`;
 
 export function useTtsSession(options: UseTtsSessionOptions) {
   const { bookId, bookTitle, format, controllerRef, chapterHref, onSegmentStart, deps } = options;
@@ -104,6 +125,19 @@ export function useTtsSession(options: UseTtsSessionOptions) {
   const stateRef = useRef(state);
   stateRef.current = state;
 
+  /** 段解码缓存（ai-agent 移植）：命中零等待起播；LRU 淘汰 */
+  const decodedCacheRef = useRef(new Map<string, AudioBuffer>());
+  /** 当前章段时长表（秒）：解码后回写真值，未解码按语速估算 */
+  const segDurationsRef = useRef<number[]>([]);
+  const chapterTotalRef = useRef(0);
+  /** 当前段之前累计秒数（章内 elapsed 基座） */
+  const elapsedBaseRef = useRef(0);
+  const currentSegDurRef = useRef(0);
+  /** 段级中断请求（章内 seek）：播放循环捕获 aborted 后消费、从目标位置续播 */
+  const seekRequestRef = useRef<{ index: number; offset: number } | null>(null);
+  /** 段级中断请求（跳段）：播放循环捕获 aborted 后进下一段，会话延续 */
+  const skipRequestRef = useRef(false);
+
   const stop = useCallback(() => {
     sessionGenRef.current += 1;
     abortRef.current = true;
@@ -117,7 +151,7 @@ export function useTtsSession(options: UseTtsSessionOptions) {
     // 允许下次 start：abort 标志在 start 内重置
   }, [controllerRef]);
 
-  /** 会话自然结束/中断归位：与 stop 同构但保留 failedCount 等统计（用户可感知跳段数） */
+  /** 会话自然结束/中断归位：保留 failedCount 等统计（用户可感知跳段数） */
   const finishSession = useCallback(() => {
     sessionGenRef.current += 1;
     abortRef.current = true;
@@ -170,9 +204,62 @@ export function useTtsSession(options: UseTtsSessionOptions) {
     const baseProgress = chapterIndex / totalChapters;
     const chapterWeight = 1 / totalChapters;
 
-    for (let i = 0; i < segments.length; i++) {
+    // 章切换：重置章内进度模型与解码缓存（跨章不复用，防累积）
+    decodedCacheRef.current.clear();
+    segDurationsRef.current = segments.map(s => s.text.length / SPEECH_CHARS_PER_SECOND);
+    chapterTotalRef.current = segDurationsRef.current.reduce((a, b) => a + b, 0);
+    elapsedBaseRef.current = 0;
+    currentSegDurRef.current = segDurationsRef.current[0] ?? 0;
+
+    /** 解码缓存优先：命中零等待；合成→解码→缓存；并发去重（预取与消费共享同一 promise） */
+    const inFlight = new Map<string, Promise<AudioBuffer | null>>();
+    const ensureDecoded = (idx: number, seg: TtsSegmentInfo): Promise<AudioBuffer | null> => {
+      const key = segKeyOf(chapter.chapterId, seg.segmentIndex);
+      const hit = decodedCacheRef.current.get(key);
+      if (hit) return Promise.resolve(hit);
+      const pending = inFlight.get(key);
+      if (pending) return pending;
+      const task = (async (): Promise<AudioBuffer | null> => {
+        const blob = await d.resolveAudio(seg, {
+          cacheMap, voice, speed, bookId, chapterId: chapter.chapterId, noCache,
+        });
+        if (!blob) return null;
+        try {
+          const buffer = await player.decodeBlob(blob);
+          decodedCacheRef.current.set(key, buffer);
+          while (decodedCacheRef.current.size > DECODED_CACHE_MAX) {
+            const oldest = decodedCacheRef.current.keys().next().value;
+            if (oldest === undefined) break;
+            decodedCacheRef.current.delete(oldest);
+          }
+          // 真实时长回写 → 章内进度模型随播放逐步校准
+          if (segDurationsRef.current[idx] !== buffer.duration) {
+            segDurationsRef.current[idx] = buffer.duration;
+            chapterTotalRef.current = segDurationsRef.current.reduce((a, b) => a + (b || 0), 0);
+          }
+          return buffer;
+        } catch {
+          return null; // 解码失败按坏段跳过
+        }
+      })();
+      inFlight.set(key, task);
+      void task.finally(() => inFlight.delete(key));
+      return task;
+    };
+
+    const elapsedBaseOf = (idx: number): number => {
+      let acc = 0;
+      for (let k = 0; k < idx; k++) acc += segDurationsRef.current[k] || 0;
+      return acc;
+    };
+
+    let i = 0;
+    let startOffset = 0;
+    while (i < segments.length) {
       if (abortRef.current || sessionGenRef.current !== gen) return false;
       const seg = segments[i];
+      currentSegDurRef.current =
+        segDurationsRef.current[i] || seg.text.length / SPEECH_CHARS_PER_SECOND;
       setState(s => ({
         ...s,
         status: 'playing',
@@ -181,18 +268,44 @@ export function useTtsSession(options: UseTtsSessionOptions) {
         progress: baseProgress + chapterWeight * (i / segments.length),
       }));
       onSegmentStartRef.current?.(seg);
+      elapsedBaseRef.current = elapsedBaseOf(i);
 
-      const blob = await d.resolveAudio(seg, {
-        cacheMap, voice, speed, bookId, chapterId: chapter.chapterId, noCache,
-      });
+      const buffer = await ensureDecoded(i, seg);
       if (abortRef.current || sessionGenRef.current !== gen) return false;
-      if (!blob) {
+      if (!buffer) {
         setState(s => ({ ...s, failedCount: s.failedCount + 1 }));
+        i++;
         continue; // 跳过坏段，不中断整章
       }
 
-      const finish = await player.playBlob(blob, stateRef.current.rate);
-      if (finish === 'aborted' || abortRef.current || sessionGenRef.current !== gen) return false;
+      // 预取下一段（合成+解码不阻塞当前段播放）
+      if (i + 1 < segments.length) void ensureDecoded(i + 1, segments[i + 1]);
+
+      const finish = await player.playBuffer(segKeyOf(chapter.chapterId, seg.segmentIndex), buffer, {
+        offset: startOffset,
+        rate: stateRef.current.rate,
+      });
+      startOffset = 0;
+      if (finish === 'aborted') {
+        // 会话级中断（stop/finishSession/代际失效）：会话终止
+        if (abortRef.current || sessionGenRef.current !== gen) return false;
+        // 段级中断①：章内 seek → 从目标位置续播
+        const seekReq = seekRequestRef.current;
+        if (seekReq) {
+          seekRequestRef.current = null;
+          i = Math.max(0, Math.min(seekReq.index, segments.length - 1));
+          startOffset = seekReq.offset;
+          continue;
+        }
+        // 段级中断②：跳段（skipSegment / 耳机下一曲）→ 下一段，会话延续
+        if (skipRequestRef.current) {
+          skipRequestRef.current = false;
+          i++;
+          continue;
+        }
+        return false;
+      }
+      i++;
     }
     return true;
   }, [bookId, controllerRef, d]);
@@ -205,6 +318,9 @@ export function useTtsSession(options: UseTtsSessionOptions) {
     playerRef.current?.stop();
     const gen = sessionGenRef.current;
     abortRef.current = false;
+    seekRequestRef.current = null;
+    skipRequestRef.current = false;
+    decodedCacheRef.current.clear();
     setState({ ...INITIAL_STATE, status: 'loading' });
 
     const player = d.createPlayer();
@@ -229,13 +345,22 @@ export function useTtsSession(options: UseTtsSessionOptions) {
 
       const startIndex = findStartChapterIndex(chapterList, chapterHrefRef.current);
       setState(s => ({ ...s, rate: settings.speed }));
+      // async 播放链同步读 stateRef（playBuffer rate）；setState 的 render 时机滞后一拍，这里同步回写
+      stateRef.current = { ...stateRef.current, rate: settings.speed };
 
       setMediaActionHandlers({
         play: () => { void resume(); },
         pause: () => { pause(); },
         stop: () => { stop(); },
-        nextSegment: () => { playerRef.current?.stop(); },
-        prevSegment: () => { playerRef.current?.stop(); },
+        // 耳机下一曲/上一曲 = 跳段（会话延续），而非终止会话
+        nextSegment: () => {
+          skipRequestRef.current = true;
+          playerRef.current?.stop();
+        },
+        prevSegment: () => {
+          skipRequestRef.current = true;
+          playerRef.current?.stop();
+        },
       });
       updateMediaMetadata({ bookTitle, chapterTitle: chapterList[startIndex].title });
 
@@ -274,15 +399,63 @@ export function useTtsSession(options: UseTtsSessionOptions) {
   }, []);
 
   const skipSegment = useCallback(() => {
-    // 中断当前段音频 → 循环进入下一段（'aborted' 视为段中断但会话延续）
+    // 段级中断：标记后停当前段 → 播放循环进下一段（会话延续；旧实现误终止会话，已修正）
+    skipRequestRef.current = true;
+    playerRef.current?.stop();
+  }, []);
+
+  /** 章内拖动跳转：fraction∈[0,1] → 换算段+段内偏移 → 中断当前段，循环从目标位置续播 */
+  const seekTo = useCallback((fraction: number) => {
+    const durations = segDurationsRef.current;
+    if (durations.length === 0) return;
+    const total =
+      chapterTotalRef.current > 0 ? chapterTotalRef.current : durations.reduce((a, b) => a + b, 0);
+    const target = Math.max(0, Math.min(1, fraction)) * total;
+    let acc = 0;
+    let idx = durations.length - 1;
+    let offset = 0;
+    for (let k = 0; k < durations.length; k++) {
+      const segDur = durations[k] || 0;
+      if (acc + segDur > target) {
+        idx = k;
+        offset = target - acc;
+        break;
+      }
+      acc += segDur;
+    }
+    seekRequestRef.current = { index: idx, offset };
+    elapsedBaseRef.current = acc;
+    setState(s => ({
+      ...s,
+      status: s.status === 'idle' ? s.status : 'playing',
+      elapsed: target,
+      duration: total,
+    }));
     playerRef.current?.stop();
   }, []);
 
   const setRate = useCallback((rate: number) => {
-    // 未启动时仅记忆（start 后首段即生效：playBlob 读取会话 rate）
+    // 未启动时仅记忆（playBuffer 读取会话 rate）；播放中热切换重锚进度
     playerRef.current?.setRate(rate);
     setState(s => ({ ...s, rate }));
+    stateRef.current = { ...stateRef.current, rate }; // async 链同步读取，避免 setState render 滞后
   }, []);
+
+  // 章内进度上报（playing 时 250ms 轮询；paused 冻结在最后值）
+  useEffect(() => {
+    if (state.status !== 'playing') return;
+    const timer = setInterval(() => {
+      const player = playerRef.current;
+      if (!player) return;
+      const inSeg = Math.max(0, Math.min(player.getElapsed(), currentSegDurRef.current));
+      setState(s => {
+        const duration = chapterTotalRef.current;
+        if (duration <= 0) return s;
+        return { ...s, elapsed: elapsedBaseRef.current + inSeg, duration };
+      });
+    }, PROGRESS_TICK_MS);
+    return () => clearInterval(timer);
+  }, [state.status]);
 
   // 卸载清理
   useEffect(() => {
@@ -310,6 +483,7 @@ export function useTtsSession(options: UseTtsSessionOptions) {
     resume: () => { void resume(); },
     stop,
     skipSegment,
+    seekTo,
     setRate,
   };
 }

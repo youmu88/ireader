@@ -54,7 +54,7 @@ function resolveEngineConfig(db: any, userId: string): { source: string; model?:
   return {
     source, model, apiUrl, apiKey,
     engineConfigHash: computeEngineConfigHash(source, model, apiUrl),
-    // D15：分片旋钮接线（undefined 时 ensureBookSegments 内部回退 200）
+    // D15：分片旋钮接线（undefined 时 ensureBookSegments 内部回退 DEFAULT_FIRST_CHUNK_MAX/DEFAULT_NORMAL_CHUNK_MAX）
     firstChunkMaxSize: settings?.firstChunkMaxSize,
     normalChunkMaxSize: settings?.normalChunkMaxSize,
   };

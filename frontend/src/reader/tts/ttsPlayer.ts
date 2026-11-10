@@ -1,15 +1,27 @@
 /**
- * TtsPlayer — HTMLAudioElement 封装（Phase 2 播放层）
+ * TtsPlayer — WebAudio 播放器（ai-agent 移植：预解码 / 无缝衔接 / 章内 seek 基座）
  *
- * 职责：段音频 Blob 加载/播放/暂停/倍速/停止；objectURL 生命周期管理（revoke 旧段防泄漏）。
- * playBlob 返回 Promise<'ended'|'aborted'>：正常播完 resolved('ended')；stop()/destroy() 中断 resolved('aborted')。
- * audio 元素可注入（单测用 stub 替换，避免 jsdom 无真实解码器）。
+ * 职责：Blob→AudioBuffer 解码；零间隙播放（暂停 = ctx.suspend，不销毁节点，恢复零重建）；
+ *       偏移起播（seek）；倍速；getElapsed 段内已播秒数（suspend 冻结、seek/倍速自动重锚）。
+ * playBuffer 返回 Promise<'ended'|'aborted'>：自然播完 'ended'；stop()/destroy() 中断 'aborted'。
+ * AudioContext 可注入（jsdom 无真实解码器，单测用 stub；浏览器默认惰性创建）。
  */
 export type PlayFinishReason = 'ended' | 'aborted';
 
+export interface PlayBufferOptions {
+  /** 起播偏移（秒，章内 seek 用） */
+  offset?: number;
+  rate?: number;
+}
+
 export interface TtsPlayerLike {
-  playBlob(blob: Blob, rate: number): Promise<PlayFinishReason>;
+  /** 预解码入口：解码成功即可零等待 playBuffer */
+  decodeBlob(blob: Blob): Promise<AudioBuffer>;
+  playBuffer(key: string, buffer: AudioBuffer, opts?: PlayBufferOptions): Promise<PlayFinishReason>;
+  /** 段内已播秒数（无播放时 0） */
+  getElapsed(): number;
   pause(): void;
+  /** 恢复播放；无挂起播放时 resolve('aborted') */
   resume(): Promise<PlayFinishReason>;
   stop(): void;
   setRate(rate: number): void;
@@ -17,90 +29,145 @@ export interface TtsPlayerLike {
 }
 
 export class TtsPlayer implements TtsPlayerLike {
-  private audio: HTMLAudioElement;
-  private currentUrl: string | null = null;
+  private ctx: AudioContext | null = null;
+  private gain: GainNode | null = null;
+  private source: AudioBufferSourceNode | null = null;
+  /** 当前段完成信号槽（唯一出口：onended/stop 都走它，防多 promise 双 resolve） */
   private finishResolve: ((reason: PlayFinishReason) => void) | null = null;
+  /** 进度锚：elapsed = anchorOffset + (ctx.currentTime - anchorCtxTime) * rate */
+  private anchorOffset = 0;
+  private anchorCtxTime = 0;
+  private rate = 1.0;
   private destroyed = false;
 
-  constructor(audio?: HTMLAudioElement) {
-    this.audio = audio ?? new Audio();
-    this.audio.preload = 'auto';
+  constructor(ctx?: AudioContext) {
+    this.ctx = ctx ?? null;
+    if (this.ctx) this.initGain();
   }
 
-  /** 加载并播放一段音频；resolve 于自然播完（'ended'）或被 stop/destroy 中断（'aborted'） */
-  playBlob(blob: Blob, rate: number): Promise<PlayFinishReason> {
-    this.stop();
-    return this.startCurrent(rate, () => {
-      this.currentUrl = URL.createObjectURL(blob);
-      this.audio.src = this.currentUrl;
+  private ensureCtx(): AudioContext {
+    if (!this.ctx) {
+      const AC =
+        window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      this.ctx = new AC!();
+    }
+    if (!this.gain) this.initGain();
+    return this.ctx;
+  }
+
+  private initGain(): void {
+    this.gain = this.ctx!.createGain();
+    this.gain.connect(this.ctx!.destination);
+  }
+
+  /** Blob 解码为 AudioBuffer（失败 reject，调用方按坏段跳过） */
+  async decodeBlob(blob: Blob): Promise<AudioBuffer> {
+    const ctx = this.ensureCtx();
+    const bytes = await blob.arrayBuffer();
+    return await new Promise<AudioBuffer>((resolve, reject) => {
+      // 回调式兼容 Safari 旧实现（不支持 promise 返回形态）
+      ctx.decodeAudioData(bytes, resolve, reject);
     });
   }
 
+  /** 播放已解码音频；可指定起播偏移（seek）与倍速 */
+  playBuffer(_key: string, buffer: AudioBuffer, opts?: PlayBufferOptions): Promise<PlayFinishReason> {
+    this.stop();
+    if (this.destroyed) return Promise.resolve('aborted');
+    const ctx = this.ensureCtx();
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const rate = opts?.rate ?? this.rate;
+    source.playbackRate.value = rate;
+    source.connect(this.gain!);
+    const offset = Math.max(0, Math.min(opts?.offset ?? 0, Math.max(0, buffer.duration - 0.05)));
+    this.rate = rate;
+    this.anchorOffset = offset;
+    this.anchorCtxTime = ctx.currentTime;
+    return new Promise<PlayFinishReason>(resolve => {
+      const onEnded = (): void => {
+        source.removeEventListener('ended', onEnded);
+        source.disconnect(); // 播完即断链（节点可回收；重复 disconnect 安全）
+        // 完成信号只走槽：stop() 已 resolve('aborted') 后此处不再覆盖；
+        // resume 桥接后槽是新函数，'ended' 同时送达原 promise 与 resume 调用方
+        const settle = this.finishResolve;
+        if (settle) this.finishResolve = null;
+        if (this.source === source) this.source = null;
+        settle?.('ended');
+      };
+      source.addEventListener('ended', onEnded);
+      this.finishResolve = resolve;
+      this.source = source;
+      source.start(0, offset);
+    });
+  }
+
+  getElapsed(): number {
+    if (!this.source || !this.ctx) return 0;
+    return this.anchorOffset + (this.ctx.currentTime - this.anchorCtxTime) * this.rate;
+  }
+
+  /** 暂停：冻结 AudioContext（进度锚随 ctx.currentTime 停走；节点不销毁，恢复零重建） */
   pause(): void {
-    this.audio.pause();
+    if (this.ctx && this.source && this.ctx.state === 'running') void this.ctx.suspend();
   }
 
-  /** 暂停后恢复播放（未加载任何音频时返回 'aborted'）；applySrc 留空，播放由 startCurrent 尾部统一触发 */
+  /** 恢复播放：解冻 AudioContext；返回当前段完成信号（'aborted' = 无挂起播放） */
   resume(): Promise<PlayFinishReason> {
-    if (!this.currentUrl || !this.finishResolve) {
-      return Promise.resolve('aborted');
-    }
-    return this.startCurrent(undefined, () => { /* 恢复：不重设 src，直接播放 */ });
+    if (!this.ctx || !this.source || !this.finishResolve) return Promise.resolve('aborted');
+    void this.ctx.resume();
+    return new Promise<PlayFinishReason>(resolve => {
+      // 桥接：槽替换为同时送达原 promise 与本次 resume 调用方
+      const prev = this.finishResolve!;
+      this.finishResolve = reason => {
+        prev(reason);
+        resolve(reason);
+      };
+    });
   }
 
-  /** 停止播放并释放当前音频资源 */
+  /** 停止当前段（resolve('aborted')）；自动解除 suspend 冻结（暂停中 seek/stop 场景） */
   stop(): void {
     if (this.finishResolve) {
-      const resolve = this.finishResolve;
+      const settle = this.finishResolve;
       this.finishResolve = null;
-      resolve('aborted');
+      settle('aborted');
     }
-    this.audio.pause();
-    if (this.currentUrl) {
-      URL.revokeObjectURL(this.currentUrl);
-      this.currentUrl = null;
+    if (this.source) {
+      const source = this.source;
+      this.source = null;
+      try {
+        source.stop();
+      } catch {
+        /* 未 start 过的节点 */
+      }
+      source.disconnect();
     }
-    this.audio.removeAttribute('src');
+    if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
   }
 
+  /** 倍速：播放中热切换（重锚进度，elapsed 不跳变） */
   setRate(rate: number): void {
-    this.audio.playbackRate = rate;
+    if (this.source && this.ctx) {
+      this.anchorOffset = this.getElapsed();
+      this.anchorCtxTime = this.ctx.currentTime;
+      this.source.playbackRate.value = rate;
+    }
+    this.rate = rate;
   }
 
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
     this.stop();
-  }
-
-  private startCurrent(rate: number | undefined, applySrc: () => void): Promise<PlayFinishReason> {
-    if (this.destroyed) return Promise.resolve('aborted');
-    applySrc();
-    if (rate !== undefined) this.audio.playbackRate = rate;
-    return new Promise<PlayFinishReason>(resolve => {
-      // 修复：onEnded 绑定自己的 resolve（全局 finishResolve 会在多 promise 场景
-      // 被前一个监听器吞掉，导致后一个播放完成信号丢失而挂起）
-      const onEnded = (): void => {
-        cleanup();
-        if (this.finishResolve === resolve) {
-          this.finishResolve = null;
-        }
-        resolve('ended');
-      };
-      const onError = (): void => {
-        // 播放错误按「提前结束」处理：调度器据此跳段，不卡死会话
-        onEnded();
-      };
-      const cleanup = (): void => {
-        this.audio.removeEventListener('ended', onEnded);
-        this.audio.removeEventListener('error', onError);
-      };
-      this.finishResolve = resolve;
-      this.audio.addEventListener('ended', onEnded);
-      this.audio.addEventListener('error', onError);
-      void this.audio.play().catch(() => {
-        /* 自动播放策略拒绝时由上层 UI 提示；error/ended 事件兜底 */
+    if (this.ctx) {
+      const ctx = this.ctx;
+      this.ctx = null;
+      this.gain = null;
+      void ctx.close().catch(() => {
+        /* 已关闭 */
       });
-    });
+    }
   }
 }

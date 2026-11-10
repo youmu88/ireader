@@ -1,12 +1,72 @@
 /**
- * useTtsSession 单测（Phase 2）：状态机流转/章节推进/段推进/失败跳过/停止清理
- * 依赖全部注入（不发网络；player stub 立即播完）。
+ * useTtsSession 单测（ai-agent 移植）：状态机流转/章节推进/段推进/失败跳过/
+ * 章内 seek/跳段语义/进度上报/停止清理。依赖全部注入（不发网络；player stub 可控）。
  */
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EpubBookController } from '../EpubBookController';
 import { useTtsSession, type TtsSessionDeps } from './useTtsSession';
 import type { TtsPlayerLike } from './ttsPlayer';
+
+const makeBuffer = (duration = 10): AudioBuffer => ({ duration } as unknown as AudioBuffer);
+
+function makePlayer(): TtsPlayerLike {
+  return {
+    decodeBlob: vi.fn().mockResolvedValue(makeBuffer(10)),
+    playBuffer: vi.fn().mockResolvedValue('ended'),
+    getElapsed: vi.fn(() => 0),
+    pause: vi.fn(),
+    resume: vi.fn().mockResolvedValue('aborted'),
+    stop: vi.fn(),
+    setRate: vi.fn(),
+    destroy: vi.fn(),
+  };
+}
+
+/** 可控 player：stop() 联动将挂起播放 resolve('aborted')（模拟真实 stop 语义），记录 playBuffer 调用 */
+function makeControllablePlayer(bufferDur = 10) {
+  let release: ((v: 'ended' | 'aborted') => void) | null = null;
+  const calls: Array<{ key: string; offset: number; rate: number }> = [];
+  const player: TtsPlayerLike = {
+    decodeBlob: vi.fn().mockResolvedValue(makeBuffer(bufferDur)),
+    playBuffer: vi.fn((key: string, _b: AudioBuffer, opts?: { offset?: number; rate?: number }) => {
+      calls.push({ key, offset: opts?.offset ?? 0, rate: opts?.rate ?? 1 });
+      return new Promise<'ended' | 'aborted'>(res => {
+        release = res;
+      });
+    }),
+    getElapsed: vi.fn(() => 0),
+    pause: vi.fn(),
+    resume: vi.fn().mockResolvedValue('aborted'),
+    stop: vi.fn(() => {
+      const r = release;
+      release = null;
+      r?.('aborted');
+    }),
+    setRate: vi.fn(),
+    destroy: vi.fn(),
+  };
+  const settle = (v: 'ended' | 'aborted'): void => {
+    const r = release;
+    release = null;
+    r?.(v);
+  };
+  /** 连续 settle n 次，每次后 flush 微任务队列（给 ensureChapterAudio/playChapter 的 async 链机会挂上下一个 playBuffer） */
+  const settleThrough = async (count: number): Promise<void> => {
+    for (let k = 0; k < count; k++) {
+      settle('ended');
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+  };
+  return {
+    player,
+    calls,
+    settle,
+    settleThrough,
+  };
+}
 
 function makeDeps(over: Partial<TtsSessionDeps> = {}): TtsSessionDeps {
   return {
@@ -23,17 +83,6 @@ function makeDeps(over: Partial<TtsSessionDeps> = {}): TtsSessionDeps {
     resolveAudio: vi.fn().mockResolvedValue(new Blob(['audio'])),
     createPlayer: () => makePlayer(),
     ...over,
-  };
-}
-
-function makePlayer(): TtsPlayerLike {
-  return {
-    playBlob: vi.fn().mockResolvedValue('ended'),
-    pause: vi.fn(),
-    resume: vi.fn().mockResolvedValue('ended'),
-    stop: vi.fn(),
-    setRate: vi.fn(),
-    destroy: vi.fn(),
   };
 }
 
@@ -67,8 +116,9 @@ describe('useTtsSession', () => {
     await act(async () => { result.current.start(); });
     await waitFor(() => expect(result.current.session.status).toBe('idle'));
 
-    // 2 章 × 2 段 = 4 次播放
-    expect((player.playBlob as ReturnType<typeof vi.fn>).mock.calls.length).toBe(4);
+    // 2 章 × 2 段 = 4 次播放（合成 + 解码）
+    expect((player.playBuffer as ReturnType<typeof vi.fn>).mock.calls.length).toBe(4);
+    expect((player.decodeBlob as ReturnType<typeof vi.fn>).mock.calls.length).toBe(4);
     // 每章先 goTo 章首
     expect(controller.goTo).toHaveBeenCalledWith('p1.xhtml');
     expect(controller.goTo).toHaveBeenCalledWith('p2.xhtml');
@@ -95,12 +145,31 @@ describe('useTtsSession', () => {
     expect((controller.goTo as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('p2.xhtml');
   });
 
-  it('段失败计为 failedCount 并跳过（不中断整章）', async () => {
+  it('合成失败计为 failedCount 并跳过（不中断整章）', async () => {
     const deps = makeDeps({ resolveAudio: vi.fn()
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(blob())
       .mockResolvedValueOnce(blob())
       .mockResolvedValueOnce(blob()) });
+    const { result } = renderHook(() =>
+      useTtsSession({
+        bookId: 'book-1', bookTitle: '', format: 'epub',
+        controllerRef: { current: makeController() }, chapterHref: null, deps,
+      }),
+    );
+    await act(async () => { result.current.start(); });
+    await waitFor(() => expect(result.current.session.status).toBe('idle'));
+    expect(result.current.session.failedCount).toBe(1);
+  });
+
+  it('解码失败同样计为 failedCount 并跳过（ai-agent 移植：坏段不卡会话）', async () => {
+    const player = makePlayer();
+    let n = 0;
+    (player.decodeBlob as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      n += 1;
+      return n === 1 ? Promise.reject(new Error('bad')) : Promise.resolve(makeBuffer(10));
+    });
+    const deps = makeDeps({ createPlayer: () => player });
     const { result } = renderHook(() =>
       useTtsSession({
         bookId: 'book-1', bookTitle: '', format: 'epub',
@@ -127,12 +196,13 @@ describe('useTtsSession', () => {
     expect(player.destroy).toHaveBeenCalled();
   });
 
-  it('pause/resume 驱动状态与 player', async () => {
+  it('pause/resume 驱动状态与 player（aborted 无请求 = 会话中断回 idle）', async () => {
     const deps = makeDeps();
-    // 播放阻塞在第一段：playBlob 返回手动控制的 promise
+    // 播放阻塞在第一段：playBuffer 返回手动控制的 promise
     let release!: (v: 'ended' | 'aborted') => void;
     const player = makePlayer();
-    (player.playBlob as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise<typeof release extends (v: infer R) => void ? R : never>(res => { release = res; }));
+    (player.playBuffer as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      new Promise<'ended' | 'aborted'>(res => { release = res; }));
     deps.createPlayer = () => player;
     const { result } = renderHook(() =>
       useTtsSession({
@@ -151,7 +221,78 @@ describe('useTtsSession', () => {
     expect(result.current.session.status).toBe('playing');
 
     act(() => { release('aborted'); });
-    // aborted 视为会话中断 → 回 idle
+    // aborted 且无 seek/skip 请求 = 会话中断 → 回 idle
+    await waitFor(() => expect(result.current.session.status).toBe('idle'));
+  });
+
+  it('章内 seekTo：中断当前段，从目标段+偏移续播（会话延续）', async () => {
+    const { player, calls, settleThrough } = makeControllablePlayer();
+    const deps = makeDeps({ createPlayer: () => player });
+    const { result } = renderHook(() =>
+      useTtsSession({
+        bookId: 'book-1', bookTitle: '', format: 'epub',
+        controllerRef: { current: makeController() }, chapterHref: null, deps,
+      }),
+    );
+    await act(async () => { result.current.start(); });
+    await waitFor(() => expect(result.current.session.status).toBe('playing'));
+    expect(calls[0]).toEqual({ key: 'c1:0', offset: 0, rate: 1.25 });
+
+    // mock 解码 buffer 各 10s（已解码真实时长），total 20s；seek 60% → target 12s → 第 1 段（10s~20s）offset 2.0s
+    act(() => { result.current.seekTo(0.6); });
+    await waitFor(() => expect(calls.length).toBe(2));
+    expect(calls[1].key).toBe('c1:1');
+    expect(calls[1].offset).toBeCloseTo(2.0, 2);
+    expect(result.current.session.status).toBe('playing'); // seek 后仍延续，不回 idle
+
+    await settleThrough(1);
+    await waitFor(() => expect(calls.length).toBe(3)); // 第二章 c2:0
+    await settleThrough(2);
+    await waitFor(() => expect(result.current.session.status).toBe('idle'));
+  });
+
+  it('skipSegment 跳到下一段且会话延续（旧实现误终止会话，已修正）', async () => {
+    const { player, calls, settleThrough } = makeControllablePlayer();
+    const deps = makeDeps({ createPlayer: () => player });
+    const { result } = renderHook(() =>
+      useTtsSession({
+        bookId: 'book-1', bookTitle: '', format: 'epub',
+        controllerRef: { current: makeController() }, chapterHref: null, deps,
+      }),
+    );
+    await act(async () => { result.current.start(); });
+    await waitFor(() => expect(result.current.session.status).toBe('playing'));
+
+    act(() => { result.current.skipSegment(); });
+    await waitFor(() => expect(calls.length).toBe(2));
+    expect(calls[1].key).toBe('c1:1'); // 下一段，同章
+    expect(result.current.session.status).toBe('playing');
+
+    await settleThrough(4);
+    await waitFor(() => expect(result.current.session.status).toBe('idle'));
+  });
+
+  it('playing 时轮询章内进度（elapsed/duration 上报）', async () => {
+    const { player, settleThrough } = makeControllablePlayer();
+    (player.getElapsed as ReturnType<typeof vi.fn>).mockReturnValue(0.2);
+    const deps = makeDeps({ createPlayer: () => player });
+    const { result } = renderHook(() =>
+      useTtsSession({
+        bookId: 'book-1', bookTitle: '', format: 'epub',
+        controllerRef: { current: makeController() }, chapterHref: null, deps,
+      }),
+    );
+    await act(async () => { result.current.start(); });
+    // 进度 tick 周期 250ms
+    await waitFor(
+      () => expect(result.current.session.elapsed).toBeGreaterThan(0),
+      { timeout: 3000 },
+    );
+    // 两段都已解码（mock buffer 各 10s）→ 真实时长模型 total 20s；elapsed = 0 + getElapsed(0.2)
+    expect(result.current.session.duration).toBeCloseTo(20, 2);
+    expect(result.current.session.elapsed).toBeCloseTo(0.2, 2);
+
+    await settleThrough(4);
     await waitFor(() => expect(result.current.session.status).toBe('idle'));
   });
 
@@ -174,7 +315,7 @@ describe('useTtsSession', () => {
   it('setRate 播放中生效（player 与会话状态同步）', async () => {
     const player = makePlayer();
     let release!: (v: 'ended' | 'aborted') => void;
-    (player.playBlob as ReturnType<typeof vi.fn>).mockImplementation(() =>
+    (player.playBuffer as ReturnType<typeof vi.fn>).mockImplementation(() =>
       new Promise<'ended' | 'aborted'>(res => { release = res; }));
     const deps = makeDeps({ createPlayer: () => player });
     const { result } = renderHook(() =>

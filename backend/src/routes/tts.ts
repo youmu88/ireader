@@ -11,7 +11,7 @@ import { getSources, getVoices, getModels, checkHealth, synthesize } from '../se
 import { ttsSettings, ttsCache, ttsGenerationJobs, books, ttsGlobalResources, ttsRefs, userBookRefs, bookChapters } from '../db/schema.js';
 import { findCache, isCacheValid, saveToCache, clearAllCache, findCachedSegmentsByBook, generateCacheKey, computeApiUrlHash } from '../services/ttsCacheService.js';
 import { findTtsGlobalResource, createTtsGlobalResource, createTtsRef } from '../services/globalResourceService.js';
-import { DEFAULT_TTS_VOICE } from '../services/ttsConstants.js';
+import { DEFAULT_TTS_VOICE, DEFAULT_FIRST_CHUNK_MAX, DEFAULT_NORMAL_CHUNK_MAX } from '../services/ttsConstants.js';
 import { requireAuth } from '../middleware/auth.js';
 import { unsafeApiUrlReason } from '../middleware/urlGuard.js';
 import { regenerateAllForNewVoice, createFullBookGenerationJob, cancelJob, cancelJobs, cancelAllUserJobs, deleteJobs, clearTerminatedJobs, hydrateChapterTexts } from '../services/ttsGenerationService.js';
@@ -244,8 +244,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           apiKey: null as string | null,
           hasApiKey: false,
           preGenerateConcurrency: 3,
-          firstChunkMaxSize: 32,
-          normalChunkMaxSize: 128,
+          firstChunkMaxSize: DEFAULT_FIRST_CHUNK_MAX,
+          normalChunkMaxSize: DEFAULT_NORMAL_CHUNK_MAX,
           autoPreSynthesize: false,
           updatedAt: new Date().toISOString(),
         };
@@ -301,8 +301,8 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
           apiUrl: apiUrl || null,
           apiKey: apiKey || null,
           preGenerateConcurrency: preGenerateConcurrency ?? 3,
-          firstChunkMaxSize: firstChunkMaxSize ?? 32,
-          normalChunkMaxSize: normalChunkMaxSize ?? 128,
+          firstChunkMaxSize: firstChunkMaxSize ?? DEFAULT_FIRST_CHUNK_MAX,
+          normalChunkMaxSize: normalChunkMaxSize ?? DEFAULT_NORMAL_CHUNK_MAX,
           autoPreSynthesize: autoPreSynthesize ?? false,
           updatedAt: now,
         }).run();
@@ -519,7 +519,12 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
         return;
       }
       const hydrated = hydrateChapterTexts(db, bookId, chapters);
-      const segments = ensureBookSegments(db, bookId, hydrated);
+      // 接线用户分片档位（此前未传 opts，设置 32/128 从未生效、实际跑 200/200 双轨）
+      const ttsSettingRow = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get() as any;
+      const segments = ensureBookSegments(db, bookId, hydrated, {
+        firstChunkMaxSize: ttsSettingRow?.firstChunkMaxSize,
+        normalChunkMaxSize: ttsSettingRow?.normalChunkMaxSize,
+      });
       res.json({
         success: true,
         data: segments.map(s => ({ segmentIndex: s.segmentIndex, text: s.text, textHash: s.textHash })),

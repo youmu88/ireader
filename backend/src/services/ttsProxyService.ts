@@ -11,6 +11,7 @@
  * 系统自动探测可用模型和音色。
  */
 import { config } from 'dotenv';
+import { ensureSentenceLineBreaks } from './contentSegmentService.js';
 
 config();
 
@@ -293,11 +294,16 @@ export async function synthesize(options: TTSOptions): Promise<SynthesizeResult>
   const baseUrl = normalizeBaseUrl(resolveApiUrl(apiUrl));
   const key = apiKey || DEFAULT_API_KEY;
 
+  // ai-agent 移植：句末补换行防截断——本地引擎（Kokoro/omlx）对无换行长文本
+  // ~130 字静默截断；换行让引擎按句分段合成。仅作用于发送文本，
+  // 缓存键（routes 层用原文 input）与分段文本不受影响
+  const engineInput = ensureSentenceLineBreaks(input);
+
   try {
     const response = await fetch(`${baseUrl}/v1/audio/speech`, {
       method: 'POST',
       headers: buildHeaders(key),
-      body: JSON.stringify({ model, input, voice, response_format, speed }),
+      body: JSON.stringify({ model, input: engineInput, voice, response_format, speed }),
       signal: AbortSignal.timeout(TTS_REQUEST_TIMEOUT_MS),
     });
 

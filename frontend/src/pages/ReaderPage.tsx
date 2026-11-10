@@ -427,6 +427,9 @@ export default function ReaderPage() {
         chapterTitle={tts.session.currentChapterTitle}
         rate={tts.session.rate}
         failedCount={tts.session.failedCount}
+        elapsed={tts.session.elapsed}
+        duration={tts.session.duration}
+        onSeek={tts.seekTo}
         chromeBackground={themeSpec.chromeBackground}
         chromeColor={themeSpec.chromeColor}
         onToggle={handleToggleTts}
