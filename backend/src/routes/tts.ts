@@ -47,7 +47,9 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     const userId = req.user!.userId;
     const apiUrl = req.query.apiUrl as string | undefined;
     const apiKey = resolveEffectiveApiKey(userId, req.query.apiKey as string | undefined);
-    const result = await getVoices(apiUrl, apiKey);
+    // model 透传：部分网关 /v1/audio/voices 必须带 model 参数（如 omlx/Kokoro）
+    const model = req.query.model as string | undefined;
+    const result = await getVoices(apiUrl, apiKey, model);
     if (!result.success) {
       res.status(502).json(result);
       return;

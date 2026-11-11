@@ -246,17 +246,20 @@ function normalizeVoices(data: any): VoiceInfo[] {
 
 /**
  * 获取音色列表
- * GET /v1/audio/voices → 扩展端点（多数兼容服务支持）
+ * GET /v1/audio/voices?model=xxx → 扩展端点（部分网如 omlx/Kokoro 必须带 model，否则 400）
  */
 export async function getVoices(
   apiUrl?: string,
   apiKey?: string,
+  model?: string,
 ): Promise<VoicesResult> {
   const baseUrl = normalizeBaseUrl(apiUrl || DEFAULT_API_URL);
   const key = apiKey || DEFAULT_API_KEY;
 
   try {
-    const response = await fetch(`${baseUrl}/v1/audio/voices`, {
+    // 部分网关（omlx/Kokoro 等）/v1/audio/voices 必须带 model 参数，否则 400: 'model' query parameter is required
+    const query = model ? `?model=${encodeURIComponent(model)}` : '';
+    const response = await fetch(`${baseUrl}/v1/audio/voices${query}`, {
       headers: buildHeaders(key),
       signal: AbortSignal.timeout(5_000),
     });

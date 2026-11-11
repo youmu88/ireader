@@ -75,12 +75,13 @@ export async function fetchSources(): Promise<TTSource[]> {
 }
 
 /**
- * 获取音色列表（安全加固 D8/D25：携带 token；掩码 apiKey 不回传）
+ * 获取音色列表（安全加固 D8/D25：携带 token；掩码 apiKey 不回传；model 透传——部分网关必填）
  */
-export async function fetchVoices(apiUrl?: string, apiKey?: string): Promise<VoiceInfo[]> {
+export async function fetchVoices(apiUrl?: string, apiKey?: string, model?: string): Promise<VoiceInfo[]> {
   let url = `${API_BASE}/voices?`;
   if (apiUrl) url += `apiUrl=${encodeURIComponent(apiUrl)}&`;
   if (!isMaskedApiKey(apiKey) && apiKey) url += `apiKey=${encodeURIComponent(apiKey)}&`;
+  if (model) url += `model=${encodeURIComponent(model)}&`;
   const res = await fetch(url, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error('Failed to fetch voices');
   const json = await res.json();

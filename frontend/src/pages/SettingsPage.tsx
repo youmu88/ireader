@@ -145,7 +145,7 @@ export default function SettingsPage() {
         setLoading(false);
         // ⭐ 后台异步预取模型与音色：不阻塞设置页面渲染
         fetchModelsInBackground(settings.apiUrl || undefined, settings.apiKey || undefined);
-        fetchVoicesInBackground(settings.apiUrl || undefined, settings.apiKey || undefined);
+        fetchVoicesInBackground(settings.apiUrl || undefined, settings.apiKey || undefined, settings.model || undefined);
       } catch (err) {
         console.warn('Failed to load TTS settings:', err);
         setLoading(false);
@@ -154,10 +154,10 @@ export default function SettingsPage() {
     load();
   }, []);
 
-  // ⭐ 后台异步拉取音色列表
-  async function fetchVoicesInBackground(apiUrl?: string, apiKey?: string) {
+  // ⭐ 后台异步拉取音色列表（model 透传：部分网关 /v1/audio/voices 必须带 model）
+  async function fetchVoicesInBackground(apiUrl?: string, apiKey?: string, model?: string) {
     try {
-      const voiceList = await fetchVoices(apiUrl, apiKey);
+      const voiceList = await fetchVoices(apiUrl, apiKey, model);
       setVoices(voiceList);
     } catch {
       setVoices([]);
@@ -179,7 +179,7 @@ export default function SettingsPage() {
   async function handleFetchVoices() {
     setFetchingVoices(true);
     try {
-      const voiceList = await fetchVoices(apiUrl || undefined, apiKey || undefined);
+      const voiceList = await fetchVoices(apiUrl || undefined, apiKey || undefined, model || undefined);
       setVoices(voiceList);
       if (voiceList.length > 0 && !voiceList.find(v => v.id === selectedVoice)) {
         setSelectedVoice(voiceList[0].id);
@@ -203,7 +203,7 @@ export default function SettingsPage() {
         if (result.models && result.models.length > 0) {
           setModels(result.models);
         }
-        fetchVoicesInBackground(apiUrl || undefined, apiKey || undefined);
+        fetchVoicesInBackground(apiUrl || undefined, apiKey || undefined, model || undefined);
       }
     } catch (err) {
       setConnectionStatus({ success: false, error: 'Connection test failed' });
@@ -379,54 +379,6 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* 模型 */}
-            <div className="px-4 py-3.5"
-              style={{ borderBottom: '0.5px solid var(--color-border)' }}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>模型</span>
-                <Button onClick={handleFetchModels} loading={fetchingModels}
-                  variant="ghost" size="sm">
-                  刷新
-                </Button>
-              </div>
-              {models.length > 0 ? (
-                <>
-                  <select value={model} autoComplete="off"
-                    onChange={e => setModel(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl text-sm bg-transparent border"
-                    style={{
-                      color: 'var(--color-text)',
-                      borderColor: 'var(--color-border)',
-                    }}>
-                    {!model && <option value="">请选择模型</option>}
-                    {model && !models.some(m => m.id === model) && (
-                      <option value={model}>{model}（当前设置）</option>
-                    )}
-                    {models.map(m => (
-                      <option key={m.id} value={m.id}>{m.name || m.id}</option>
-                    ))}
-                  </select>
-                  <p className="text-[11px] mt-1.5" style={{ color: 'var(--color-text-muted)' }}>
-                    共 {models.length} 个可用模型
-                  </p>
-                </>
-              ) : (
-                <>
-                  <input type="text" value={model} autoComplete="off"
-                    onChange={e => setModel(e.target.value)}
-                    placeholder="tts-1"
-                    className="w-full px-3 py-2 rounded-xl text-sm bg-transparent border"
-                    style={{
-                      color: 'var(--color-text)',
-                      borderColor: 'var(--color-border)',
-                    }} />
-                  <p className="text-[11px] mt-1.5" style={{ color: 'var(--color-text-muted)' }}>
-                    {fetchingModels ? '正在拉取模型列表…' : '点击「测试」或「刷新」拉取模型列表后可直接选择'}
-                  </p>
-                </>
-              )}
-            </div>
-
             {/* API Key */}
             <div className="px-4 py-3.5"
               style={{ borderBottom: '0.5px solid var(--color-border)' }}>
@@ -455,27 +407,79 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* 缺省音色 */}
-            <div className="px-4 py-3.5">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>缺省音色</span>
-                <Button onClick={handleFetchVoices} loading={fetchingVoices}
-                  variant="ghost" size="sm">
-                  刷新
+            {/* 模型：拉取模型按钮 + TTS 模型选择器 */}
+            <div className="px-4 py-3.5"
+              style={{ borderBottom: '0.5px solid var(--color-border)' }}>
+              <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--color-text-muted)' }}>TTS 模型</label>
+              <div className="flex items-center gap-2">
+                <Button onClick={handleFetchModels} loading={fetchingModels}
+                  variant="secondary" size="sm" className="shrink-0">
+                  拉取模型
                 </Button>
+                {models.length > 0 ? (
+                  <select value={model} autoComplete="off"
+                    onChange={e => setModel(e.target.value)}
+                    className="flex-1 min-w-0 px-3 py-2 rounded-xl text-sm bg-transparent border"
+                    style={{
+                      color: 'var(--color-text)',
+                      borderColor: 'var(--color-border)',
+                    }}>
+                    {!model && <option value="">请选择模型</option>}
+                    {model && !models.some(m => m.id === model) && (
+                      <option value={model}>{model}（当前设置）</option>
+                    )}
+                    {models.map(m => (
+                      <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input type="text" value={model} autoComplete="off"
+                    onChange={e => setModel(e.target.value)}
+                    placeholder="tts-1"
+                    className="flex-1 min-w-0 px-3 py-2 rounded-xl text-sm bg-transparent border"
+                    style={{
+                      color: 'var(--color-text)',
+                      borderColor: 'var(--color-border)',
+                    }} />
+                )}
               </div>
-              {voices.length > 0 ? (
-                <><select value={selectedVoice}
-                  onChange={e => setSelectedVoice(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl text-sm bg-transparent border"
-                  style={{
-                    color: 'var(--color-text)',
-                    borderColor: 'var(--color-border)',
-                  }}>
-                  {voices.map(v => (
-                    <option key={v.id} value={v.id}>{v.name || v.id}</option>
-                  ))}
-                </select>
+              <p className="text-[11px] mt-1.5" style={{ color: 'var(--color-text-muted)' }}>
+                {models.length > 0
+                  ? `共 ${models.length} 个可用模型`
+                  : fetchingModels ? '正在拉取模型列表…' : '点击「拉取模型」或「测试」获取可用列表后可直接选择'}
+              </p>
+            </div>
+
+            {/* 缺省音色：拉取音色按钮 + 音色选择器 */}
+            <div className="px-4 py-3.5">
+              <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--color-text-muted)' }}>缺省音色</label>
+              <div className="flex items-center gap-2">
+                <Button onClick={handleFetchVoices} loading={fetchingVoices}
+                  variant="secondary" size="sm" className="shrink-0">
+                  拉取音色
+                </Button>
+                {voices.length > 0 ? (
+                  <select value={selectedVoice}
+                    onChange={e => setSelectedVoice(e.target.value)}
+                    className="flex-1 min-w-0 px-3 py-2 rounded-xl text-sm bg-transparent border"
+                    style={{
+                      color: 'var(--color-text)',
+                      borderColor: 'var(--color-border)',
+                    }}>
+                    {selectedVoice && !voices.some(v => v.id === selectedVoice) && (
+                      <option value={selectedVoice}>{selectedVoice}（当前设置）</option>
+                    )}
+                    {voices.map(v => (
+                      <option key={v.id} value={v.id}>{v.name || v.id}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="flex-1 min-w-0 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    {fetchingVoices ? '正在获取音色列表…' : '点击「拉取音色」或「测试」获取可用音色'}
+                  </p>
+                )}
+              </div>
+              {voices.length > 0 && (
                 <div className="flex items-center gap-2 mt-2" style={{ display: 'flex' }}>
                   <Button onClick={handlePreviewVoice} loading={previewing} size="sm">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3" /></svg>
@@ -483,10 +487,6 @@ export default function SettingsPage() {
                   </Button>
                   <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>约3秒</span>
                 </div>
-                </>) : (
-                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                  {fetchingVoices ? '正在获取音色列表…' : '点击「测试」或「刷新」获取可用音色'}
-                </p>
               )}
             </div>
           </div>
