@@ -112,6 +112,9 @@ export interface BackendChapter {
   id: string;
   title: string;
   href: string | null;
+  /** 全书文本内偏移（听书起始章占比定位用；旧数据可能缺省） */
+  start_offset?: number | null;
+  end_offset?: number | null;
 }
 
 export async function fetchBookChapters(bookId: string): Promise<BackendChapter[]> {

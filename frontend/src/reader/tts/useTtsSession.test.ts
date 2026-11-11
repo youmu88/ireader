@@ -108,7 +108,7 @@ describe('useTtsSession', () => {
     const { result } = renderHook(() =>
       useTtsSession({
         bookId: 'book-1', bookTitle: '测试书', format: 'epub',
-        controllerRef: { current: controller }, chapterHref: 'p1.xhtml', deps,
+        controllerRef: { current: controller }, chapterHref: 'p1.xhtml', bookPercentage: null, deps,
       }),
     );
     expect(result.current.session.status).toBe('idle');
@@ -135,7 +135,7 @@ describe('useTtsSession', () => {
     const { result } = renderHook(() =>
       useTtsSession({
         bookId: 'book-1', bookTitle: '', format: 'epub',
-        controllerRef: { current: controller }, chapterHref: 'p2.xhtml', deps,
+        controllerRef: { current: controller }, chapterHref: 'p2.xhtml', bookPercentage: null, deps,
       }),
     );
     await act(async () => { result.current.start(); });
@@ -154,7 +154,7 @@ describe('useTtsSession', () => {
     const { result } = renderHook(() =>
       useTtsSession({
         bookId: 'book-1', bookTitle: '', format: 'epub',
-        controllerRef: { current: makeController() }, chapterHref: null, deps,
+        controllerRef: { current: makeController() }, chapterHref: null, bookPercentage: null, deps,
       }),
     );
     await act(async () => { result.current.start(); });
@@ -173,7 +173,7 @@ describe('useTtsSession', () => {
     const { result } = renderHook(() =>
       useTtsSession({
         bookId: 'book-1', bookTitle: '', format: 'epub',
-        controllerRef: { current: makeController() }, chapterHref: null, deps,
+        controllerRef: { current: makeController() }, chapterHref: null, bookPercentage: null, deps,
       }),
     );
     await act(async () => { result.current.start(); });
@@ -187,7 +187,7 @@ describe('useTtsSession', () => {
     const { result } = renderHook(() =>
       useTtsSession({
         bookId: 'book-1', bookTitle: '', format: 'epub',
-        controllerRef: { current: makeController() }, chapterHref: null, deps,
+        controllerRef: { current: makeController() }, chapterHref: null, bookPercentage: null, deps,
       }),
     );
     await act(async () => { result.current.start(); });
@@ -207,7 +207,7 @@ describe('useTtsSession', () => {
     const { result } = renderHook(() =>
       useTtsSession({
         bookId: 'book-1', bookTitle: '', format: 'epub',
-        controllerRef: { current: makeController() }, chapterHref: null, deps,
+        controllerRef: { current: makeController() }, chapterHref: null, bookPercentage: null, deps,
       }),
     );
     await act(async () => { result.current.start(); });
@@ -231,7 +231,7 @@ describe('useTtsSession', () => {
     const { result } = renderHook(() =>
       useTtsSession({
         bookId: 'book-1', bookTitle: '', format: 'epub',
-        controllerRef: { current: makeController() }, chapterHref: null, deps,
+        controllerRef: { current: makeController() }, chapterHref: null, bookPercentage: null, deps,
       }),
     );
     await act(async () => { result.current.start(); });
@@ -257,7 +257,7 @@ describe('useTtsSession', () => {
     const { result } = renderHook(() =>
       useTtsSession({
         bookId: 'book-1', bookTitle: '', format: 'epub',
-        controllerRef: { current: makeController() }, chapterHref: null, deps,
+        controllerRef: { current: makeController() }, chapterHref: null, bookPercentage: null, deps,
       }),
     );
     await act(async () => { result.current.start(); });
@@ -279,7 +279,7 @@ describe('useTtsSession', () => {
     const { result } = renderHook(() =>
       useTtsSession({
         bookId: 'book-1', bookTitle: '', format: 'epub',
-        controllerRef: { current: makeController() }, chapterHref: null, deps,
+        controllerRef: { current: makeController() }, chapterHref: null, bookPercentage: null, deps,
       }),
     );
     await act(async () => { result.current.start(); });
@@ -302,7 +302,7 @@ describe('useTtsSession', () => {
     const { result } = renderHook(() =>
       useTtsSession({
         bookId: 'book-1', bookTitle: '', format: 'epub',
-        controllerRef: { current: makeController() }, chapterHref: null,
+        controllerRef: { current: makeController() }, chapterHref: null, bookPercentage: null,
         onSegmentStart, deps,
       }),
     );
@@ -321,7 +321,7 @@ describe('useTtsSession', () => {
     const { result } = renderHook(() =>
       useTtsSession({
         bookId: 'book-1', bookTitle: '', format: 'epub',
-        controllerRef: { current: makeController() }, chapterHref: null, deps,
+        controllerRef: { current: makeController() }, chapterHref: null, bookPercentage: null, deps,
       }),
     );
     await act(async () => { result.current.start(); });

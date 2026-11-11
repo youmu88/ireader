@@ -68,6 +68,8 @@ export interface UseTtsSessionOptions {
   controllerRef: { current: EpubBookController | null };
   /** 当前阅读位置章节 href（location.chapterHref） */
   chapterHref: string | null;
+  /** 当前阅读位置全书百分比 0~1（location.percentage；合辑 EPUB 多章共文件时占比定位唯一可靠） */
+  bookPercentage: number | null;
   /** 段开始回调：返回 false 表示高亮失败（供跟踪，不阻塞） */
   onSegmentStart?: (seg: TtsSegmentInfo) => void;
   /** 依赖注入（测试） */
@@ -108,7 +110,7 @@ const INITIAL_STATE: TtsSessionState = {
 const segKeyOf = (chapterId: string, segmentIndex: number): string => `${chapterId}:${segmentIndex}`;
 
 export function useTtsSession(options: UseTtsSessionOptions) {
-  const { bookId, bookTitle, format, controllerRef, chapterHref, onSegmentStart, deps } = options;
+  const { bookId, bookTitle, format, controllerRef, chapterHref, bookPercentage, onSegmentStart, deps } = options;
   const d = { ...defaultDeps, ...deps };
 
   const [state, setState] = useState<TtsSessionState>(INITIAL_STATE);
@@ -116,9 +118,11 @@ export function useTtsSession(options: UseTtsSessionOptions) {
   const sessionGenRef = useRef(0);
   const abortRef = useRef(false);
   const playerRef = useRef<TtsPlayerLike | null>(null);
-  /** 最新 chapterHref/章节表快照（异步循环内读取，避免闭包过期） */
+  /** 最新 chapterHref/bookPercentage/章节表快照（异步循环内读取，避免闭包过期） */
   const chapterHrefRef = useRef(chapterHref);
   chapterHrefRef.current = chapterHref;
+  const bookPercentageRef = useRef(bookPercentage);
+  bookPercentageRef.current = bookPercentage;
   const chapterListRef = useRef<TtsChapterEntry[]>([]);
   const onSegmentStartRef = useRef(onSegmentStart);
   onSegmentStartRef.current = onSegmentStart;
@@ -343,7 +347,7 @@ export function useTtsSession(options: UseTtsSessionOptions) {
         return;
       }
 
-      const startIndex = findStartChapterIndex(chapterList, chapterHrefRef.current);
+      const startIndex = findStartChapterIndex(chapterList, chapterHrefRef.current, bookPercentageRef.current);
       setState(s => ({ ...s, rate: settings.speed }));
       // async 播放链同步读 stateRef（playBuffer rate）；setState 的 render 时机滞后一拍，这里同步回写
       stateRef.current = { ...stateRef.current, rate: settings.speed };

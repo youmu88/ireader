@@ -98,6 +98,7 @@ export default function ReaderPage() {
     format: book?.format ?? 'epub',
     controllerRef,
     chapterHref: location?.chapterHref ?? null,
+    bookPercentage: location?.percentage ?? null,
     onSegmentStart: handleTtsSegmentStart,
   });
   const ttsActive = tts.session.status !== 'idle';
