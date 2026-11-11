@@ -145,6 +145,57 @@ describe('useTtsSession', () => {
     expect((controller.goTo as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('p2.xhtml');
   });
 
+  it('合辄书（多章共文件）按渲染锚点占比定位起始章——视口 0.4 覆盖 toc_2(0.3) → 从灰狐(1)播', async () => {
+    const deps = makeDeps({
+      fetchChapters: vi.fn().mockResolvedValue([
+        { id: 'c1', title: '书名页', href: 'titlepage.xhtml', start_offset: 0, end_offset: 10 },
+        { id: 'c2', title: '合辄', href: 'index.html', start_offset: 10, end_offset: 900000 },
+        { id: 'c3', title: '灰狐(1)', href: 'index.html#toc_2', text_length: 5000 },
+        { id: 'c4', title: '灰狐(2)', href: 'index.html#toc_3', text_length: 2000 },
+      ]),
+    });
+    const controller = makeController();
+    (controller as unknown as Record<string, unknown>).getAnchorLayout = vi.fn(() => ({
+      ratios: { 'titlepage.xhtml': null, 'index.html': null, 'index.html#toc_2': 0.3, 'index.html#toc_3': 0.6 },
+      viewportRatio: 0.4,
+    }));
+    const { result } = renderHook(() =>
+      useTtsSession({
+        bookId: 'book-1', bookTitle: '', format: 'epub',
+        controllerRef: { current: controller }, chapterHref: 'index.html', bookPercentage: null, deps,
+      }),
+    );
+    await act(async () => { result.current.start(); });
+    await waitFor(() => expect(result.current.session.status).toBe('idle'));
+    expect((controller.goTo as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('index.html#toc_2');
+  });
+
+  it('合辄书锚点布局不可用（getAnchorLayout 返回全 null）→ 回退 href 匹配不崩', async () => {
+    const deps = makeDeps({
+      fetchChapters: vi.fn().mockResolvedValue([
+        { id: 'c1', title: '书名页', href: 'titlepage.xhtml' },
+        { id: 'c2', title: '合辄', href: 'index.html' },
+        { id: 'c3', title: '灰狐(1)', href: 'index.html#toc_2' },
+        { id: 'c4', title: '灰狐(2)', href: 'index.html#toc_3' },
+      ]),
+    });
+    const controller = makeController();
+    (controller as unknown as Record<string, unknown>).getAnchorLayout = vi.fn(() => ({
+      ratios: { 'index.html#toc_2': null, 'index.html#toc_3': null },
+      viewportRatio: null,
+    }));
+    const { result } = renderHook(() =>
+      useTtsSession({
+        bookId: 'book-1', bookTitle: '', format: 'epub',
+        controllerRef: { current: controller }, chapterHref: 'index.html', bookPercentage: null, deps,
+      }),
+    );
+    await act(async () => { result.current.start(); });
+    await waitFor(() => expect(result.current.session.status).toBe('idle'));
+    // 回退 href 匹配：index.html 命中「合辑」条目（c2）
+    expect((controller.goTo as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('index.html');
+  });
+
   it('合成失败计为 failedCount 并跳过（不中断整章）', async () => {
     const deps = makeDeps({ resolveAudio: vi.fn()
       .mockResolvedValueOnce(null)

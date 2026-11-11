@@ -26,6 +26,8 @@ import {
 import {
   buildChapterList,
   findStartChapterIndex,
+  findStartByAnchorRatio,
+  normalizeHref,
   resolveSegmentAudio,
   type TtsChapterEntry,
 } from './ttsScheduler';
@@ -347,7 +349,23 @@ export function useTtsSession(options: UseTtsSessionOptions) {
         return;
       }
 
-      const startIndex = findStartChapterIndex(chapterList, chapterHrefRef.current, bookPercentageRef.current);
+      // 起始章定位：①合辄书（多章共文件靠 fragment 区分）用渲染文档内锚点像素占比（同源同基准）；
+      // ②回退 findStartChapterIndex：全书占比（TXT offset/字长累计）→ href 匹配
+      let startIndex = -1;
+      const curHref = chapterHrefRef.current;
+      if (curHref) {
+        const curFile = curHref.split('#')[0].trim().replace(/^\/+/, '');
+        const sameFile = chapterList.filter(c => c.displayHref.includes('#') && normalizeHref(c.displayHref) === curFile);
+        if (sameFile.length >= 2) {
+          const layout = controllerRef.current?.getAnchorLayout?.(sameFile.map(c => c.displayHref));
+          if (layout && layout.viewportRatio != null) {
+            startIndex = findStartByAnchorRatio(chapterList, layout.ratios, layout.viewportRatio);
+          }
+        }
+      }
+      if (startIndex < 0) {
+        startIndex = findStartChapterIndex(chapterList, chapterHrefRef.current, bookPercentageRef.current);
+      }
       setState(s => ({ ...s, rate: settings.speed }));
       // async 播放链同步读 stateRef（playBuffer rate）；setState 的 render 时机滞后一拍，这里同步回写
       stateRef.current = { ...stateRef.current, rate: settings.speed };

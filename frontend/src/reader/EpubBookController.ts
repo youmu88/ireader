@@ -57,6 +57,10 @@ interface EpubBook {
 interface EpubContents {
   /** iframe 内容文档 */
   document?: Document;
+  /** 文档根元素（滚动跨度计算） */
+  documentElement?: HTMLElement;
+  /** 内容文档的 window（视口滚动位置） */
+  window?: Window;
   /** 注入 CSS 文本；同 key 替换 style 元素 innerHTML —— epub.js 中唯一的「替换」语义原语 */
   addStylesheetCss?(serializedCss: string, key: string): unknown;
 }
@@ -249,6 +253,48 @@ export class EpubBookController {
   /** 跳转章节 href（目录点击） */
   goTo(href: string): Promise<unknown> | undefined {
     return this.rendition?.display(href);
+  }
+
+  /**
+   * 合辄书锚点布局：当前渲染文档内，各锚点(fragment)的文件内位置占比 + 当前视口的文件内位置占比。
+   * 两者同源同基准（同一文档的像素几何），供听书起始章在「多章共写同一文件、目录靠 fragment 区分」
+   * 的合辄 EPUB 中定位——epub.js relocated 只报文件级 href，任何基于 href/全书占比的启发式都不可靠。
+   * 只在能解析出至少一个锚点的渲染文档上计算；无法解析时 ratios 全 null、viewportRatio null（调用方回退）。
+   */
+  getAnchorLayout(hrefs: string[]): { ratios: Record<string, number | null>; viewportRatio: number | null } {
+    const result: { ratios: Record<string, number | null>; viewportRatio: number | null } = { ratios: {}, viewportRatio: null };
+    for (const href of hrefs) result.ratios[href] = null;
+    const contentsList = (this.rendition?.getContents?.() || []) as EpubContents[];
+    for (const c of contentsList) {
+      const doc = c.document;
+      const win = c.window;
+      if (!doc?.body || !win) continue;
+      const html = c.documentElement || doc.documentElement;
+      const verticalSpan = html.scrollHeight - html.clientHeight;
+      const horizontalSpan = html.scrollWidth - html.clientWidth;
+      const span = verticalSpan > 0 ? verticalSpan : horizontalSpan;
+      if (span <= 0) continue; // paged 分页模式无滚动几何，诚实降级
+      const posAlong = (el: HTMLElement): number =>
+        verticalSpan > 0 ? el.getBoundingClientRect().top + win.scrollY : el.getBoundingClientRect().left + win.scrollX;
+      const ratios: Record<string, number | null> = {};
+      let any = false;
+      for (const href of hrefs) {
+        if (result.ratios[href] != null) continue;
+        const frag = href.split('#')[1];
+        if (!frag) continue;
+        const el = (doc.getElementById(frag) || doc.querySelector(`[name="${frag}"]`)) as HTMLElement | null;
+        if (!el) continue;
+        ratios[href] = Math.min(1, Math.max(0, posAlong(el) / span));
+        any = true;
+      }
+      if (!any) continue;
+      // 锚点所在文档即当前阅读文档：视口占比与锚点同文档同基准
+      const scrolled = verticalSpan > 0 ? win.scrollY : win.scrollX;
+      result.viewportRatio = Math.min(1, Math.max(0, scrolled / span));
+      for (const k of Object.keys(ratios)) result.ratios[k] = ratios[k];
+      return result;
+    }
+    return result;
   }
 
   // ── TTS 段落高亮（Phase 2 播放层联动） ──

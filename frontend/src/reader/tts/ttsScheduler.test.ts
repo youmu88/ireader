@@ -2,7 +2,7 @@
  * TtsScheduler 单测（Phase 2）：段音频解析（缓存优先/合成兑底/重试/跳过）与章节映射
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resolveSegmentAudio, buildChapterList, findStartChapterIndex } from './ttsScheduler';
+import { resolveSegmentAudio, buildChapterList, findStartChapterIndex, findStartByAnchorRatio } from './ttsScheduler';
 import * as ttsApi from './ttsApi';
 
 vi.mock('./ttsApi', () => ({
@@ -180,5 +180,53 @@ describe('findStartChapterIndex — 合辑 EPUB 占比定位（多章共文件 f
     expect(findStartChapterIndex(list2, 'index.html', 0.6)).toBe(3); // 灰狐(2)
     expect(findStartChapterIndex(list2, 'index.html', 0.3)).toBe(2); // 灰狐(1)
     expect(findStartChapterIndex(list2, 'index.html', 0.9)).toBe(4); // 灰狐(3)
+  });
+});
+
+describe('findStartByAnchorRatio — 合辄书渲染文档内锚点像素占比定位（同源同基准，根治字长失真）', () => {
+  // 百妖谱型：合辄条目占 89 万字导致字长累计占比全部挤到尾部（启发式失效），
+  // 但渲染文档内锚点元素位置是真实几何：toc_2 在文档 30% 处、toc_3 在 60% 处、toc_4 在 85% 处
+  const list = buildChapterList(
+    [
+      { id: 'c1', title: '封面', href: 'cover.xhtml', start_offset: 0, end_offset: 100 },
+      { id: 'c2', title: '书名页', href: 'titlepage.xhtml', start_offset: 100, end_offset: 200 },
+      { id: 'c3', title: '合辄', href: 'index.html', start_offset: 200, end_offset: 900000 },
+      { id: 'c4', title: '灰狐(1)', href: 'index.html#toc_2', text_length: 5789 },
+      { id: 'c5', title: '灰狐(2)', href: 'index.html#toc_3', text_length: 1837 },
+      { id: 'c6', title: '灰狐(3)', href: 'index.html#toc_4', text_length: 2200 },
+    ],
+    'epub',
+  );
+  const ratios = {
+    'cover.xhtml': null,
+    'titlepage.xhtml': null,
+    'index.html': null,
+    'index.html#toc_2': 0.3,
+    'index.html#toc_3': 0.6,
+    'index.html#toc_4': 0.85,
+  };
+
+  it('视口在文档 40% → 覆盖锚点 toc_2（灰狐(1)，全局 index 3）', () => {
+    expect(findStartByAnchorRatio(list, ratios, 0.4)).toBe(3);
+  });
+
+  it('视口在文档 70% → 覆盖锚点 toc_3（灰狐(2)，全局 index 4）', () => {
+    expect(findStartByAnchorRatio(list, ratios, 0.7)).toBe(4);
+  });
+
+  it('视口在文档 90% → 覆盖锚点 toc_4（灰狐(3)，全局 index 5）', () => {
+    expect(findStartByAnchorRatio(list, ratios, 0.9)).toBe(5);
+  });
+
+  it('视口在第一个锚点之前（5%）→ 无覆盖锚点返回 -1（调用方回退 href 匹配落合辄条目）', () => {
+    expect(findStartByAnchorRatio(list, ratios, 0.05)).toBe(-1);
+  });
+
+  it('视口占比非法（>1）→ 返回 -1 调用方回退', () => {
+    expect(findStartByAnchorRatio(list, ratios, 1.5)).toBe(-1);
+  });
+
+  it('锚点占比全 null（渲染文档无锚点可解析）→ 返回 -1 回退', () => {
+    expect(findStartByAnchorRatio(list, { 'index.html#toc_2': null, 'index.html#toc_3': null }, 0.5)).toBe(-1);
   });
 });

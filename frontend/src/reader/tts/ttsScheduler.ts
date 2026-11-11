@@ -110,8 +110,8 @@ export function buildChapterList(
   });
 }
 
-/** 归一化 href 参与匹配：去 fragment、去首尾空白、统一开头斜杠 */
-function normalizeHref(href: string): string {
+/** 归一化 href 参与匹配：去 fragment、去首尾空白、统一开头斜杠（合辄书文件内定位也用它对齐当前文件） */
+export function normalizeHref(href: string): string {
   return href.split('#')[0].trim().replace(/^\/+/, '');
 }
 
@@ -149,4 +149,29 @@ export function findStartChapterIndex(
   const curBase = cur.split('/').pop() || cur;
   const byBase = chapterList.findIndex(c => (normalizeHref(c.displayHref).split('/').pop() || '') === curBase);
   return byBase >= 0 ? byBase : 0;
+}
+
+/**
+ * 合辄书文件内锚点占比定位：多章共写同一文件、目录靠 fragment 区分时，
+ * 用「渲染文档内各锚点像素占比」与「当前视口文件内占比」（同源同基准，来自 EpubBookController.getAnchorLayout）
+ * 取覆盖视口的最后一个锚点章。返回全局章 index；无法定位返回 -1（调用方回退到 findStartChapterIndex）。
+ */
+export function findStartByAnchorRatio(
+  chapterList: TtsChapterEntry[],
+  anchorRatios: Record<string, number | null>,
+  curFileRatio: number,
+  eps = 0.002,
+): number {
+  if (!(curFileRatio >= 0 && curFileRatio <= 1)) return -1;
+  let best = -1;
+  let bestRatio = -1;
+  for (let i = 0; i < chapterList.length; i++) {
+    const r = anchorRatios[chapterList[i].displayHref];
+    if (typeof r !== 'number') continue;
+    if (r <= curFileRatio + eps && r >= bestRatio) {
+      best = i;
+      bestRatio = r;
+    }
+  }
+  return best;
 }
