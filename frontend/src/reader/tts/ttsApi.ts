@@ -112,6 +112,8 @@ export interface BackendChapter {
   id: string;
   title: string;
   href: string | null;
+  /** 合辄书多章共文件时的目录锚点（独立列，拼回 displayHref 用） */
+  fragment?: string | null;
   /** 全书文本内偏移（TXT 有值；EPUB 为 null） */
   start_offset?: number | null;
   end_offset?: number | null;

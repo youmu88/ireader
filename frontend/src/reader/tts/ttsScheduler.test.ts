@@ -163,6 +163,30 @@ describe('findStartChapterIndex — 合辑 EPUB 占比定位（多章共文件 f
     expect(findStartChapterIndex(noOffset, 'index.html', 0.9)).toBe(0);
   });
 
+  it('后端 fragment 独立列（href 无 #）→ displayHref 拼回锚点，合辄定位可触发', () => {
+    // 当前解析器把锚点存独立 fragment 列（href 列不带 #），不拼回则三章 displayHref 相同、合辄定位无法触发
+    const list3 = buildChapterList(
+      [
+        { id: 'c1', title: '导航', href: 'index.xhtml' },
+        { id: 'c2', title: '第一章', href: 'index.xhtml', fragment: 'sec_1', text_length: 400 },
+        { id: 'c3', title: '第二章', href: 'index.xhtml', fragment: 'sec_2', text_length: 300 },
+        { id: 'c4', title: '第三章', href: 'index.xhtml', fragment: 'sec_3', text_length: 200 },
+      ],
+      'epub',
+    );
+    expect(list3[1].displayHref).toBe('index.xhtml#sec_1');
+    expect(list3[2].displayHref).toBe('index.xhtml#sec_2');
+    expect(list3[3].displayHref).toBe('index.xhtml#sec_3');
+    // 锚点占比定位可触发：视口 60% 覆盖 sec_2 → 第二章
+    const ratios = {
+      'index.xhtml': null,
+      'index.xhtml#sec_1': 0.1,
+      'index.xhtml#sec_2': 0.45,
+      'index.xhtml#sec_3': 0.8,
+    };
+    expect(findStartByAnchorRatio(list3, ratios, 0.6)).toBe(2);
+  });
+
   it('无 offset 但有字长（EPUB text_length）→ 字长累计占比定位合辄多章共文件', () => {
     // 百妖谱型：合辄条目占大头，正文章靠 fragment 区分；字长累计后读灰狐(2)中段（pct≈0.6）应落灰狐(2)
     const list2 = buildChapterList(

@@ -76,7 +76,7 @@ export interface TtsChapterEntry {
  * - EPUB：displayHref 直接用后端 href（与 relocated 的包内路径同源）。
  */
 export function buildChapterList(
-  chapters: Array<{ id: string; title: string; href: string | null; start_offset?: number | null; end_offset?: number | null; text_length?: number | null }>,
+  chapters: Array<{ id: string; title: string; href: string | null; fragment?: string | null; start_offset?: number | null; end_offset?: number | null; text_length?: number | null }>,
   format: 'epub' | 'txt',
 ): TtsChapterEntry[] {
   // 占比数据源优先级：①后端 start_offset/end_offset（TXT 等有全书文本偏移的数据）；
@@ -104,7 +104,10 @@ export function buildChapterList(
     return {
       chapterId: c.id,
       title: c.title || `第 ${i + 1} 章`,
-      displayHref: format === 'txt' ? `txt-${i}.xhtml` : (c.href || ''),
+      // 合辄书多章共文件：后端把锚点存独立 fragment 列（href 列不带 #），拼回才能按锚点区分逻辑章
+      displayHref: format === 'txt'
+        ? `txt-${i}.xhtml`
+        : (c.href || '') + (c.fragment ? `#${c.fragment}` : ''),
       startRatio,
     };
   });
