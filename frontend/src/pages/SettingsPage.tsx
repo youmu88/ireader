@@ -247,16 +247,21 @@ export default function SettingsPage() {
   // ── TTS 设置自动保存：地址/模型/音色/语速/预合成变更后防抖 2s 同步服务端 ──
   // apiKey 不参与自动保存（防输入半截覆盖旧 Key），仍由「保存设置」按钮手动保存
   const autoSaveTimer = useRef<number | null>(null);
-  const autoSaveArmedRef = useRef(false);
+  // 服务端回填基线：初始加载完成后记录；用户改动只有偏离基线才触发保存。
+  // 不用 rAF 武装开关——后台标签页 rAF 会被浏览器暂停，导致自动保存失效。
+  const autoSaveBaselineRef = useRef<{ apiUrl: string; model: string; voice: string; speed: number; auto: boolean } | null>(null);
   useEffect(() => {
     if (loading) return;
-    // 初始回填完成后下一帧才启用，避免把服务端拉取的值原样再保存一遍
-    const id = requestAnimationFrame(() => { autoSaveArmedRef.current = true; });
-    return () => cancelAnimationFrame(id);
+    autoSaveBaselineRef.current = { apiUrl, model, voice: selectedVoice, speed, auto: autoPreSynthesize };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
 
   useEffect(() => {
-    if (!autoSaveArmedRef.current) return;
+    const baseline = autoSaveBaselineRef.current;
+    if (!baseline) return;
+    const atBaseline = baseline.apiUrl === apiUrl && baseline.model === model
+      && baseline.voice === selectedVoice && baseline.speed === speed && baseline.auto === autoPreSynthesize;
+    if (atBaseline) return; // 与服务端回填一致，无需保存
     if (autoSaveTimer.current) window.clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = window.setTimeout(async () => {
       autoSaveTimer.current = null;
