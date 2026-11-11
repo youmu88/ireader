@@ -276,6 +276,8 @@ export default function SettingsPage() {
           // 不传 apiKey：服务端保持已保存真值
         });
         setTtsSettings(updated);
+        // 保存成功后基线同步为已入库值：否则「改走又改回」会因与旧基线相同被误判为无需保存
+        autoSaveBaselineRef.current = { apiUrl, model, voice: selectedVoice, speed, auto: autoPreSynthesize };
         setSaveMessage('✓ 已自动保存');
         setTimeout(() => setSaveMessage(''), 2000);
         try {
