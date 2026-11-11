@@ -763,13 +763,26 @@ export function createBooksRouter(db: any, dataDir: string): Router {
   });
 
   // ── GET /api/books/:id/chapters - 获取章节目录 ──
+  // 轻量化：不回 normalized_text 全文（合辄 800+ 章×数 KB 会拉出数 MB），只回正文长度（听书起始章占比定位用）
   router.get('/:id/chapters', requireAuth, (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.userId;
       const book = db.select().from(books).where(sql`id = ${req.params.id} AND user_id = ${userId}`).get();
       if (!book) throw new AppError(404, '图书不存在');
 
-      const chapters = db.select().from(bookChapters)
+      const chapters = db.select({
+        id: bookChapters.id,
+        title: bookChapters.title,
+        href: bookChapters.href,
+        start_offset: bookChapters.startOffset,
+        end_offset: bookChapters.endOffset,
+        order: bookChapters.order,
+        level: bookChapters.level,
+        fragment: bookChapters.fragment,
+        spine_index: bookChapters.spineIndex,
+        text_length: sql<number>`LENGTH(${bookChapters.normalizedText})`,
+      })
+        .from(bookChapters)
         .where(sql`book_id = ${req.params.id}`)
         .orderBy(bookChapters.order)
         .all();

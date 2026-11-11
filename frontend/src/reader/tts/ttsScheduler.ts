@@ -76,22 +76,36 @@ export interface TtsChapterEntry {
  * - EPUB：displayHref 直接用后端 href（与 relocated 的包内路径同源）。
  */
 export function buildChapterList(
-  chapters: Array<{ id: string; title: string; href: string | null; start_offset?: number | null; end_offset?: number | null }>,
+  chapters: Array<{ id: string; title: string; href: string | null; start_offset?: number | null; end_offset?: number | null; text_length?: number | null }>,
   format: 'epub' | 'txt',
 ): TtsChapterEntry[] {
-  // 全书长度基准：各章 end_offset 最大值（兼容只回 start_offset 的旧数据）
+  // 占比数据源优先级：①后端 start_offset/end_offset（TXT 等有全书文本偏移的数据）；
+  // ②每章正文字长累计（EPUB 无全书偏移，但同源解析的正文字长与 epub.js 按字数切分的 locations 同量级）
   const offsets = chapters.map(c => Number(c.end_offset ?? c.start_offset ?? NaN));
   const totalLen = offsets.every(n => Number.isFinite(n)) ? Math.max(...offsets) : NaN;
+  const byOffset = Number.isFinite(totalLen) && totalLen > 0;
+  // 字长累计：缺失长度的章按 0 处理（空章/占位页不占占比），累计序列即各章起始占比
+  const lens = chapters.map(c => {
+    const n = Number(c.text_length ?? NaN);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  });
+  const lenSum = lens.reduce((a, b) => a + b, 0);
+  const byLenSum = lenSum > 0;
+  let acc = 0;
   return chapters.map((c, i) => {
     const so = Number(c.start_offset ?? NaN);
+    let startRatio: number | undefined;
+    if (byOffset && Number.isFinite(so)) {
+      startRatio = Math.min(1, Math.max(0, so / totalLen));
+    } else if (byLenSum) {
+      startRatio = Math.min(1, Math.max(0, acc / lenSum));
+      acc += lens[i];
+    }
     return {
       chapterId: c.id,
       title: c.title || `第 ${i + 1} 章`,
       displayHref: format === 'txt' ? `txt-${i}.xhtml` : (c.href || ''),
-      // 章占比就绪且全书长度 >0 才提供（同源解析出的偏移才能直接比占比）
-      startRatio: Number.isFinite(so) && Number.isFinite(totalLen) && totalLen > 0
-        ? Math.min(1, Math.max(0, so / totalLen))
-        : undefined,
+      startRatio,
     };
   });
 }

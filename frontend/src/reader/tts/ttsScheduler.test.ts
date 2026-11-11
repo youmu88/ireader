@@ -162,4 +162,23 @@ describe('findStartChapterIndex — 合辑 EPUB 占比定位（多章共文件 f
     expect(noOffset[0].startRatio).toBeUndefined();
     expect(findStartChapterIndex(noOffset, 'index.html', 0.9)).toBe(0);
   });
+
+  it('无 offset 但有字长（EPUB text_length）→ 字长累计占比定位合辄多章共文件', () => {
+    // 百妖谱型：合辄条目占大头，正文章靠 fragment 区分；字长累计后读灰狐(2)中段（pct≈0.6）应落灰狐(2)
+    const list2 = buildChapterList(
+      [
+        { id: 'c1', title: '封面', href: 'cover.xhtml', text_length: 100 },
+        { id: 'c2', title: '书名页', href: 'titlepage.xhtml', text_length: 100 },
+        { id: 'c3', title: '灰狐(1)', href: 'index.html#toc_1', text_length: 400 },
+        { id: 'c4', title: '灰狐(2)', href: 'index.html#toc_2', text_length: 300 },
+        { id: 'c5', title: '灰狐(3)', href: 'index.html#toc_3', text_length: 200 },
+      ],
+      'epub',
+    );
+    // 累计：c1=0, c2=0.091, c3=0.182, c4=0.545, c5=0.818（总长 1000）
+    expect(list2[3].startRatio).toBeCloseTo(0.545, 2);
+    expect(findStartChapterIndex(list2, 'index.html', 0.6)).toBe(3); // 灰狐(2)
+    expect(findStartChapterIndex(list2, 'index.html', 0.3)).toBe(2); // 灰狐(1)
+    expect(findStartChapterIndex(list2, 'index.html', 0.9)).toBe(4); // 灰狐(3)
+  });
 });
