@@ -141,9 +141,10 @@ export default function SettingsPage() {
         setApiKey(settings.apiKey || '');
         setModel(settings.model || '');
         setAutoPreSynthesize(settings.autoPreSynthesize ?? false);
-        // 先渲染页面，再后台拉取音色列表（避免阻塞 UI）
+        // 先渲染页面，再后台预取模型/音色列表（避免阻塞 UI）
         setLoading(false);
-        // ⭐ 后台异步拉取音色：不阻塞设置页面渲染
+        // ⭐ 后台异步预取模型与音色：不阻塞设置页面渲染
+        fetchModelsInBackground(settings.apiUrl || undefined, settings.apiKey || undefined);
         fetchVoicesInBackground(settings.apiUrl || undefined, settings.apiKey || undefined);
       } catch (err) {
         console.warn('Failed to load TTS settings:', err);
@@ -160,6 +161,16 @@ export default function SettingsPage() {
       setVoices(voiceList);
     } catch {
       setVoices([]);
+    }
+  }
+
+  // ⭐ 后台异步拉取模型列表（进入设置页预取；测试成功时 health 携带列表直接回填）
+  async function fetchModelsInBackground(apiUrl?: string, apiKey?: string) {
+    try {
+      const modelList = await fetchModels(apiUrl, apiKey);
+      setModels(modelList);
+    } catch {
+      setModels([]);
     }
   }
 
@@ -180,7 +191,7 @@ export default function SettingsPage() {
     }
   }
 
-  // Test connection
+  // Test connection：成功即同步——health 携带的模型列表直接回填选择器，音色后台补拉
   // @ts-ignore
   async function handleTestConnection() {
     setTesting(true);
@@ -188,6 +199,12 @@ export default function SettingsPage() {
     try {
       const result = await testConnection(apiUrl || undefined, apiKey || undefined);
       setConnectionStatus(result);
+      if (result.success) {
+        if (result.models && result.models.length > 0) {
+          setModels(result.models);
+        }
+        fetchVoicesInBackground(apiUrl || undefined, apiKey || undefined);
+      }
     } catch (err) {
       setConnectionStatus({ success: false, error: 'Connection test failed' });
     } finally {
@@ -336,7 +353,7 @@ export default function SettingsPage() {
                 服务地址 <span className="text-[10px] opacity-60">（必填）</span>
               </label>
               <div className="flex items-center gap-2">
-                <input type="text" value={apiUrl}
+                <input type="text" value={apiUrl} autoComplete="off"
                   onChange={e => setApiUrl(e.target.value)}
                   placeholder="https://api.openai.com/v1"
                   className="flex-1 px-3 py-2 rounded-xl text-sm bg-transparent border"
@@ -356,7 +373,7 @@ export default function SettingsPage() {
                     color: connectionStatus.success ? '#34c759' : '#ff3b30',
                   }}>
                   {connectionStatus.success
-                    ? `✓ 连接成功${connectionStatus.models ? ' · 可用模型 ' + connectionStatus.models.length + ' 个' : ''}`
+                    ? `✓ 连接成功${connectionStatus.models && connectionStatus.models.length > 0 ? ` · ${connectionStatus.models.length} 个模型已同步到选择器` : ''}`
                     : `✗ ${connectionStatus.error || '连接失败'}`}
                 </div>
               )}
@@ -372,19 +389,42 @@ export default function SettingsPage() {
                   刷新
                 </Button>
               </div>
-              <input type="text" list="tts-model-list" value={model}
-                onChange={e => setModel(e.target.value)}
-                placeholder="tts-1"
-                className="w-full px-3 py-2 rounded-xl text-sm bg-transparent border"
-                style={{
-                  color: 'var(--color-text)',
-                  borderColor: 'var(--color-border)',
-                }} />
-              <datalist id="tts-model-list">
-                {models.map(m => (
-                  <option key={m.id} value={m.id}>{m.name || m.id}</option>
-                ))}
-              </datalist>
+              {models.length > 0 ? (
+                <>
+                  <select value={model} autoComplete="off"
+                    onChange={e => setModel(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl text-sm bg-transparent border"
+                    style={{
+                      color: 'var(--color-text)',
+                      borderColor: 'var(--color-border)',
+                    }}>
+                    {!model && <option value="">请选择模型</option>}
+                    {model && !models.some(m => m.id === model) && (
+                      <option value={model}>{model}（当前设置）</option>
+                    )}
+                    {models.map(m => (
+                      <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] mt-1.5" style={{ color: 'var(--color-text-muted)' }}>
+                    共 {models.length} 个可用模型
+                  </p>
+                </>
+              ) : (
+                <>
+                  <input type="text" value={model} autoComplete="off"
+                    onChange={e => setModel(e.target.value)}
+                    placeholder="tts-1"
+                    className="w-full px-3 py-2 rounded-xl text-sm bg-transparent border"
+                    style={{
+                      color: 'var(--color-text)',
+                      borderColor: 'var(--color-border)',
+                    }} />
+                  <p className="text-[11px] mt-1.5" style={{ color: 'var(--color-text-muted)' }}>
+                    {fetchingModels ? '正在拉取模型列表…' : '点击「测试」或「刷新」拉取模型列表后可直接选择'}
+                  </p>
+                </>
+              )}
             </div>
 
             {/* API Key */}
@@ -397,13 +437,20 @@ export default function SettingsPage() {
                 <input type={showApiKey ? 'text' : 'password'} value={apiKey}
                   onChange={e => setApiKey(e.target.value)}
                   placeholder="sk-..."
+                  autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                   className="flex-1 px-3 py-2 rounded-xl text-sm bg-transparent border"
                   style={{
                     color: 'var(--color-text)',
                     borderColor: 'var(--color-border)',
                   }} />
                 <IconButton onClick={() => setShowApiKey(!showApiKey)} aria-label={showApiKey ? '隐藏密钥' : '显示密钥'} variant="ghost" size="xs">
-                  {showApiKey ? '🙈' : '👁'}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    {showApiKey ? (
+                      <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></>
+                    ) : (
+                      <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></>
+                    )}
+                  </svg>
                 </IconButton>
               </div>
             </div>
@@ -438,7 +485,7 @@ export default function SettingsPage() {
                 </div>
                 </>) : (
                 <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                  {fetchingVoices ? '正在获取音色列表…' : '点击「刷新」获取可用音色'}
+                  {fetchingVoices ? '正在获取音色列表…' : '点击「测试」或「刷新」获取可用音色'}
                 </p>
               )}
             </div>
