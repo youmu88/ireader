@@ -251,27 +251,15 @@ kill_processes_on_port() {
 # 停止旧实例
 # ============================================================
 stop_old_instance() {
-  # 方式0: 停掉 systemd 管理的 ireader 服务（如有）
-  # 背景：Restart=always + RestartSec=5，仅 systemctl stop 会触发 systemd 无限重启。
-  #       systemctl disable 只影响开机自启，不影响 Restart=always 运行时自动重启。
-  # 方案：systemctl stop → systemctl mask（完全禁止启动，包括 Restart=always）
-  #       → 等待 RestartSec+1s（让 systemd 重启窗口过期）
-  #       → kill_processes_on_port 兜底清理 → 确认端口空闲。
+  # 方式0: 停掉 systemd 管理的 ireader 服务（如有）。
+  # 单头管理（2026-10-25 改造）：服务进程统一由 systemd 管理，部署/停止全走 systemctl。
+  # 说明：systemctl stop 是管理员动作，不会触发 Restart=always 自动重启，
+  #       因此无需 mask，也无需等待重启窗口。
   if systemctl is-active --quiet ireader.service 2>/dev/null; then
-    log "发现 systemd 管理的 ireader 服务，正在停用并 mask..."
-    systemctl stop ireader.service 2>/dev/null || true
-    systemctl mask ireader.service 2>/dev/null || true  # mask 彻底禁止 systemd 重新拉起
-    log "systemd ireader.service 已 mask，不再会被自动拉起"
+    log "停止 systemd 管理的 ireader 服务..."
+    sudo systemctl stop ireader.service 2>/dev/null || true
+    log "ireader.service 已停止"
   fi
-  # 即使不是 active，也确保 mask 存在（防止之前未被 mask 的残留）
-  if ! systemctl is-enabled --quiet ireader.service 2>/dev/null; then
-    systemctl mask ireader.service 2>/dev/null || true
-  fi
-
-  # 关键等待：systemd RestartSec=5，mask 后给 systemd 5 秒窗口过期
-  # 避免 systemd 在 deploy.sh 的 fuser -k 之后重启抢占端口
-  log "等待 systemd 重启窗口过期 (6s)..."
-  sleep 6
 
   # 基于端口的进程清理（发现 PID 文件未追踪的残留进程）
   # 先强杀一轮，确保端口彻底释放
@@ -393,13 +381,13 @@ do_build() {
   (
     set +o pipefail
     cd backend && pnpm run build 2>&1 | while IFS= read -r line; do log "  backend: ${line}"; done
-    echo "$?" > "${build_err_dir}/backend_exit"
+    echo "${PIPESTATUS[0]}" > "${build_err_dir}/backend_exit"
   ) &
   BUILD_PID_BACKEND=$!
   (
     set +o pipefail
     cd frontend && pnpm run build:fast 2>&1 | while IFS= read -r line; do log "  frontend: ${line}"; done
-    echo "$?" > "${build_err_dir}/frontend_exit"
+    echo "${PIPESTATUS[0]}" > "${build_err_dir}/frontend_exit"
   ) &
   BUILD_PID_FRONTEND=$!
 
@@ -600,88 +588,42 @@ exec "${node_bin}" dist/index.js
 STARTEOF
   chmod +x "${APP_DIR}/start.sh"
 
-  # 确保端口未被占用（防御性二次确认）
-  # 注意：由于 systemd 的 Restart=always 机制（无 root 权限无法 mask），
-  #       旧进程被杀后 systemd 约 5 秒重新拉起，抢占端口。
-  #       因此采用暴力重试：fuser -k 即时杀端口 → 立刻 nohup（无 sleep间隙）
-  #       → 每秒检查进程存活 + 健康检测，EADDRINUSE 则重试最多 6 次。
-  local start_retry=0
-  local start_max_retry=6
-  local new_pid=""
-  mkdir -p "${LOGS_DIR}" "${RUN_DIR}"
-  while [ "${start_retry}" -lt "${start_max_retry}" ]; do
-    start_retry=$((start_retry + 1))
+  # 启动服务：systemd 单头管理（2026-10-25 改造）
+  # 背景：旧版以 nohup start.sh 后台进程 + PID 文件管理，githook 超时强杀 deploy.sh
+  #       进程树时 nohup 实例漏杀成孤儿、霸占端口，引发 systemd crash loop（2026-10-25 事故）。
+  #       现改为全部由 systemd 管理：deploy.sh 只负责 systemctl restart + 健康检查。
+  sudo systemctl unmask ireader.service 2>/dev/null || true
+  sudo systemctl enable ireader.service >/dev/null 2>&1 || true
+  log "通过 systemd 启动 ireader..."
+  sudo systemctl restart ireader.service
 
-    # 即时杀端口（兼容多工具：fuser > lsof），只等 0.3s 给 OS 释放
-    if command -v fuser &>/dev/null; then
-      fuser -k "${PORT}/tcp" 2>/dev/null || true
-    else
-      kill_processes_on_port "${PORT}" true || true
-    fi
-    sleep 0.3
-
-    nohup "${APP_DIR}/start.sh" > "${LOGS_DIR}/app.log" 2>&1 &
-    new_pid=$!
-    echo "${new_pid}" > "${PID_FILE}"
-    log "启动尝试 ${start_retry}/${start_max_retry} (PID: ${new_pid})"
-
-    # 每秒检查进程存活 + 健康检测，最多 10 秒
-    local check_wait=0
-    local healthy=1
-    while [ "${check_wait}" -lt 10 ]; do
-      sleep 1
-      check_wait=$((check_wait + 1))
-      if kill -0 "${new_pid}" 2>/dev/null; then
-        if curl -s --max-time 2 "http://127.0.0.1:${PORT}/api/health" 2>/dev/null | grep -q '"success".*true'; then
-          log "服务就绪 (PID: ${new_pid})"
-          healthy=0
-          break 2  # 跳出两层循环
-        fi
-      else
-        break  # 进程已死，跳出内层循环
-      fi
-    done
-
-    # 进程退出 → 检查是否 EADDRINUSE
-    if [ "${healthy}" -eq 1 ] && ! kill -0 "${new_pid}" 2>/dev/null; then
-      if tail -5 "${LOGS_DIR}/app.log" 2>/dev/null | grep -q "EADDRINUSE"; then
-        log "EADDRINUSE 重试..."
-        continue
-      fi
-      log "❌ 进程异常退出:"
-      tail -10 "${LOGS_DIR}/app.log" 2>/dev/null || true
-      return 1
-    fi
-  done
-
-  if [ "${start_retry}" -ge "${start_max_retry}" ]; then
-    log "❌ 启动失败：超过 ${start_max_retry} 次重试"
-    tail -20 "${LOGS_DIR}/app.log" 2>/dev/null || true
-    return 1
-  fi
-
-  # 健康检查（轮询 /api/health）
-
-  # 健康检查（轮询 /api/health）
-  local max_retries=12
+  # 健康检查（轮询 /api/health，最长 60 秒）
+  local max_retries=30
   local retry=0
   while [ "${retry}" -lt "${max_retries}" ]; do
-    if curl -s "http://127.0.0.1:${PORT}/api/health" | grep -q '"ok"\|"status":"ok"\|"success":true' 2>/dev/null; then
-      log "健康检查通过 ✓ (PID: ${new_pid})"
+    if curl -s --max-time 2 "http://127.0.0.1:${PORT}/api/health" 2>/dev/null | grep -q '"ok"\|"status":"ok"\|"success":true'; then
+      local main_pid
+      main_pid="$(systemctl show -p MainPID --value ireader.service 2>/dev/null || echo '?')"
+      log "健康检查通过 ✓ (systemd MainPID: ${main_pid})"
       return 0
+    fi
+    # 服务启动失败（如端口冲突）时 systemd 会进入 auto-restart，主动报错退出以便排查
+    if ! systemctl is-active --quiet ireader.service 2>/dev/null; then
+      # restart 后极短时间内可能显示 activating，稍候再判一次
+      sleep 2
+      if ! systemctl is-active --quiet ireader.service 2>/dev/null; then
+        log "❌ ireader.service 未处于运行状态 (state: $(systemctl is-active ireader.service 2>/dev/null)):"
+        journalctl -u ireader --no-pager -n 15 2>/dev/null || true
+        return 1
+      fi
     fi
     retry=$((retry + 1))
     sleep 2
-
-    # 检查进程是否还活着
-    if ! kill -0 "${new_pid}" 2>/dev/null; then
-      log "❌ 服务进程已退出，请检查日志:"
-      tail -30 "${LOGS_DIR}/app.log" 2>/dev/null || true
-      return 1
-    fi
   done
 
-  log "⚠️  健康检查未通过，请检查: ${LOGS_DIR}/app.log"
+  log "⚠️  健康检查未通过（60s），请检查:"
+  journalctl -u ireader --no-pager -n 20 2>/dev/null || true
+  tail -20 "${LOGS_DIR}/app.log" 2>/dev/null || true
   return 1
 }
 
@@ -807,12 +749,12 @@ main() {
         echo " 部署目录:  ${DEPLOY_DIR}"
         echo " 数据目录:  ${DATA_DIR}"
         echo " 日志文件:  ${LOGS_DIR}/app.log"
-        echo " PID 文件:  ${PID_FILE}"
+        echo " 服务管理:  sudo systemctl {start|stop|restart|status} ireader"
         echo "------------------------------------------"
         echo " 管理命令:"
-        echo "  停止服务:  kill \$(cat ${PID_FILE})  (或 ./deploy.sh --clean)"
-        echo "  启动服务:  ${APP_DIR}/start.sh"
-        echo "  查看日志:  tail -f ${LOGS_DIR}/app.log"
+        echo "  停止服务:  sudo systemctl stop ireader"
+        echo "  启动服务:  sudo systemctl start ireader"
+        echo "  查看日志:  journalctl -u ireader -f"
         echo "  重新部署:  cd ${SOURCE_DIR} && ./deploy.sh"
         echo "  清理部署:  cd ${SOURCE_DIR} && ./deploy.sh --clean"
         echo "=========================================="
