@@ -13,6 +13,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { detectCompatibility, type CompatibilityInfo } from './compatibilityService';
+import { savePref, PREFS_SYNCED_EVENT } from './prefsService';
 
 type Theme = 'light' | 'dark';
 
@@ -39,9 +40,15 @@ function readStoredTheme(): Theme {
 }
 
 function storeTheme(theme: Theme): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, theme);
-  } catch { /* 静默 */ }
+  // 云端偏好同步：写本地 + 防抖 PUT /api/prefs（服务端唯一权威源，按账号隔离）
+  savePref(STORAGE_KEY, theme);
+}
+
+// 云端偏好覆盖本地主题后立即重放（登录同步时派发；模块级只注册一次）
+if (typeof window !== 'undefined') {
+  window.addEventListener(PREFS_SYNCED_EVENT, () => {
+    applyTheme(readStoredTheme());
+  });
 }
 
 // ── React Context ──

@@ -13,6 +13,8 @@ import {
   READER_THEMES,
 } from './theme';
 
+import { savePref } from '../services/prefsService';
+
 export const STORAGE_KEY = 'ireader_reader_settings';
 
 /** 将外部输入钳制到合法范围（字号/主题/行距） */
@@ -47,9 +49,8 @@ export function useReaderSettings(): UseReaderSettingsResult {
   const [settings, setSettings] = useState<ReaderSettings>(loadSettings);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-    } catch { /* 存储不可用时静默 */ }
+    // 云端偏好同步：写本地 + 防抖 PUT /api/prefs
+    savePref(STORAGE_KEY, JSON.stringify(settings));
   }, [settings]);
 
   const updateSettings = useCallback((patch: Partial<ReaderSettings>) => {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../services/themeService';
+import { savePref } from '../services/prefsService';
 import {
   fetchSources,
   fetchVoices,
@@ -103,7 +104,8 @@ export default function SettingsPage() {
 
   const handleToggleNoCache = (next: boolean) => {
     setNoCache(next);
-    try { localStorage.setItem(NO_CACHE_KEY, next ? 'true' : 'false'); } catch { /* ignore */ }
+    // 云端偏好同步：写本地 + 防抖 PUT /api/prefs
+    savePref(NO_CACHE_KEY, next ? 'true' : 'false');
   };
 
   // ── 自动预合成开关 ──
@@ -241,6 +243,48 @@ export default function SettingsPage() {
       setClearing(false);
     }
   }
+
+  // ── TTS 设置自动保存：地址/模型/音色/语速/预合成变更后防抖 2s 同步服务端 ──
+  // apiKey 不参与自动保存（防输入半截覆盖旧 Key），仍由「保存设置」按钮手动保存
+  const autoSaveTimer = useRef<number | null>(null);
+  const autoSaveArmedRef = useRef(false);
+  useEffect(() => {
+    if (loading) return;
+    // 初始回填完成后下一帧才启用，避免把服务端拉取的值原样再保存一遍
+    const id = requestAnimationFrame(() => { autoSaveArmedRef.current = true; });
+    return () => cancelAnimationFrame(id);
+  }, [loading]);
+
+  useEffect(() => {
+    if (!autoSaveArmedRef.current) return;
+    if (autoSaveTimer.current) window.clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = window.setTimeout(async () => {
+      autoSaveTimer.current = null;
+      try {
+        const updated = await saveTTSSettings({
+          source: 'openai',
+          voiceId: selectedVoice,
+          speed,
+          apiUrl: apiUrl || null,
+          model: model || null,
+          autoPreSynthesize,
+          // 不传 apiKey：服务端保持已保存真值
+        });
+        setTtsSettings(updated);
+        setSaveMessage('✓ 已自动保存');
+        setTimeout(() => setSaveMessage(''), 2000);
+        try {
+          localStorage.setItem('ireader_tts_voice', selectedVoice);
+          localStorage.setItem('ireader_tts_synthesisRate', String(speed));
+          localStorage.setItem('ireader_tts_speed', String(speed));
+        } catch { /* ignore */ }
+      } catch {
+        setSaveMessage('✗ 自动保存失败，请检查网络后手动保存');
+      }
+    }, 2000);
+    return () => { if (autoSaveTimer.current) window.clearTimeout(autoSaveTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiUrl, model, selectedVoice, speed, autoPreSynthesize]);
 
   // Save settings
   // @ts-ignore
@@ -692,7 +736,7 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center gap-2">
               {['#ffffff', '#f5f0e8', '#e8f0f5', '#1a1a2e', '#2d2d2d'].map(color => (
-                <Button key={color} variant="ghost" onClick={() => { setReaderBg(color); document.documentElement.style.setProperty('--reader-bg', color); try { localStorage.setItem('ireader_reader_bg', color); } catch {} }}
+                <Button key={color} variant="ghost" onClick={() => { setReaderBg(color); document.documentElement.style.setProperty('--reader-bg', color); savePref('ireader_reader_bg', color); }}
                   aria-label={`阅读背景色 ${color}`}
                   className="!w-7 !h-7 !rounded-full !p-0 border-2 transition-all duration-200 tap-icon !text-current"
                   style={{

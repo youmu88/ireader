@@ -10,6 +10,8 @@
 
 export type ReadingMode = 'paged' | 'scrolled';
 
+import { savePref } from '../services/prefsService';
+
 /** 默认阅读模式（用户拍板：分页为默认，对齐主流阅读器习惯） */
 export const DEFAULT_READING_MODE: ReadingMode = 'paged';
 
@@ -32,7 +34,6 @@ export function loadReadingMode(): ReadingMode {
 
 /** 持久化全局阅读模式 */
 export function saveReadingMode(mode: ReadingMode): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, normalize(mode));
-  } catch { /* 存储不可用时静默 */ }
+  // 云端偏好同步：写本地 + 防抖 PUT /api/prefs
+  savePref(STORAGE_KEY, normalize(mode));
 }

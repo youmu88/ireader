@@ -20,6 +20,7 @@ import { createBooksRouter } from './routes/books.js';
 import { createCategoriesRouter } from './routes/categories.js';
 import { createProgressRouter } from './routes/progress.js';
 import { createTtsRouter } from './routes/tts.js';
+import { createPrefsRouter } from './routes/prefs.js';
 import { config } from 'dotenv';
 import { assertJwtSecret } from './middleware/auth.js';
 
@@ -74,6 +75,7 @@ app.use('/api/books', createBooksRouter(db, DATA_DIR));
 app.use('/api/categories', createCategoriesRouter(db));
 app.use('/api', createProgressRouter(db));
 app.use('/api/tts', createTtsRouter(db, DATA_DIR));
+app.use('/api/prefs', createPrefsRouter(db));
 
 // SPA fallback (for client-side routing)
 app.get('*', (_req, res) => {

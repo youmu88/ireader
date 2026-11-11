@@ -31,10 +31,11 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/** 设置页「实时合成（不缓存）」开关（与 SettingsPage NO_CACHE_KEY 同源） */
+/** 设置页「实时合成（不缓存）」开关（与 SettingsPage NO_CACHE_KEY 同源；兼容历史 '1' 写法） */
 export function getNoCachePref(): boolean {
   try {
-    return localStorage.getItem('ireader_tts_noCache') === '1';
+    const v = localStorage.getItem('ireader_tts_noCache');
+    return v === 'true' || v === '1';
   } catch {
     return false;
   }

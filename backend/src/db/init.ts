@@ -183,6 +183,16 @@ export function initDatabase(dbPath?: string, options?: InitDatabaseOptions): Re
       normal_chunk_max_size INTEGER NOT NULL DEFAULT ${DEFAULT_NORMAL_CHUNK_MAX},
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS user_prefs (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      pref_key TEXT NOT NULL,
+      pref_value TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, pref_key)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_prefs_user ON user_prefs(user_id);
       CREATE TABLE IF NOT EXISTS global_books (
         id TEXT PRIMARY KEY,
         file_hash TEXT NOT NULL UNIQUE,

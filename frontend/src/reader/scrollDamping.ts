@@ -25,6 +25,8 @@ export const SCROLL_DAMPING_MIN = 1;
 export const SCROLL_DAMPING_MAX = 10;
 export const DEFAULT_SCROLL_DAMPING = 3;
 
+import { savePref } from '../services/prefsService';
+
 /** 全局设置 localStorage 键 */
 const STORAGE_KEY = 'ireader_scroll_damping';
 
@@ -110,7 +112,8 @@ export function loadScrollDamping(): number {
 export function saveScrollDamping(level: number): void {
   const clamped = clampScrollDamping(level);
   try {
-    localStorage.setItem(STORAGE_KEY, String(clamped));
+    // 云端偏好同步：写本地 + 防抖 PUT /api/prefs
+    savePref(STORAGE_KEY, clamped);
   } catch { /* 存储不可用时静默 */ }
   try {
     window.dispatchEvent(new CustomEvent(SCROLL_DAMPING_CHANGED_EVENT, { detail: clamped }));

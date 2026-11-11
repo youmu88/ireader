@@ -3,6 +3,7 @@
  */
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { syncPrefsFromServer } from '../services/prefsService';
 import {
   loginApi,
   registerApi,
@@ -80,6 +81,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .then((res) => {
           if (res.success && res.data) {
             setUser(res.data);
+            // 登录成功：云端偏好双向合并（主题/阅读设置/阻尼/阅读模式/实时合成等跨端同步）
+            void syncPrefsFromServer();
           } else {
             // 后端返回 success=false（如用户不存在）→ 清除无效 token
             removeToken();
