@@ -31,10 +31,10 @@ vi.mock('../services/themeService', () => ({
 
 // Mock axios
 vi.mock('axios', () => ({
-  default: {
-    post: vi.fn().mockResolvedValue({ data: {} }),
-  },
+  default: { post: vi.fn().mockResolvedValue({}) },
 }));
+// SettingsPage 退出按钮使用 useAuth（修复移动端假退出），测试场景 mock 之
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ logout: vi.fn() }) }));
 
 describe('SettingsPage', () => {
   beforeEach(() => {

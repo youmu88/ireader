@@ -139,6 +139,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     removeToken();
+    // 清除离线标记：退出登录 = 回到完整登录流程，允许换账号重新登录
+    // （否则鸿蒙壳子等 WebView 环境中 isOfflineMode 残留会导致永远回不到登录页）
+    try { localStorage.removeItem(OFFLINE_MODE_KEY); } catch { /* ignore */ }
+    setIsOfflineMode(false);
     setUser(null);
     if (navigateRef.current) {
       navigateRef.current('/login');

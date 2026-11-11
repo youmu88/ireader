@@ -1,0 +1,45 @@
+{
+  "taskId": "0f31eee7270f436b89e65ceb78639228",
+  "attachmentBaseDir": "/home/ubuntu/code/ireader/attachments",
+  "rounds": [
+    {
+      "round": 1,
+      "dir": "/home/ubuntu/code/ireader/attachments/round1",
+      "files": [
+        {
+          "attachmentId": "att_888cc44711",
+          "originalName": "image.png",
+          "storageName": "image.png",
+          "mimeType": "image/png",
+          "size": 111908,
+          "isImage": true,
+          "isPastedText": false,
+          "path": "/home/ubuntu/code/ireader/attachments/round1/image.png"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "round": 2,
+      "dir": "/home/ubuntu/code/ireader/attachments/round2",
+      "files": [
+        {
+          "attachmentId": "att_316c9fe457",
+          "originalName": "image.png",
+          "storageName": "image__att_316c9fe457.png",
+          "mimeType": "image/png",
+          "size": 107130,
+          "isImage": true,
+          "isPastedText": false,
+          "path": "/home/ubuntu/code/ireader/attachments/round2/image__att_316c9fe457.png"
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "currentRound": 2,
+  "injectedEntities": [
+    "id:att_888cc44711",
+    "id:att_316c9fe457"
+  ]
+}

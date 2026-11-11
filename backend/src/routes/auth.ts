@@ -236,6 +236,13 @@ export function createAuthRouter(db: any): Router {
     }
   });
 
+  // ── POST /api/auth/logout — 客户端登出通知（需登录） ──
+  // JWT 为无状态令牌：服务端无会话可清，真正的登出由前端 removeToken 完成。
+  // 此端点保证前端退出流程契约完整（历史前端硬编码调用此路径得到 404，曾导致「假退出」误诊）。
+  router.post('/logout', requireAuth, (_req: Request, res: Response) => {
+    res.json({ success: true, data: { message: '已退出（请客户端清除本地令牌）' } });
+  });
+
   // ── GET /api/auth/me — 当前用户信息（需登录） ──
   router.get('/me', requireAuth, (req: Request, res: Response) => {
     try {

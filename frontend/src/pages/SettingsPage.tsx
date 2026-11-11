@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../services/themeService';
+import { useAuth } from '../contexts/AuthContext';
 import { savePref } from '../services/prefsService';
 import {
   fetchSources,
@@ -365,11 +366,16 @@ export default function SettingsPage() {
     }
   };
 
+  const { logout } = useAuth();
+
   const handleLogout = async () => {
+    // 尽力通知服务端（JWT 无状态，真正登出由 logout() 清除本地令牌完成）
     try {
       await axios.post('/api/auth/logout');
     } catch {}
-    window.location.href = '/';
+    // removeToken + 清离线标记 + 回登录页：修复移动端（鸿蒙壳子/PWA）假退出——
+    // 原实现后端无此路由(404)且不清 token，跳首页后被有效 token 自动登录回（无法换账号）
+    logout();
   };
 
   // ── TTS 二级菜单（iOS 风格 drill-down） ──

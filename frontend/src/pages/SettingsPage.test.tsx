@@ -11,6 +11,8 @@ import { APP_VERSION } from '../version';
 // ── SW 检查 mock ──
 const swMocks = vi.hoisted(() => ({ checkSWUpdate: vi.fn() }));
 vi.mock('../sw', () => ({ checkSWUpdate: swMocks.checkSWUpdate }));
+// SettingsPage 退出按钮使用 useAuth（修复移动端假退出），测试场景 mock 之
+vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ logout: vi.fn() }) }));
 
 // ── toast mock（真实实现依赖 ToastProvider 容器）──
 const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }));
