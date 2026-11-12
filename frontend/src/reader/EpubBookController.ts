@@ -272,6 +272,7 @@ export class EpubBookController {
       const loc = anyRendition?.currentLocation?.();
       const vp = loc?.start?.percentage;
       const startIndex = loc?.start?.index;
+      console.info('[anchor-layout] loc=', JSON.stringify(loc?.start ?? null));
       if (vp == null || !Number.isFinite(vp)) return result;
       result.viewportRatio = Math.min(1, Math.max(0, vp));
       const contentsList = (this.rendition?.getContents?.() || []) as EpubContents[];
@@ -279,9 +280,8 @@ export class EpubBookController {
       if (!doc) return result;
       const spineItems = (this.book as unknown as { spine?: { spineItems?: Array<{ cfiFromElement?: (el: Element) => string | null }> } })?.spine?.spineItems;
       const spineItem = Number.isInteger(startIndex) ? spineItems?.[startIndex as number] : spineItems?.[1];
-      if (!spineItem?.cfiFromElement) return result;
-      const pctFromCfi = (this.book as unknown as { locations?: { percentageFromCfi?: (cfi: string) => number | null } })?.locations?.percentageFromCfi;
-      if (!pctFromCfi) return result;
+      const locations = (this.book as unknown as { locations?: { percentageFromCfi?: (cfi: string) => number | null } })?.locations;
+      if (!spineItem?.cfiFromElement || !locations?.percentageFromCfi) return result;
       let any = false;
       for (const href of hrefs) {
         const frag = href.split('#')[1];
@@ -290,15 +290,19 @@ export class EpubBookController {
         if (!el) continue;
         const cfi = spineItem.cfiFromElement(el);
         if (!cfi) continue;
-        const pct = pctFromCfi(cfi);
+        const pct = locations.percentageFromCfi(cfi); // 保留接收者调用：内部依赖 this._locations
         if (pct == null || !Number.isFinite(pct)) continue;
         result.ratios[href] = Math.min(1, Math.max(0, pct));
         any = true;
       }
+      console.info('[anchor-layout] anchors=', JSON.stringify(result.ratios), 'viewport=', result.viewportRatio, 'any=', any);
       if (!any) {
         result.viewportRatio = null; // 锚点全部不可解析时整体降级，调用方回退
       }
-    } catch { /* 几何/CFI 异常时诚实降级 */ }
+    } catch (err) {
+      console.warn('[anchor-layout] degraded:', err instanceof Error ? err.message : err);
+      return result;
+    }
     return result;
   }
 
