@@ -340,7 +340,7 @@ export function useTtsSession(options: UseTtsSessionOptions) {
       if (abortRef.current || sessionGenRef.current !== gen) return;
 
       const chapterList = buildChapterList(
-        chaptersRaw.map(c => ({ id: c.id, title: c.title, href: c.href })),
+        chaptersRaw.map(c => ({ id: c.id, title: c.title, href: c.href, fragment: c.fragment, start_offset: c.start_offset, end_offset: c.end_offset, text_length: c.text_length })),
         format,
       );
       chapterListRef.current = chapterList;
