@@ -129,6 +129,34 @@ describe('useTtsSession', () => {
     );
   });
 
+  it('启动预热：会话开启即并发拉起前 D+1 段（首段播放期间段 1/2 已在合成流水线上）', async () => {
+    const player = makePlayer();
+    // 首段播放挂起：playBuffer 返回手动控制的 promise
+    let releasePlay!: () => void;
+    const playGate = new Promise<string>((r) => { releasePlay = () => r('ended'); });
+    (player.playBuffer as ReturnType<typeof vi.fn>).mockImplementation(() => playGate);
+    const deps = makeDeps({
+      createPlayer: () => player,
+      fetchSegments: vi.fn().mockResolvedValue([
+        { segmentIndex: 0, text: '段零', textHash: 'h0' },
+        { segmentIndex: 1, text: '段一', textHash: 'h1' },
+        { segmentIndex: 2, text: '段二', textHash: 'h2' },
+      ]),
+    });
+    const controller = makeController();
+    const { result } = renderHook(() =>
+      useTtsSession({
+        bookId: 'book-1', bookTitle: '测试书', format: 'epub',
+        controllerRef: { current: controller }, chapterHref: 'p1.xhtml', bookPercentage: null, deps,
+      }),
+    );
+    await act(async () => { result.current.start(); });
+    // 首段还在播放（gate 未放行）时：段 0/1/2 的合成应已全部发起（预热 D=2 → 前 3 段）
+    expect((deps.resolveAudio as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0].textHash)).toEqual(['h0', 'h1', 'h2']);
+    await act(async () => { releasePlay(); });
+    await waitFor(() => expect(result.current.session.status).toBe('idle'));
+  });
+
   it('起始章按当前 href 定位（非第一章，仅播剩余章）', async () => {
     const deps = makeDeps();
     const controller = makeController();

@@ -44,6 +44,8 @@ export type TtsStatus = 'idle' | 'loading' | 'playing' | 'paused';
 const SPEECH_CHARS_PER_SECOND = 4.7;
 /** 解码缓存上限（段）：400 字段 ≈ 85s ≈ 4MB，8 段 ≈ 32MB，LRU 淘汰 */
 const DECODED_CACHE_MAX = 8;
+/** 预取窗口深度：播第 i 段时保持 i+1..i+D 段在合成/解码流水线上（引擎支持并发时，D≥2 可吞掉单段合成耗时波动） */
+const PREFETCH_DEPTH = 2;
 /** 章内进度上报周期（ms） */
 const PROGRESS_TICK_MS = 250;
 
@@ -261,6 +263,10 @@ export function useTtsSession(options: UseTtsSessionOptions) {
 
     let i = 0;
     let startOffset = 0;
+    // 启动预热：会话/章开启即并发拉起前 D+1 段（含当前段），首段短播期间后续段已在合成，避免首段播完干等
+    for (let k = 0; k < Math.min(PREFETCH_DEPTH + 1, segments.length); k++) {
+      void ensureDecoded(k, segments[k]);
+    }
     while (i < segments.length) {
       if (abortRef.current || sessionGenRef.current !== gen) return false;
       const seg = segments[i];
@@ -284,8 +290,10 @@ export function useTtsSession(options: UseTtsSessionOptions) {
         continue; // 跳过坏段，不中断整章
       }
 
-      // 预取下一段（合成+解码不阻塞当前段播放）
-      if (i + 1 < segments.length) void ensureDecoded(i + 1, segments[i + 1]);
+      // 预取窗口：播段 i 时保持 i+1..i+D 段都在流水线上（inFlight 去重，预热已发起的不重复）
+      for (let k = i + 1; k <= i + PREFETCH_DEPTH && k < segments.length; k++) {
+        void ensureDecoded(k, segments[k]);
+      }
 
       const finish = await player.playBuffer(segKeyOf(chapter.chapterId, seg.segmentIndex), buffer, {
         offset: startOffset,

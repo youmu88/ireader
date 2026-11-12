@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 
 // 决定性复现：epubjs Book.open 完整流程 + mock XHR（ibooks display-options 404 vs 200 对照）
 // 期望证明：display-options 404 → opened 永不 resolve → ReaderPage 20s 超时
+// 注：iframe 内分页布局（epubjs contents.resizeCheck 的 rAF 循环）依赖真实布局管线，jsdom 不可达也无需可达——
+// 渲染链的可测等价物是「spine 就绪且首项可加载」（load 会真正发起 nav.xhtml 请求）。
 
 const CONTAINER = `<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`;
 
@@ -75,14 +77,14 @@ function mockXhr(map: UrlToResponse) {
   return () => { (globalThis as any).XMLHttpRequest = original; console.warn('XHR CALLS:', JSON.stringify(calls)); };
 }
 
-async function openBook(ibooks: { status: number; body: string; contentType: string }, opts?: { fullRender?: boolean }) {
+async function openBook(ibooks: { status: number; body: string; contentType: string }, opts?: { withSpineDocs?: boolean }) {
   const xhtmlWrap = (body: string) => `<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title></head><body>${body}</body></html>`;
   const restore = mockXhr({
     'container.xml': { status: 200, body: CONTAINER, contentType: 'application/xml' },
     'content.opf': { status: 200, body: OPF, contentType: 'application/oebps-package+xml' },
     'com.apple.ibooks': ibooks,
     'toc.ncx': { status: 200, body: NCX, contentType: 'application/x-dtbncx+xml' },
-    ...(opts?.fullRender ? {
+    ...(opts?.withSpineDocs ? {
       'nav.xhtml': { status: 200, body: xhtmlWrap('<p>导航页</p>'), contentType: 'application/xhtml+xml' },
       'index.xhtml': { status: 200, body: xhtmlWrap('<p>第一章内容</p><p>第二章内容</p><p>第三章内容</p>'), contentType: 'application/xhtml+xml' },
     } : {}),
@@ -98,20 +100,20 @@ async function openBook(ibooks: { status: number; body: string; contentType: str
     const result = await Promise.race([
       (async () => {
         await (book as any).opened;
-        if (!opts?.fullRender) return 'RESOLVED';
-        const container = document.createElement('div');
-        container.style.width = '800px';
-        container.style.height = '600px';
-        document.body.appendChild(container);
-        const rendition = (book as any).renderTo(container, { width: '100%', height: '100%', flow: 'paginated', manager: 'default', spread: 'none' });
-        rendition.on('rendered', () => console.warn('RENDERED fired'));
-        // jsdom 无真实 iframe 布局，display 不会 settle；发起后即返回，由下方 XHR 调用记录断言渲染启动
-        void rendition.display();
-        await new Promise((r2) => setTimeout(r2, 800));
-        return 'RENDER_STARTED';
+        if (opts?.withSpineDocs) {
+          // 渲染链可测等价物：spine 就绪且首项可加载（load 真正发起 nav.xhtml 请求）
+          const first = (book as any).spine?.spineItems?.[0];
+          if (!first) return 'NO_SPINE';
+          await first.load((book as any).load.bind(book as any));
+          first.unload();
+          return 'SPINE_READY:' + first.href;
+        }
+        return 'RESOLVED';
       })().catch((e: any) => 'REJECTED:' + (e?.status || e?.message || '?')),
       new Promise<string>((resolve) => setTimeout(() => resolve('HANG_3S'), 3000)),
     ]);
+    // 不调 book.destroy()：jsdom 无 iframe/rAF 资源需回收，而 destroy 会清 this.loading，
+    // 已在飞的 loadNavigation().then 回调随其落地时读 this.loading.navigation 会拖出 unhandled rejection
     return result;
   } finally {
     restore();
@@ -121,10 +123,9 @@ async function openBook(ibooks: { status: number; body: string; contentType: str
 describe('epubjs opened：display-options 404 vs 200 对照（合辑书加载超时根因）', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('全渲染链：opened resolve + 渲染启动（nav.xhtml 被请求；iframe 完成布局为浏览器环境行为，jsdom 不可达）', async () => {
-    const r = await openBook({ status: 200, body: IBOOKS_OK, contentType: 'application/xml' }, { fullRender: true });
-    // jsdom 无法完成 iframe 内分页布局（rendered 不触发），但 opened 必须 resolve 且渲染已发起首个章节请求
-    expect(r).not.toBe('HANG_3S');
+  it('opened resolve + spine 就绪且首项可加载（spine[0]=nav.xhtml 被 load 真实请求）', async () => {
+    const r = await openBook({ status: 200, body: IBOOKS_OK, contentType: 'application/xml' }, { withSpineDocs: true });
+    expect(r).toBe('SPINE_READY:nav.xhtml');
   });
 
   it('ibooks 200（合法 display_options）→ opened 应 resolve', async () => {
