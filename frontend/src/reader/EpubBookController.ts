@@ -256,44 +256,49 @@ export class EpubBookController {
   }
 
   /**
-   * 合辄书锚点布局：当前渲染文档内，各锚点(fragment)的文件内位置占比 + 当前视口的文件内位置占比。
-   * 两者同源同基准（同一文档的像素几何），供听书起始章在「多章共写同一文件、目录靠 fragment 区分」
-   * 的合辄 EPUB 中定位——epub.js relocated 只报文件级 href，任何基于 href/全书占比的启发式都不可靠。
-   * 只在能解析出至少一个锚点的渲染文档上计算；无法解析时 ratios 全 null、viewportRatio null（调用方回退）。
+   * 合辄书锚点布局：各锚点(fragment)的全书位置占比 + 当前视口的全书位置占比。
+   * 两者同源同基准（locations 引擎）：锚点 el→CFI→percentageFromCfi；视口→currentLocation().start.percentage。
+   * ——v2.69.6 前用渲染文档像素几何（offsetTop/scrollWidth），但 epub.js paginated 是 transform 分页
+   * （html.scrollWidth==clientWidth、scrollHeight==clientHeight），span<=0 恒降级，合辄书起点恒回 fallback。
+   * 供听书起始章在「多章共写同一文件、目录靠 fragment 区分」的合辄 EPUB 中定位——
+   * epub.js relocated 只报文件级 href，任何基于 href/字长占比的启发式都不可靠。
+   * locations 未就绪（generateLocations 未完成）或锚点不可解析时 ratios 全 null、viewportRatio null（调用方回退）。
    */
   getAnchorLayout(hrefs: string[]): { ratios: Record<string, number | null>; viewportRatio: number | null } {
     const result: { ratios: Record<string, number | null>; viewportRatio: number | null } = { ratios: {}, viewportRatio: null };
     for (const href of hrefs) result.ratios[href] = null;
-    const contentsList = (this.rendition?.getContents?.() || []) as EpubContents[];
-    for (const c of contentsList) {
-      const doc = c.document;
-      const win = c.window;
-      if (!doc?.body || !win) continue;
-      const html = c.documentElement || doc.documentElement;
-      const verticalSpan = html.scrollHeight - html.clientHeight;
-      const horizontalSpan = html.scrollWidth - html.clientWidth;
-      const span = verticalSpan > 0 ? verticalSpan : horizontalSpan;
-      if (span <= 0) continue; // paged 分页模式无滚动几何，诚实降级
-      const posAlong = (el: HTMLElement): number =>
-        verticalSpan > 0 ? el.getBoundingClientRect().top + win.scrollY : el.getBoundingClientRect().left + win.scrollX;
-      const ratios: Record<string, number | null> = {};
+    try {
+      const anyRendition = this.rendition as { currentLocation?: () => { start?: { percentage?: number; index?: number } } } | null;
+      const loc = anyRendition?.currentLocation?.();
+      const vp = loc?.start?.percentage;
+      const startIndex = loc?.start?.index;
+      if (vp == null || !Number.isFinite(vp)) return result;
+      result.viewportRatio = Math.min(1, Math.max(0, vp));
+      const contentsList = (this.rendition?.getContents?.() || []) as EpubContents[];
+      const doc = contentsList[0]?.document;
+      if (!doc) return result;
+      const spineItems = (this.book as unknown as { spine?: { spineItems?: Array<{ cfiFromElement?: (el: Element) => string | null }> } })?.spine?.spineItems;
+      const spineItem = Number.isInteger(startIndex) ? spineItems?.[startIndex as number] : spineItems?.[1];
+      if (!spineItem?.cfiFromElement) return result;
+      const pctFromCfi = (this.book as unknown as { locations?: { percentageFromCfi?: (cfi: string) => number | null } })?.locations?.percentageFromCfi;
+      if (!pctFromCfi) return result;
       let any = false;
       for (const href of hrefs) {
-        if (result.ratios[href] != null) continue;
         const frag = href.split('#')[1];
-        if (!frag) continue;
-        const el = (doc.getElementById(frag) || doc.querySelector(`[name="${frag}"]`)) as HTMLElement | null;
+        if (!frag || result.ratios[href] != null) continue;
+        const el = doc.getElementById(frag) || doc.querySelector(`[name="${frag}"]`);
         if (!el) continue;
-        ratios[href] = Math.min(1, Math.max(0, posAlong(el) / span));
+        const cfi = spineItem.cfiFromElement(el);
+        if (!cfi) continue;
+        const pct = pctFromCfi(cfi);
+        if (pct == null || !Number.isFinite(pct)) continue;
+        result.ratios[href] = Math.min(1, Math.max(0, pct));
         any = true;
       }
-      if (!any) continue;
-      // 锚点所在文档即当前阅读文档：视口占比与锚点同文档同基准
-      const scrolled = verticalSpan > 0 ? win.scrollY : win.scrollX;
-      result.viewportRatio = Math.min(1, Math.max(0, scrolled / span));
-      for (const k of Object.keys(ratios)) result.ratios[k] = ratios[k];
-      return result;
-    }
+      if (!any) {
+        result.viewportRatio = null; // 锚点全部不可解析时整体降级，调用方回退
+      }
+    } catch { /* 几何/CFI 异常时诚实降级 */ }
     return result;
   }
 
