@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { sql } from 'drizzle-orm';
 import { contentSegments } from '../db/schema.js';
-import { DEFAULT_FIRST_CHUNK_MAX, DEFAULT_NORMAL_CHUNK_MAX } from './ttsConstants.js';
+import { DEFAULT_FIRST_CHUNK_MAX, DEFAULT_SECOND_CHUNK_MAX, DEFAULT_NORMAL_CHUNK_MAX } from './ttsConstants.js';
 
 export interface ContentSegment {
   id: string;
@@ -41,21 +41,25 @@ function splitLongSentence(sentence: string, max: number): string[] {
   return pieces.filter(Boolean);
 }
 
-/** 切分档位：首段小（点开听书 ≤1s 快速出声），其余段大（减少碎片）；缺省取常量默认 */
+/** 切分档位：段0=章名小档（快速出声）、段1=二档小段（章名播完后紧接秒出）、段2+=大段（减少碎片） */
 export interface ChunkSizeOptions {
   firstChunkMaxSize?: number;
+  secondChunkMaxSize?: number;
   normalChunkMaxSize?: number;
 }
 
 /**
- * 按句末标点切分朗读文本（ai-agent 移植版）：
+ * 按句末标点切分朗读文本（ai-agent 移植版，三档）
+ * - 段0：≤firstMax（章名/首句快速出声）
+ * - 段1：≤secondMax（章名播完后紧接的第二段也快速出声，给大段争取合成时间）
+ * - 段2+：≤normalMax（减少碎片）
  * - 小数保护：3.14 的点不当句末（占位符绕过，切后还原）
  * - 句末集：。！？；…!?.（含英文句号与分号）
  * - 超长句降级：次级标点（，、：；）处断开，无标点才硬切
- * - 首段用 firstChunkMaxSize（点开 ≤1s 快速出声），其余用 normalChunkMaxSize（减少碎片）
  */
 export function splitSpeechText(text: string, opts?: ChunkSizeOptions): string[] {
   const firstMax = Math.max(1, opts?.firstChunkMaxSize ?? DEFAULT_FIRST_CHUNK_MAX);
+  const secondMax = Math.max(1, opts?.secondChunkMaxSize ?? DEFAULT_SECOND_CHUNK_MAX);
   const normalMax = Math.max(1, opts?.normalChunkMaxSize ?? DEFAULT_NORMAL_CHUNK_MAX);
 
   const normalized = text.replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').trim();
@@ -72,8 +76,8 @@ export function splitSpeechText(text: string, opts?: ChunkSizeOptions): string[]
   if (pieces.length === 0) return [];
 
   const chunks: string[] = [];
-  // 2) 首块装配：第一片若超 firstMax，尽量在次级标点处截头（避免切词），其余回队列常规装配
   const queue = pieces.slice();
+  // 2) 段0 装配（≤firstMax）：首片超限在次级标点处截头（避免切词）
   const p0 = queue[0];
   if (p0.length > firstMax) {
     const head = p0.slice(0, firstMax);
@@ -90,9 +94,28 @@ export function splitSpeechText(text: string, opts?: ChunkSizeOptions): string[]
     chunks.push(restoreDecimals(p0.trim()));
   }
 
-  // 3) 常规装配：句拼接不超 normalMax
+  // 3) 段1 装配（≤secondMax）：章名后的第二段也小档，同段0 算法
+  if (queue.length > 1) {
+    const p1 = queue[1];
+    if (p1.length > secondMax) {
+      const head = p1.slice(0, secondMax);
+      const rest = p1.slice(secondMax);
+      const bm = /[，、：；,;:](?=[^，、：；,;:]*$)/.exec(head);
+      if (bm && bm.index >= Math.floor(secondMax * 0.6)) {
+        chunks.push(restoreDecimals(head.slice(0, bm.index + 1).trim()));
+        queue.splice(2, 0, head.slice(bm.index + 1) + rest);
+      } else {
+        chunks.push(restoreDecimals(head.trim()));
+        queue.splice(2, 0, rest);
+      }
+    } else {
+      chunks.push(restoreDecimals(p1.trim()));
+    }
+  }
+
+  // 4) 段2+ 常规装配：句拼接不超 normalMax
   let current = '';
-  for (const piece of queue.slice(1)) {
+  for (const piece of queue.slice(2)) {
     if (current && current.length + piece.length > normalMax) {
       chunks.push(restoreDecimals(current.trim()));
       current = '';

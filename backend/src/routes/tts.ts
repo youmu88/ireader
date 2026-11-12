@@ -14,7 +14,7 @@ import { findTtsGlobalResource, createTtsGlobalResource, createTtsRef } from '..
 import { DEFAULT_TTS_VOICE, DEFAULT_FIRST_CHUNK_MAX, DEFAULT_NORMAL_CHUNK_MAX } from '../services/ttsConstants.js';
 import { requireAuth } from '../middleware/auth.js';
 import { unsafeApiUrlReason } from '../middleware/urlGuard.js';
-import { regenerateAllForNewVoice, createFullBookGenerationJob, cancelJob, cancelJobs, cancelAllUserJobs, deleteJobs, clearTerminatedJobs, hydrateChapterTexts } from '../services/ttsGenerationService.js';
+import { regenerateAllForNewVoice, createFullBookGenerationJob, createChapterPrefetchJob, cancelJob, cancelJobs, cancelAllUserJobs, deleteJobs, clearTerminatedJobs, hydrateChapterTexts } from '../services/ttsGenerationService.js';
 import { ensureBookSegments } from '../services/contentSegmentService.js';
 
 export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').initDatabase>, dataDir?: string) {
@@ -534,6 +534,47 @@ export function createTtsRouter(db: ReturnType<typeof import('../db/init.js').in
     } catch (error: any) {
       console.error('[TTS] 查询章节分段失败:', error);
       res.status(500).json({ success: false, error: '查询章节分段失败' });
+    }
+  });
+
+  // ── POST /api/tts/prefetch-chapter - 听书启动预合成当前章（章级高优任务，幂等去重） ──
+  router.post('/prefetch-chapter', requireAuth, (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.userId;
+      const { bookId, chapterId } = req.body || {};
+      if (!bookId || !chapterId) {
+        res.status(400).json({ success: false, error: 'bookId 与 chapterId 为必填参数' });
+        return;
+      }
+      // TTS 关闭时不预合成（processPersistedSegments 同样会拒）
+      const settingsRow = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get() as any;
+      if (settingsRow && settingsRow.enabled === false) {
+        res.json({ success: true, data: { created: false, disabled: true } });
+        return;
+      }
+      const book = db.select({ id: books.id }).from(books)
+        .where(sql`id = ${bookId} AND user_id = ${userId}`).get();
+      if (!book) {
+        res.status(404).json({ success: false, error: '图书不存在' });
+        return;
+      }
+      if (!dataDir) {
+        res.json({ success: true, data: { created: false, disabled: true, reason: 'dataDir 未配置' } });
+        return;
+      }
+      const result = createChapterPrefetchJob(db, dataDir, bookId, userId, chapterId);
+      res.json({
+        success: true,
+        data: {
+          created: !!result.job,
+          cachedAll: result.cachedAll,
+          jobId: result.job?.id || null,
+          pendingChunks: result.job?.totalChunks ?? 0,
+        },
+      });
+    } catch (error: any) {
+      console.error('[TTS] 章节预合成触发失败:', error);
+      res.status(500).json({ success: false, error: '章节预合成触发失败' });
     }
   });
 

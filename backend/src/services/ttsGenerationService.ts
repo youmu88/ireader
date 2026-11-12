@@ -9,7 +9,7 @@ import crypto from 'crypto';
 import { sql, inArray, and, eq } from 'drizzle-orm';
 import { ttsGenerationJobs, ttsGenerationSegments, contentSegments, bookChapters, ttsSettings, books } from '../db/schema.js';
 import { ensureBookSegments } from './contentSegmentService.js';
-import { saveToCache, generateCacheKey, computeApiUrlHash } from './ttsCacheService.js';
+import { saveToCache, generateCacheKey, computeApiUrlHash, findCache, isCacheValid } from './ttsCacheService.js';
 import { DEFAULT_TTS_VOICE } from './ttsConstants.js';
 import { parseTxt, getChapterContent, normalizeHtmlText } from '../parser/index.js';
 import path from 'path';
@@ -45,7 +45,7 @@ function computeEngineConfigHash(source: string, model?: string, apiUrl?: string
 }
 
 /** 从用户 TTS 设置中读取 source 和引擎配置 */
-function resolveEngineConfig(db: any, userId: string): { source: string; model?: string; apiUrl?: string; apiKey?: string; engineConfigHash: string; firstChunkMaxSize?: number; normalChunkMaxSize?: number } {
+function resolveEngineConfig(db: any, userId: string): { source: string; model?: string; apiUrl?: string; apiKey?: string; voice: string; speed: number; engineConfigHash: string; firstChunkMaxSize?: number; normalChunkMaxSize?: number } {
   const settings = db.select().from(ttsSettings).where(sql`user_id = ${userId}`).get() as any;
   const source = settings?.source || 'openai';
   const model = settings?.model || undefined;
@@ -53,6 +53,8 @@ function resolveEngineConfig(db: any, userId: string): { source: string; model?:
   const apiKey = settings?.apiKey || undefined;
   return {
     source, model, apiUrl, apiKey,
+    voice: settings?.voiceId || DEFAULT_TTS_VOICE,
+    speed: settings?.speed ?? 1.0,
     engineConfigHash: computeEngineConfigHash(source, model, apiUrl),
     // D15：分片旋钮接线（undefined 时 ensureBookSegments 内部回退 DEFAULT_FIRST_CHUNK_MAX/DEFAULT_NORMAL_CHUNK_MAX）
     firstChunkMaxSize: settings?.firstChunkMaxSize,
@@ -239,7 +241,13 @@ export function tryProcessQueue(db: any, dataDir: string): void {
   // 先恢复卡住的任务
   recoverStuckJobs(db);
 
+  // 章级任务（chapter_id 非空，听书启动预合成）优先于书级全库任务；同级按创建时间
   const nextJob = db.select().from(ttsGenerationJobs)
+    .where(sql`status = 'pending' AND chapter_id IS NOT NULL`)
+    .orderBy(ttsGenerationJobs.createdAt)
+    .limit(1)
+    .get()
+    || db.select().from(ttsGenerationJobs)
     .where(sql`status = 'pending'`)
     .orderBy(ttsGenerationJobs.createdAt)
     .limit(1)
@@ -327,6 +335,76 @@ export function createFullBookGenerationJob(
   tryProcessQueue(db, dataDir);
 
   return job;
+}
+
+/**
+ * 创建当前章预合成任务（听书启动时触发，听书适配性核心）
+ * - 幂等去重：同书同章已有 pending/running 任务直接返回，不重建
+ * - 缓存过滤：已命中有效缓存的段不入队，只合成缺的；全部命中 → 不建任务
+ * - 章级 job（chapter_id 非空）在 tryProcessQueue 中优先于书级全库任务调度
+ * - 不抢占运行中任务（仅 pending 队列内插队），不影响前端实时合成的算力
+ */
+export function createChapterPrefetchJob(
+  db: any,
+  dataDir: string,
+  bookId: string,
+  userId: string,
+  chapterId: string,
+): { job: GenerationJob | null; cachedAll: boolean } {
+  const engine = resolveEngineConfig(db, userId);
+
+  // 幂等去重：同书同章进行中的任务直接复用
+  const existing = db.select().from(ttsGenerationJobs)
+    .where(sql`book_id = ${bookId} AND chapter_id = ${chapterId} AND status IN ('pending', 'running')`)
+    .get() as any;
+  if (existing) return { job: existing, cachedAll: false };
+
+  const chapter = db.select().from(bookChapters)
+    .where(sql`id = ${chapterId} AND book_id = ${bookId}`)
+    .get() as any;
+  if (!chapter) throw new Error('章节不存在');
+  const hydrated = hydrateChapterTexts(db, bookId, [chapter]);
+  const segments = ensureBookSegments(db, bookId, hydrated, {
+    firstChunkMaxSize: engine.firstChunkMaxSize,
+    normalChunkMaxSize: engine.normalChunkMaxSize,
+  });
+
+  // 缓存过滤：已命中有效缓存的段不入队
+  const pendingSegments = segments.filter((seg) => {
+    const hit = findCache(db, seg.text, engine.voice, engine.speed, userId, engine.source, engine.model || '', engine.apiUrl);
+    return !(hit && isCacheValid(hit));
+  });
+  if (pendingSegments.length === 0) return { job: null, cachedAll: true };
+
+  const now = new Date().toISOString();
+  const jobId = uuidv4();
+  const job: GenerationJob = {
+    id: jobId,
+    userId,
+    bookId,
+    chapterId,
+    chapterCount: 1,
+    chapterIds: JSON.stringify([chapterId]),
+    voice: engine.voice,
+    speed: engine.speed,
+    source: engine.source,
+    engineConfigHash: engine.engineConfigHash,
+    status: 'pending',
+    progress: 0,
+    totalChunks: pendingSegments.length,
+    completedChunks: 0,
+    error: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  db.transaction((tx: any) => {
+    tx.insert(ttsGenerationJobs).values(job).run();
+    createGenerationSegmentRows(tx, jobId, pendingSegments, now);
+  });
+
+  tryProcessQueue(db, dataDir);
+  return { job, cachedAll: false };
 }
 
 /**

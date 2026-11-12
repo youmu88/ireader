@@ -81,6 +81,7 @@ function makeDeps(over: Partial<TtsSessionDeps> = {}): TtsSessionDeps {
     fetchCache: vi.fn().mockResolvedValue(new Map()),
     fetchSettings: vi.fn().mockResolvedValue({ voiceId: 'v-test', speed: 1.25 }),
     resolveAudio: vi.fn().mockResolvedValue(new Blob(['audio'])),
+    prefetchChapter: vi.fn().mockResolvedValue(undefined),
     createPlayer: () => makePlayer(),
     ...over,
   };
@@ -127,6 +128,24 @@ describe('useTtsSession', () => {
       expect.objectContaining({ text: '段零' }),
       expect.objectContaining({ voice: 'v-test', speed: 1.25 }),
     );
+  });
+
+  it('听书适配性：每章开始触发后端预合成当前章（fire-and-forget，不阻塞播放）', async () => {
+    const player = makePlayer();
+    const deps = makeDeps({ createPlayer: () => player });
+    const controller = makeController();
+    const { result } = renderHook(() =>
+      useTtsSession({
+        bookId: 'book-1', bookTitle: '测试书', format: 'epub',
+        controllerRef: { current: controller }, chapterHref: 'p1.xhtml', bookPercentage: null, deps,
+      }),
+    );
+    await act(async () => { result.current.start(); });
+    await waitFor(() => expect(result.current.session.status).toBe('idle'));
+    // 2 章各触发一次预合成（章粒度，非段粒度）
+    expect(deps.prefetchChapter).toHaveBeenCalledTimes(2);
+    expect(deps.prefetchChapter).toHaveBeenNthCalledWith(1, 'book-1', 'c1');
+    expect(deps.prefetchChapter).toHaveBeenNthCalledWith(2, 'book-1', 'c2');
   });
 
   it('启动预热：会话开启即并发拉起前 D+1 段（首段播放期间段 1/2 已在合成流水线上）', async () => {

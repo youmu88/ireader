@@ -20,6 +20,7 @@ import {
   fetchChapterSegments,
   fetchBatchCache,
   fetchPlaybackSettings,
+  prefetchChapter,
   getNoCachePref,
   type TtsSegmentInfo,
 } from './ttsApi';
@@ -86,6 +87,7 @@ export interface TtsSessionDeps {
   fetchCache: typeof fetchBatchCache;
   fetchSettings: typeof fetchPlaybackSettings;
   resolveAudio: typeof resolveSegmentAudio;
+  prefetchChapter: typeof prefetchChapter;
   createPlayer: () => TtsPlayerLike;
 }
 
@@ -95,6 +97,7 @@ const defaultDeps: TtsSessionDeps = {
   fetchCache: fetchBatchCache,
   fetchSettings: fetchPlaybackSettings,
   resolveAudio: resolveSegmentAudio,
+  prefetchChapter,
   createPlayer: () => new TtsPlayer(),
 };
 
@@ -202,7 +205,10 @@ export function useTtsSession(options: UseTtsSessionOptions) {
     if (abortRef.current || sessionGenRef.current !== gen) return false;
     if (segments.length === 0) return true; // 空章直接过
 
-    let cacheMap = new Map<string, string>();
+    // 听书适配性：触发后端预合成当前章（章级高优任务，幂等去重）；fire-and-forget 不阻塞播放链
+    try { void d.prefetchChapter(bookId, chapter.chapterId); } catch { /* 预热失败不影响播放 */ }
+
+    let cacheMap = new Map<string, string>;
     try {
       cacheMap = await d.fetchCache(bookId, voice, speed);
     } catch { /* 缓存索引失败 → 全部走实时合成 */ }

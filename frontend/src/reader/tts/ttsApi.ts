@@ -78,6 +78,20 @@ export async function fetchAudioBlob(audioUrl: string): Promise<Blob> {
   return res.blob();
 }
 
+/** 听书适配性：预合成当前章（后端章级高优任务，幂等去重；失败静默不影响播放） */
+export async function prefetchChapter(bookId: string, chapterId: string): Promise<void> {
+  try {
+    const res = await fetch('/api/tts/prefetch-chapter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ bookId, chapterId }),
+    });
+    if (!res.ok) throw new Error(`预合成触发失败(${res.status})`);
+  } catch {
+    /* 预合成失败不影响实时合成兑底，静默 */
+  }
+}
+
 /** 实时合成兜底（段级）。noCache 时后端跳过缓存读写。 */
 export async function synthesizeSegment(opts: {
   input: string;

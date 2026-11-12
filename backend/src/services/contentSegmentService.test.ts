@@ -54,10 +54,11 @@ describe('splitSpeechText', () => {
     expect(out).toEqual(['甲'.repeat(45) + mark, '乙'.repeat(45) + mark]);
   });
 
-  it('短句装配合并：首段独立，其余 ≤normalMax 拼接减少碎片', () => {
+  it('短句装配合并：段0/段1 独立（三档），段2+ 拼接 ≤normalMax 减少碎片', () => {
     const out = splitSpeechText('一句。二句！三句？四句；五句…六句!七句?八句.完');
     expect(out[0]).toBe('一句。');
-    expect(out.length).toBe(2); // 首段 + 剩余短句合并成一段（远小于 normalMax）
+    expect(out[1]).toBe('二句！');
+    expect(out.length).toBe(3); // 段0 + 段1（二档） + 剩余短句合并
     expect(out.join('')).toBe('一句。二句！三句？四句；五句…六句!七句?八句.完');
   });
 
@@ -89,6 +90,18 @@ describe('splitSpeechText', () => {
   it('空文本返回空数组', () => {
     expect(splitSpeechText('')).toEqual([]);
     expect(splitSpeechText('   ')).toEqual([]);
+  });
+
+  it('三档切分：段0=章名行、段1≤64（二档）、段2+≤400（听书空档优化）', () => {
+    const title = '第一章 灰狐（1）';
+    const body = '这是章首的内容句，用于验证三档切分的长度约束。'.repeat(30); // ~1380 字
+    const out = splitSpeechText(`${title}\n${body}`);
+    expect(out[0]).toBe(title); // \n 分隔，章名独立成段
+    expect(out[1].length).toBeLessThanOrEqual(DEFAULT_FIRST_CHUNK_MAX); // 段1 ≤64
+    for (const seg of out.slice(2)) {
+      expect(seg.length).toBeLessThanOrEqual(DEFAULT_NORMAL_CHUNK_MAX); // 段2+ ≤400
+    }
+    expect(out.join('')).toBe(`${title}${body}`); // 无丢字
   });
 });
 
@@ -132,7 +145,7 @@ describe('ensureChapterSegments / ensureBookSegments', () => {
     const second = ensureChapterSegments(db, 'b1', chapter);
     // 复用而非重建：段 id 不变（重建会重新 randomUUID）
     expect(second.map(s => s.id)).toEqual(first.map(s => s.id));
-    expect(second.map(s => s.text)).toEqual(['甲句。', '乙句。丙句。']); // 短句装配合并
+    expect(second.map(s => s.text)).toEqual(['甲句。', '乙句。', '丙句。']); // 三档：段0/段1 独立，段2 起合并
   });
 
   it('文本变化时重建分段', () => {
@@ -142,8 +155,8 @@ describe('ensureChapterSegments / ensureBookSegments', () => {
     ensureChapterSegments(db, 'b1', base);
     const changed = { ...base, normalizedText: '甲句。乙句。新增的句子。' };
     const rebuilt = ensureChapterSegments(db, 'b1', changed);
-    // 短句装配合并 ≤normalMax：乙句与新增句拼一段
-    expect(rebuilt.map(s => s.text)).toEqual(['甲句。', '乙句。新增的句子。']);
+    // 三档：段0=甲句。段1=乙句。段2+=新增句
+    expect(rebuilt.map(s => s.text)).toEqual(['甲句。', '乙句。', '新增的句子。']);
   });
 });
 
