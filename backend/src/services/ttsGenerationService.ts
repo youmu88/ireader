@@ -490,6 +490,13 @@ async function processPersistedSegments(db: any, dataDir: string, job: Generatio
       continue;
     }
     const startedAt = new Date().toISOString();
+    // 段级缓存复查：前端实时合成可能已把该段落缓存（听书预合成与实时合成并行时），命中则跳过避免重复合成
+    const cacheHit = findCache(db, segment.text, job.voice, job.speed, job.userId, source, model || '', apiUrl);
+    if (cacheHit && isCacheValid(cacheHit)) {
+      completed++;
+      db.update(ttsGenerationSegments).set({ status: 'completed', finishedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }).where(sql`id = ${row.id}`).run();
+      continue;
+    }
     // 段失败自动重试 1 次（共最多 2 次尝试）；重试间短暂退避，避免对故障 TTS 服务连击
     const MAX_ATTEMPTS = 2;
     let attempt = row.attemptCount || 0;

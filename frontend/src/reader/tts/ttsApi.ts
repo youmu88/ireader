@@ -78,9 +78,11 @@ export async function fetchAudioBlob(audioUrl: string): Promise<Blob> {
   return res.blob();
 }
 
-/** 听书适配性：预合成当前章（后端章级高优任务，幂等去重；失败静默不影响播放） */
+/** 听书适配性：预合成当前章（后端章级高优任务，幂等去重；失败静默不影响播放）
+ *  延迟 45s 再触发：给前端实时合成留窗口，届时后端缓存过滤会跳过已合成段，避免同段双路抢引擎算力 */
 export async function prefetchChapter(bookId: string, chapterId: string): Promise<void> {
   try {
+    await new Promise((r) => setTimeout(r, 45000));
     const res = await fetch('/api/tts/prefetch-chapter', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
